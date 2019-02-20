@@ -103,6 +103,7 @@ def coverageReport(buildId) {
     // Paths we wish to ignore in the coverage report.
     def installDir = "$WORKSPACE/$buildId"
     def excludePaths = [
+        installDir,
         "/usr/",
     ]
     def excludePathsStr = excludePaths.join(',')
