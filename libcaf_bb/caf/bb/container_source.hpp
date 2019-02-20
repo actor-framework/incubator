@@ -92,7 +92,7 @@ behavior container_source(container_source_type<Container>* self, Container xs,
     },
     [self](const unit_t&) { return self->state.at_end(); });
   // Add the remaining sinks.
-  std::initializer_list<unit_t>{src.ptr()->add_outbound_path(sinks)...};
+  unit(src.ptr()->add_outbound_path(sinks)...);
   return {};
 }
 
