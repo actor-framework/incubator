@@ -215,7 +215,7 @@ if(CAF_ENABLE_ADDRESS_SANITIZER AND NOT WIN32)
           "${CMAKE_CURRENT_BINARY_DIR}"
           "${CMAKE_CURRENT_SOURCE_DIR}/cmake/get_compiler_version.cpp")
   if(NOT CompilationSucceeded)
-    message(FATAL_ERROR "ASAN not available on selected compiler")
+    message(STATUS "ASAN not available on selected compiler")
   else()
     message(STATUS "Enable Address Sanitizer")
     build_string("EXTRA_FLAGS" "-fsanitize=address -fno-omit-frame-pointer")
