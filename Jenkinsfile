@@ -184,12 +184,14 @@ def buildSteps(buildType, cmakeArgs, buildId) {
     echo "build stage: $STAGE_NAME"
     deleteDir()
     echo "get latest CAF master build for $buildId"
-    copyArtifacts([
-        filter: "${buildId}.zip",
-        projectName: 'CAF/actor-framework/master/',
-    ])
+    dir('caf-import') {
+        copyArtifacts([
+            filter: "${buildId}.zip",
+            projectName: 'CAF/actor-framework/master/',
+        ])
+    }
     unzip([
-        zipFile: "${buildId}.zip",
+        zipFile: "caf-import/${buildId}.zip",
         dir: buildId,
         quiet: true,
     ])
