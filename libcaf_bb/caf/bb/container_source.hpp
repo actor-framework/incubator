@@ -45,7 +45,7 @@ struct container_source_state {
 
   // -- properties -------------------------------------------------------------
 
-  size_t remaining() const {
+  size_t remaining() {
     return static_cast<size_t>(std::distance(i, xs.end()));
   }
 
@@ -80,21 +80,21 @@ behavior container_source(container_source_type<Container>* self, Container xs,
   // Spin up stream manager and connect the first sink.
   self->state.init(std::move(xs));
   auto src = self->make_source(
-      std::move(sink),
-      [&](unit_t&) {
-        // nop
-      },
-      [self](unit_t&, downstream<value_type>& out, size_t hint) {
-        auto& st = self->state;
-        auto n = std::min(hint, st.remaining());
-        for (size_t pushed = 0; pushed < n; ++pushed)
-          out.push(std::move(*st.i++));
-      },
-      [self](const unit_t&) { return self->state.at_end(); });
+    std::move(sink),
+    [&](unit_t&) {
+      // nop
+    },
+    [self](unit_t&, downstream<value_type>& out, size_t hint) {
+      auto& st = self->state;
+      auto n = std::min(hint, st.remaining());
+      for (size_t pushed = 0; pushed < n; ++pushed)
+        out.push(std::move(*st.i++));
+    },
+    [self](const unit_t&) { return self->state.at_end(); });
   // Add the remaining sinks.
-  std::initializer_list<unit_t>{src.ptr()->add_outbound_path(sinks)...};
+  unit(src.ptr()->add_outbound_path(sinks)...);
   return {};
-};
+}
 
 /// Convenience function for spawning container sources.
 
