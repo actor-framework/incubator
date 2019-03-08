@@ -104,8 +104,11 @@ behavior stream_reader(stream_source_type<iStream>* self, iStream src_stream,
       auto& st = self->state;
       Policy pol;
       size_t i = 0;
-      while (i < hint && getline(st.stream, st.line))
-        i += pol(st.line, out);
+      while (i < hint && getline(st.stream, st.line)) {
+        auto count = pol(st.line, out);
+        if (count.engaged())
+          i += *count;
+      }
     },
     [self](const unit_t&) { return self->state.at_end(); });
   // Add the remaining sinks.
