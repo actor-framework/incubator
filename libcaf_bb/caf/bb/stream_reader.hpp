@@ -20,10 +20,12 @@
 
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include "caf/behavior.hpp"
 #include "caf/event_based_actor.hpp"
 #include "caf/stateful_actor.hpp"
+#include "caf/string_algorithms.hpp"
 #include "caf/unit.hpp"
 
 namespace caf {
@@ -33,31 +35,37 @@ using file_name = std::string;
 
 /// @relates file-reader
 /// The Policy defines how the file-reader pares a line of the given file.
-template <class Stream_Output>
 class Policy {
 public:
-  using value_type = typename Stream_Output::value_type;
+  using value_type = int;
 
   /// Returns number of produced elements or an error.
-  expected<size_t> operator()(std::string line, downstream<value_type> out) = 0;
+  expected<size_t> operator()(std::string line, downstream<value_type> out) {
+    std::vector<std::string> tokens;
+    split(tokens, line, ' ');
+    for (auto& token : tokens)
+      out.push(std::stoi(token));
+    return tokens.size();
+  }
 };
 
-/// @relates file-reader
-struct file_reader_state {
+/// @relates stream_reader
+template <class iStream>
+struct stream_reader_state {
   // -- constructors, destructors, and assignment operators --------------------
 
-  file_reader_state() : name("file-reader") {
+  stream_reader_state() : name("stream-reader") {
     // nop
   }
 
-  void init(file_name fname) {
-    file.open(fname);
+  void init(iStream&& src_stream) {
+    stream = std::move(src_stream);
   }
 
   // -- properties -------------------------------------------------------------
 
   size_t at_end() const {
-    return file.eof();
+    return stream.eof();
   }
 
   // -- member variables -------------------------------------------------------
@@ -65,22 +73,26 @@ struct file_reader_state {
   /// Gives this actor a useful name in CAF logs.
   const char* name;
 
-  /// File
-  std::ifstream file;
+  /// Stream
+  iStream stream;
 
-  /// Caches the file line we are about to stream.
+  /// Caches the stream line we are about to stream.
   std::string line;
 };
 
-/// Streams the content of given file `fname` line by line using the given
-/// policy to all given stream sinks.
-template <class Policy, class Handle, class... Handles>
-behavior file_reader(stateful_actor<file_reader_state>* self, file_name fname,
-                     Handle sink, Handles... sinks) {
+/// @relates stream_reader
+template <class iStream>
+using stream_source_type = stateful_actor<stream_reader_state<iStream>>;
+
+/// Streams the content of given istream line by line using the given policy to
+/// all given stream sinks.
+template <class Policy, class iStream, class Handle, class... Handles>
+behavior stream_reader(stream_source_type<iStream>* self, iStream src_stream,
+                       Handle sink, Handles... sinks) {
   using value_type = typename Policy::value_type;
-  self->state.init(fname);
+  self->state.init(std::move(src_stream));
   // Fail early if we got nothing to stream.
-  if (!self->state.file.is_open())
+  if (!self->state.at_end())
     return {};
   // Spin up stream manager and connect the first sink.
   auto src = self->make_source(
@@ -91,8 +103,8 @@ behavior file_reader(stateful_actor<file_reader_state>* self, file_name fname,
     [self](unit_t&, downstream<value_type>& out, size_t hint) {
       auto& st = self->state;
       Policy pol;
-      auto i = 0;
-      while (i < hint && getline(st.file, st.line))
+      size_t i = 0;
+      while (i < hint && getline(st.stream, st.line))
         i += pol(st.line, out);
     },
     [self](const unit_t&) { return self->state.at_end(); });

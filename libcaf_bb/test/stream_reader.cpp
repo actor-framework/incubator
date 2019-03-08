@@ -18,7 +18,7 @@
 
 #define CAF_SUITE file_reader
 
-#include "caf/bb/file_reader.hpp"
+#include "caf/bb/stream_reader.hpp"
 
 #include "caf/test/dsl.hpp"
 
