@@ -33,14 +33,14 @@ namespace bb {
 
 using file_name = std::string;
 
-/// @relates file-reader
-/// The Policy defines how the file-reader pares a line of the given file.
-class Policy {
+/// @relates stream_reader
+/// The Policy defines how the stream_reader pares a line of the given file.
+class IntergerPolicy {
 public:
   using value_type = int;
 
   /// Returns number of produced elements or an error.
-  expected<size_t> operator()(std::string line, downstream<value_type> out) {
+  expected<size_t> operator()(std::string& line, downstream<value_type> out) {
     std::vector<std::string> tokens;
     split(tokens, line, ' ');
     for (auto& token : tokens)
