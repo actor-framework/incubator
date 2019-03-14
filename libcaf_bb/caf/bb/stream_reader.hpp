@@ -18,7 +18,8 @@
 
 #pragma once
 
-#include <fstream>
+#include "tokenized_integer_reader.hpp"
+
 #include <string>
 #include <vector>
 
@@ -31,26 +32,8 @@
 namespace caf {
 namespace bb {
 
-using file_name = std::string;
-
 /// @relates stream_reader
-/// The Policy defines how the stream_reader pares a line of the given file.
-class IntergerPolicy {
-public:
-  using value_type = int;
-
-  /// Returns number of produced elements or an error.
-  expected<size_t> operator()(std::string& line, downstream<value_type> out) {
-    std::vector<std::string> tokens;
-    split(tokens, line, ' ');
-    for (auto& token : tokens)
-      out.push(std::stoi(token));
-    return tokens.size();
-  }
-};
-
-/// @relates stream_reader
-template <class iStream>
+template <class InputStream>
 struct stream_reader_state {
   // -- constructors, destructors, and assignment operators --------------------
 
@@ -58,14 +41,14 @@ struct stream_reader_state {
     // nop
   }
 
-  void init(iStream&& src_stream) {
+  void init(InputStream&& src_stream) {
     stream = std::move(src_stream);
   }
 
   // -- properties -------------------------------------------------------------
 
   size_t at_end() const {
-    return stream.eof();
+    return !stream;
   }
 
   // -- member variables -------------------------------------------------------
@@ -74,21 +57,21 @@ struct stream_reader_state {
   const char* name;
 
   /// Stream
-  iStream stream;
+  InputStream stream;
 
   /// Caches the stream line we are about to stream.
   std::string line;
 };
 
 /// @relates stream_reader
-template <class iStream>
-using stream_source_type = stateful_actor<stream_reader_state<iStream>>;
+template <class InputStream>
+using stream_source_type = stateful_actor<stream_reader_state<InputStream>>;
 
-/// Streams the content of given istream line by line using the given policy to
-/// all given stream sinks.
-template <class Policy, class iStream, class Handle, class... Handles>
-behavior stream_reader(stream_source_type<iStream>* self, iStream src_stream,
-                       Handle sink, Handles... sinks) {
+/// Streams the content of given 'src_stream' line by line using the given
+/// policy to all given stream sinks.
+template <class Policy, class InputStream, class Handle, class... Handles>
+behavior stream_reader(stream_source_type<InputStream>* self,
+                       InputStream src_stream, Handle sink, Handles... sinks) {
   using value_type = typename Policy::value_type;
   self->state.init(std::move(src_stream));
   // Fail early if we got nothing to stream.
@@ -105,9 +88,11 @@ behavior stream_reader(stream_source_type<iStream>* self, iStream src_stream,
       Policy pol;
       size_t i = 0;
       while (i < hint && getline(st.stream, st.line)) {
-        auto count = pol(st.line, out);
-        if (count.engaged())
+        if (auto count = pol(st.line, out)) {
           i += *count;
+        } else {
+          self->quit(count.error());
+        }
       }
     },
     [self](const unit_t&) { return self->state.at_end(); });
