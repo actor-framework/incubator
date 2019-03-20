@@ -97,7 +97,7 @@ behavior stream_reader(stream_source_type<InputStream>* self,
     },
     [self](const unit_t&) { return self->state.at_end(); });
   // Add the remaining sinks.
-  std::initializer_list<unit_t>{src.ptr()->add_outbound_path(sinks)...};
+  unit(src.ptr()->add_outbound_path(sinks)...);
   return {};
 }
 
