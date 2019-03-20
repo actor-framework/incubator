@@ -53,7 +53,7 @@ TESTEE(stream_reader_sink) {
       },
       // Consumer
       [=](unit_t&, value_type val) {
-        CAF_MESSAGE(self->name() << val);
+        CAF_MESSAGE(self->name() << " " << val);
         self->state.vec.emplace_back(std::move(val));
       },
       // cleanup and produce result message

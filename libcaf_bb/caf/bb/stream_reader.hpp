@@ -75,7 +75,7 @@ behavior stream_reader(stream_source_type<InputStream>* self,
   using value_type = typename Policy::value_type;
   self->state.init(std::move(src_stream));
   // Fail early if we got nothing to stream.
-  if (!self->state.at_end())
+  if (self->state.at_end())
     return {};
   // Spin up stream manager and connect the first sink.
   auto src = self->make_source(
