@@ -41,14 +41,14 @@ struct stream_reader_state {
     // nop
   }
 
-  void init(InputStream&& src_stream) {
+  void init(std::unique_ptr<InputStream> src_stream) {
     stream = std::move(src_stream);
   }
 
   // -- properties -------------------------------------------------------------
 
   size_t at_end() const {
-    return !stream;
+    return !(*stream);
   }
 
   // -- member variables -------------------------------------------------------
@@ -57,7 +57,8 @@ struct stream_reader_state {
   const char* name;
 
   /// Stream
-  InputStream stream;
+  // TODO: change after having raised the minimum GCC version to 5.
+  std::unique_ptr<InputStream> stream;
 
   /// Caches the stream line we are about to stream.
   std::string line;
@@ -71,7 +72,8 @@ using stream_source_type = stateful_actor<stream_reader_state<InputStream>>;
 /// policy to all given stream sinks.
 template <class Policy, class InputStream, class Handle, class... Handles>
 behavior stream_reader(stream_source_type<InputStream>* self,
-                       InputStream src_stream, Handle sink, Handles... sinks) {
+                       std::unique_ptr<InputStream> src_stream, Handle sink,
+                       Handles... sinks) {
   using value_type = typename Policy::value_type;
   self->state.init(std::move(src_stream));
   // Fail early if we got nothing to stream.
@@ -87,7 +89,7 @@ behavior stream_reader(stream_source_type<InputStream>* self,
       auto& st = self->state;
       Policy pol;
       size_t i = 0;
-      while (i < hint && getline(st.stream, st.line)) {
+      while (i < hint && getline(*(st.stream), st.line)) {
         if (auto count = pol(st.line, out)) {
           i += *count;
         } else {

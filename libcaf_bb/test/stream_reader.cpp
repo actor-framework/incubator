@@ -22,6 +22,7 @@
 
 #include "caf/test/dsl.hpp"
 
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -53,7 +54,6 @@ TESTEE(stream_reader_sink) {
       },
       // Consumer
       [=](unit_t&, value_type val) {
-        CAF_MESSAGE(self->name() << " " << val);
         self->state.vec.emplace_back(std::move(val));
       },
       // cleanup and produce result message
@@ -101,14 +101,15 @@ CAF_TEST(int_policy) {
 CAF_TEST(stream_to_sink) {
   scoped_actor self{sys};
   std::string test_stringvalues = "1 2 3 4 5 6 7 78 1254 1 20\n4 56 78 95";
-  std::istringstream test_stream(test_stringvalues);
+  std::unique_ptr<std::istringstream> ptr_test_stream{
+    new std::istringstream(test_stringvalues)};
   std::vector<value_type> test_container{1,    2, 3,  4, 5,  6,  7, 78,
                                          1254, 1, 20, 4, 56, 78, 95};
   auto sink = sys.spawn(stream_reader_sink);
   auto src
     = sys.spawn(bb::stream_reader<bb::tokenized_integer_reader<value_type>,
                                   std::istringstream, actor>,
-                std::move(test_stream), sink);
+                std::move(ptr_test_stream), sink);
   auto mon = sys.spawn(stream_monitor);
   self->send(mon, join_atom::value, src);
   run();
@@ -119,7 +120,8 @@ CAF_TEST(stream_to_sink) {
 CAF_TEST(stream_to_sinks) {
   scoped_actor self{sys};
   std::string test_stringvalues = "1 2 3 4 5 6 7 78 1254 1 20\n4 56 78 95";
-  std::istringstream test_stream(test_stringvalues);
+  std::unique_ptr<std::istringstream> ptr_test_stream{
+    new std::istringstream(test_stringvalues)};
   std::vector<value_type> test_container{1,    2, 3,  4, 5,  6,  7, 78,
                                          1254, 1, 20, 4, 56, 78, 95};
   auto snk1 = sys.spawn(stream_reader_sink);
@@ -128,7 +130,7 @@ CAF_TEST(stream_to_sinks) {
   auto src
     = sys.spawn(bb::stream_reader<bb::tokenized_integer_reader<value_type>,
                                   std::istringstream, actor, actor, actor>,
-                std::move(test_stream), snk1, snk2, snk3);
+                std::move(ptr_test_stream), snk1, snk2, snk3);
   auto mon = sys.spawn(stream_monitor);
   self->send(mon, join_atom::value, src);
   run();
