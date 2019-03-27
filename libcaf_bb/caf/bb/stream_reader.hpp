@@ -18,8 +18,6 @@
 
 #pragma once
 
-#include "tokenized_integer_reader.hpp"
-
 #include <string>
 #include <vector>
 
@@ -56,11 +54,11 @@ struct stream_reader_state {
   /// Gives this actor a useful name in CAF logs.
   const char* name;
 
-  /// Stream
+  /// Stream we are about to stream
   // TODO: change after having raised the minimum GCC version to 5.
   std::unique_ptr<InputStream> stream;
 
-  /// Caches the stream line we are about to stream.
+  /// Caches the line we are about to parse.
   std::string line;
 };
 

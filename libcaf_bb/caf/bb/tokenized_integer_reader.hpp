@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -26,19 +28,11 @@
 #include "caf/stateful_actor.hpp"
 #include "caf/string_algorithms.hpp"
 #include "caf/unit.hpp"
+#include "caf/pec.hpp"
 
 namespace caf {
 namespace bb {
 
-/// @relates stream_reader
-/// The error codes for the stream_reader policy.
-enum class stream_reader_policy_error : uint8_t { out_of_range = 1 };
-
-error make_error(stream_reader_policy_error x) {
-  return {static_cast<uint8_t>(x), atom("stream")};
-}
-
-/// @relates stream_reader
 /// The Policy defines how the stream_reader pares a line of the given stream to
 /// integers.
 template <class ValueType = int32_t>
@@ -56,11 +50,19 @@ public:
       char* end = nullptr;
       auto value = strtoll(i, &end, 10);
       if (errno == ERANGE) {
-        return make_error(stream_reader_policy_error::out_of_range);
+        if (value < 0) {
+          return make_error(pec::exponent_underflow);
+        }
+        return make_error(pec::exponent_overflow);
       }
+      if (std::numeric_limits<value_type>::min() > value)
+        return make_error(pec::exponent_underflow);
+      if (value > std::numeric_limits<value_type>::max())
+        return make_error(pec::exponent_overflow);
+      if (value == 0 && !(*end == ' ' || *end == '\0'))
+        return make_error(pec::unexpected_character);
       ++count;
       out.push(value);
-      // TODO: check whether value fits into value_type
       // Advance iterator.
       i = end;
       while (isspace(*i))

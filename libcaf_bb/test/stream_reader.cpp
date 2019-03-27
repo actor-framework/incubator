@@ -19,6 +19,7 @@
 #define CAF_SUITE stream_reader
 
 #include "caf/bb/stream_reader.hpp"
+#include "caf/bb/tokenized_integer_reader.hpp"
 
 #include "caf/test/dsl.hpp"
 
@@ -57,7 +58,13 @@ TESTEE(stream_reader_sink) {
         self->state.vec.emplace_back(std::move(val));
       },
       // cleanup and produce result message
-      [=](unit_t&, const error&) { CAF_MESSAGE(self->name() << " is done"); });
+      [=](unit_t&, const error& e) {
+        if (e) {
+          CAF_MESSAGE(self->name() << " " << e);
+        } else {
+          CAF_MESSAGE(self->name() << " is done");
+        }
+      });
   }};
 }
 
@@ -68,6 +75,9 @@ TESTEE_STATE(stream_monitor) {
 TESTEE(stream_monitor) {
   self->set_down_handler([=](const down_msg& dm) {
     CAF_CHECK_EQUAL(dm.source, self->state.streamer);
+    if (dm.reason)
+      CAF_CHECK_EQUAL(dm.reason,
+                      pec::unexpected_character);
   });
 
   return {[=](join_atom, actor streamer) {
@@ -88,27 +98,17 @@ using fixture = test_coordinator_fixture<config>;
 
 CAF_TEST_FIXTURE_SCOPE(stream_reader_tests, fixture)
 
-CAF_TEST(int_policy) {
-  bb::tokenized_integer_reader<value_type> pol;
-  std::deque<value_type> q;
-  std::deque<value_type> test{1, 2, 3, 4};
-  downstream<value_type> out(q);
-  std::string test_line = "1 2 3 4";
-  pol(test_line, out);
-  CAF_CHECK_EQUAL(q, test);
-}
-
 CAF_TEST(stream_to_sink) {
   scoped_actor self{sys};
   std::string test_stringvalues = "1 2 3 4 5 6 7 78 1254 1 20\n4 56 78 95";
-  std::unique_ptr<std::istringstream> ptr_test_stream{
-    new std::istringstream(test_stringvalues)};
+  std::unique_ptr<stream_type> ptr_test_stream{
+    new stream_type(test_stringvalues)};
   std::vector<value_type> test_container{1,    2, 3,  4, 5,  6,  7, 78,
                                          1254, 1, 20, 4, 56, 78, 95};
   auto sink = sys.spawn(stream_reader_sink);
   auto src
     = sys.spawn(bb::stream_reader<bb::tokenized_integer_reader<value_type>,
-                                  std::istringstream, actor>,
+                                  stream_type, actor>,
                 std::move(ptr_test_stream), sink);
   auto mon = sys.spawn(stream_monitor);
   self->send(mon, join_atom::value, src);
@@ -120,8 +120,8 @@ CAF_TEST(stream_to_sink) {
 CAF_TEST(stream_to_sinks) {
   scoped_actor self{sys};
   std::string test_stringvalues = "1 2 3 4 5 6 7 78 1254 1 20\n4 56 78 95";
-  std::unique_ptr<std::istringstream> ptr_test_stream{
-    new std::istringstream(test_stringvalues)};
+  std::unique_ptr<stream_type> ptr_test_stream{
+    new stream_type(test_stringvalues)};
   std::vector<value_type> test_container{1,    2, 3,  4, 5,  6,  7, 78,
                                          1254, 1, 20, 4, 56, 78, 95};
   auto snk1 = sys.spawn(stream_reader_sink);
@@ -129,7 +129,7 @@ CAF_TEST(stream_to_sinks) {
   auto snk3 = sys.spawn(stream_reader_sink);
   auto src
     = sys.spawn(bb::stream_reader<bb::tokenized_integer_reader<value_type>,
-                                  std::istringstream, actor, actor, actor>,
+                                  stream_type, actor, actor, actor>,
                 std::move(ptr_test_stream), snk1, snk2, snk3);
   auto mon = sys.spawn(stream_monitor);
   self->send(mon, join_atom::value, src);
@@ -140,6 +140,21 @@ CAF_TEST(stream_to_sinks) {
                   test_container);
   CAF_CHECK_EQUAL(deref<stream_reader_sink_actor>(snk3).state.vec,
                   test_container);
+}
+
+CAF_TEST(error_stream_to_sink) {
+  scoped_actor self{sys};
+  std::string test_stringvalues = "1 2 3 4 5 6 7 rr 1254";
+  std::unique_ptr<stream_type> ptr_test_stream{
+    new stream_type(test_stringvalues)};
+  auto sink = sys.spawn(stream_reader_sink);
+  auto src
+    = sys.spawn(bb::stream_reader<bb::tokenized_integer_reader<value_type>,
+                                  stream_type, actor>,
+                std::move(ptr_test_stream), sink);
+  auto mon = sys.spawn(stream_monitor);
+  self->send(mon, join_atom::value, src);
+  run();
 }
 
 CAF_TEST_FIXTURE_SCOPE_END()
