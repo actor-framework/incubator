@@ -19,7 +19,7 @@
 #define CAF_SUITE stream_reader
 
 #include "caf/bb/stream_reader.hpp"
-#include "caf/bb/tokenized_integer_reader.hpp"
+#include "caf/policy/tokenized_integer_reader.hpp"
 
 #include "caf/test/dsl.hpp"
 
@@ -36,7 +36,7 @@ using namespace caf;
 namespace {
 
 using stream_type = std::istringstream;
-using value_type = bb::tokenized_integer_reader<>::value_type;
+using value_type = policy::tokenized_integer_reader<>::value_type;
 
 TESTEE_SETUP();
 
@@ -53,7 +53,7 @@ TESTEE(stream_reader_sink) {
       [=](unit_t&) {
         // nop
       },
-      // Consumer
+      // consume values
       [=](unit_t&, value_type val) {
         self->state.vec.emplace_back(std::move(val));
       },
@@ -76,8 +76,7 @@ TESTEE(stream_monitor) {
   self->set_down_handler([=](const down_msg& dm) {
     CAF_CHECK_EQUAL(dm.source, self->state.streamer);
     if (dm.reason)
-      CAF_CHECK_EQUAL(dm.reason,
-                      pec::unexpected_character);
+      CAF_CHECK_EQUAL(dm.reason, pec::unexpected_character);
   });
 
   return {[=](join_atom, actor streamer) {
@@ -88,7 +87,7 @@ TESTEE(stream_monitor) {
 
 struct config : actor_system_config {
   config() {
-    add_message_type<value_type>("value_type");
+    // nop
   }
 };
 
@@ -107,7 +106,7 @@ CAF_TEST(stream_to_sink) {
                                          1254, 1, 20, 4, 56, 78, 95};
   auto sink = sys.spawn(stream_reader_sink);
   auto src
-    = sys.spawn(bb::stream_reader<bb::tokenized_integer_reader<value_type>,
+    = sys.spawn(bb::stream_reader<policy::tokenized_integer_reader<value_type>,
                                   stream_type, actor>,
                 std::move(ptr_test_stream), sink);
   auto mon = sys.spawn(stream_monitor);
@@ -128,7 +127,7 @@ CAF_TEST(stream_to_sinks) {
   auto snk2 = sys.spawn(stream_reader_sink);
   auto snk3 = sys.spawn(stream_reader_sink);
   auto src
-    = sys.spawn(bb::stream_reader<bb::tokenized_integer_reader<value_type>,
+    = sys.spawn(bb::stream_reader<policy::tokenized_integer_reader<value_type>,
                                   stream_type, actor, actor, actor>,
                 std::move(ptr_test_stream), snk1, snk2, snk3);
   auto mon = sys.spawn(stream_monitor);
@@ -149,7 +148,7 @@ CAF_TEST(error_stream_to_sink) {
     new stream_type(test_stringvalues)};
   auto sink = sys.spawn(stream_reader_sink);
   auto src
-    = sys.spawn(bb::stream_reader<bb::tokenized_integer_reader<value_type>,
+    = sys.spawn(bb::stream_reader<policy::tokenized_integer_reader<value_type>,
                                   stream_type, actor>,
                 std::move(ptr_test_stream), sink);
   auto mon = sys.spawn(stream_monitor);

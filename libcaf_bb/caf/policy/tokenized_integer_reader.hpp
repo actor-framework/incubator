@@ -25,22 +25,22 @@
 
 #include "caf/behavior.hpp"
 #include "caf/event_based_actor.hpp"
+#include "caf/pec.hpp"
 #include "caf/stateful_actor.hpp"
 #include "caf/string_algorithms.hpp"
 #include "caf/unit.hpp"
-#include "caf/pec.hpp"
 
 namespace caf {
-namespace bb {
+namespace policy {
 
-/// The Policy defines how the stream_reader pares a line of the given stream to
-/// integers.
+/// Parses whitespace-separated integers from input strings to 'ValueType' and
+/// pushes generated integers to a downstream.
 template <class ValueType = int32_t>
 class tokenized_integer_reader {
 public:
   using value_type = ValueType;
 
-  /// Returns number of produced elements or an error.
+  /// Returns the number of parsed integers or an error.
   expected<size_t> operator()(const std::string& line,
                               downstream<value_type> out) {
     size_t count = 0;
@@ -72,5 +72,5 @@ public:
   }
 };
 
-} // namespace bb
+} // namespace policy
 } // namespace caf

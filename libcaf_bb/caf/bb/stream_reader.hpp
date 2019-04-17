@@ -39,14 +39,14 @@ struct stream_reader_state {
     // nop
   }
 
-  void init(std::unique_ptr<InputStream> src_stream) {
-    stream = std::move(src_stream);
+  void init(std::unique_ptr<InputStream> input) {
+    this->input = std::move(input);
   }
 
   // -- properties -------------------------------------------------------------
 
   size_t at_end() const {
-    return !(*stream);
+    return !(*input);
   }
 
   // -- member variables -------------------------------------------------------
@@ -54,9 +54,9 @@ struct stream_reader_state {
   /// Gives this actor a useful name in CAF logs.
   const char* name;
 
-  /// Stream we are about to stream
+  /// Input stream we are about to stream
   // TODO: change after having raised the minimum GCC version to 5.
-  std::unique_ptr<InputStream> stream;
+  std::unique_ptr<InputStream> input;
 
   /// Caches the line we are about to parse.
   std::string line;
@@ -69,25 +69,24 @@ using stream_source_type = stateful_actor<stream_reader_state<InputStream>>;
 /// Streams the content of given 'src_stream' line by line using the given
 /// policy to all given stream sinks.
 template <class Policy, class InputStream, class Handle, class... Handles>
-behavior stream_reader(stream_source_type<InputStream>* self,
-                       std::unique_ptr<InputStream> src_stream, Handle sink,
-                       Handles... sinks) {
+void stream_reader(stream_source_type<InputStream>* self,
+                   std::unique_ptr<InputStream> input, Handle sink,
+                   Handles... sinks) {
   using value_type = typename Policy::value_type;
-  self->state.init(std::move(src_stream));
+  self->state.init(std::move(input));
   // Fail early if we got nothing to stream.
   if (self->state.at_end())
-    return {};
+    self->quit();
   // Spin up stream manager and connect the first sink.
   auto src = self->make_source(
     std::move(sink),
-    [&](unit_t&) {
+    [&](Policy& pol) {
       // nop
     },
-    [self](unit_t&, downstream<value_type>& out, size_t hint) {
+    [self](Policy& pol, downstream<value_type>& out, size_t hint) {
       auto& st = self->state;
-      Policy pol;
       size_t i = 0;
-      while (i < hint && getline(*(st.stream), st.line)) {
+      while (i < hint && getline(*(st.input), st.line)) {
         if (auto count = pol(st.line, out)) {
           i += *count;
         } else {
@@ -95,10 +94,10 @@ behavior stream_reader(stream_source_type<InputStream>* self,
         }
       }
     },
-    [self](const unit_t&) { return self->state.at_end(); });
+    [self](const Policy& pol) { return self->state.at_end(); });
   // Add the remaining sinks.
   unit(src.ptr()->add_outbound_path(sinks)...);
-  return {};
+  self->quit();
 }
 
 } // namespace bb

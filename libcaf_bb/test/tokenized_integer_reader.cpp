@@ -18,7 +18,7 @@
 
 #define CAF_SUITE tokenized_integer_reader
 
-#include "caf/bb/tokenized_integer_reader.hpp"
+#include "caf/policy/tokenized_integer_reader.hpp"
 
 #include "caf/test/dsl.hpp"
 
@@ -29,7 +29,7 @@ using namespace caf;
 
 namespace {
 
-using value_type = bb::tokenized_integer_reader<>::value_type;
+using value_type = policy::tokenized_integer_reader<>::value_type;
 
 struct fixture {};
 
@@ -38,7 +38,7 @@ struct fixture {};
 CAF_TEST_FIXTURE_SCOPE(tokenized_integer_reader_tests, fixture)
 
 CAF_TEST(int_policy) {
-  bb::tokenized_integer_reader<value_type> pol;
+  policy::tokenized_integer_reader<value_type> pol;
   std::deque<value_type> q;
   std::deque<value_type> test{1, 2, 3, 4};
   downstream<value_type> out(q);
@@ -48,13 +48,12 @@ CAF_TEST(int_policy) {
 }
 
 CAF_TEST(error_int_policy) {
-  bb::tokenized_integer_reader<value_type> pol;
+  policy::tokenized_integer_reader<value_type> pol;
   std::deque<value_type> q;
   downstream<value_type> out(q);
   std::string test_line = "1 r 3 4";
   auto count = pol(test_line, out);
-  CAF_CHECK_EQUAL(count.error(),
-                  pec::unexpected_character);
+  CAF_CHECK_EQUAL(count.error(), pec::unexpected_character);
   std::string test_line2 = "1 -2247483648 3 4";
   count = pol(test_line2, out);
   CAF_CHECK_EQUAL(count.error(), pec::exponent_underflow);
