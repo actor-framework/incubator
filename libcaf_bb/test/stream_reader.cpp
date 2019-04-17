@@ -78,7 +78,6 @@ TESTEE(stream_monitor) {
     if (dm.reason)
       CAF_CHECK_EQUAL(dm.reason, pec::unexpected_character);
   });
-
   return {[=](join_atom, actor streamer) {
     self->state.streamer = streamer;
     self->monitor(streamer);
