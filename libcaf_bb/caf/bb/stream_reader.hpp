@@ -54,7 +54,7 @@ struct stream_reader_state {
   /// Gives this actor a useful name in CAF logs.
   const char* name;
 
-  /// Input stream we are about to stream
+  /// User-defined data source for reading ASCII or UTF-8 input line by line.
   // TODO: change after having raised the minimum GCC version to 5.
   std::unique_ptr<InputStream> input;
 
@@ -76,7 +76,7 @@ void stream_reader(stream_source_type<InputStream>* self,
   self->state.init(std::move(input));
   // Fail early if we got nothing to stream.
   if (self->state.at_end())
-    self->quit();
+    return;
   // Spin up stream manager and connect the first sink.
   auto src = self->make_source(
     std::move(sink),
@@ -97,7 +97,6 @@ void stream_reader(stream_source_type<InputStream>* self,
     [self](const Policy& pol) { return self->state.at_end(); });
   // Add the remaining sinks.
   unit(src.ptr()->add_outbound_path(sinks)...);
-  self->quit();
 }
 
 } // namespace bb
