@@ -80,7 +80,7 @@ void stream_reader(stream_source_type<InputStream>* self,
   // Spin up stream manager and connect the first sink.
   auto src = self->make_source(
     std::move(sink),
-    [&](Policy& pol) {
+    [&](Policy&) {
       // nop
     },
     [self](Policy& pol, downstream<value_type>& out, size_t hint) {
@@ -94,7 +94,7 @@ void stream_reader(stream_source_type<InputStream>* self,
         }
       }
     },
-    [self](const Policy& pol) { return self->state.at_end(); });
+    [self](const Policy&) { return self->state.at_end(); });
   // Add the remaining sinks.
   unit(src.ptr()->add_outbound_path(sinks)...);
 }
