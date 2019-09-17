@@ -120,6 +120,15 @@ endif()
 
 find_package(CAF COMPONENTS core io test)
 
+if(NOT CAF_NO_QUIC)
+  message(STATUS "QUICLY_ROOT_DIR: ${QUICLY_ROOT_DIR}")
+  find_package(Quicly REQUIRED)
+  set(PICOTLS_ROOT_DIR "${QUICLY_ROOT_DIR}/deps/picotls")
+  message(STATUS "PICOTLS_ROOT_DIR: ${PICOTLS_ROOT_DIR}")
+  find_package(PicoTLS REQUIRED)
+  find_package(OpenSSL REQUIRED)
+endif()
+
 # -- compiler setup ------------------------------------------------------------
 
 # Check for g++ >= 4.8 or clang++ > = 3.2.
@@ -330,6 +339,12 @@ endif()
 
 include_directories("${CAF_INCLUDE_DIRS}")
 
+if(NOT CAF_NO_QUIC)
+  include_directories("${QUICLY_INCLUDE_DIRS}")
+  include_directories("${PICOTLS_INCLUDE_DIRS}")
+  include_directories("${OPENSSL_INCLUDE_DIR}")
+endif()
+
 macro(add_caf_lib name header_only)
   string(TOUPPER ${name} upper_name)
   set(full_name "libcaf_${name}")
@@ -373,6 +388,12 @@ if(NOT CAF_NO_UNIT_TESTS)
                         ${CAF_EXTRA_LDFLAGS}
                         ${CAF_LIBRARIES}
                         ${PTHREAD_LIBRARIES})
+  if(NOT CAF_NO_QUIC)
+    target_link_libraries(incubator-test
+                          ${QUICLY_LIBRARIES}
+                          ${PICOTLS_LIBRARIES}
+                          ${OPENSSL_LIBRARIES})
+  endif()
   add_custom_target(all_unit_tests)
   add_dependencies(incubator-test all_unit_tests)
   # enumerate all test suites.
