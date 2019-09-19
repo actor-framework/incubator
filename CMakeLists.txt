@@ -341,7 +341,9 @@ include_directories("${CAF_INCLUDE_DIRS}")
 
 if(NOT CAF_NO_QUIC)
   include_directories("${QUICLY_INCLUDE_DIRS}")
+  message(STATUS "QUICLY_INCLUDE_DIRS: ${QUICLY_INCLUDE_DIRS}") 
   include_directories("${PICOTLS_INCLUDE_DIRS}")
+  message(STATUS "PICOTLS_INCLUDE_DIRS: ${PICOTLS_INCLUDE_DIRS}")
   include_directories("${OPENSSL_INCLUDE_DIR}")
 endif()
 
@@ -389,6 +391,7 @@ if(NOT CAF_NO_UNIT_TESTS)
                         ${CAF_LIBRARIES}
                         ${PTHREAD_LIBRARIES})
   if(NOT CAF_NO_QUIC)
+    message(STATUS "linking against quic")
     target_link_libraries(incubator-test
                           ${QUICLY_LIBRARIES}
                           ${PICOTLS_LIBRARIES}

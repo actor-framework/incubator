@@ -23,6 +23,8 @@ set(LIBCAF_NET_SRCS
   src/udp_datagram_socket.cpp
   src/tcp_stream_socket.cpp
   src/tcp_accept_socket.cpp
+  src/quicly_util.cpp
+  src/quicly_cb.cpp
 )
 
 add_custom_target(libcaf_net)
