@@ -224,7 +224,7 @@ public:
             &ctx_, reinterpret_cast<sockaddr*>(&sa), salen, packet.cid.src,
             packet.cid.dest.encrypted);
           CAF_ASSERT(rp != nullptr);
-          if (send_one(rp) == -1)
+          if (::detail::send_one(handle_.id, rp) == -1)
             CAF_LOG_ERROR("send_one failed");
           break;
         }
@@ -268,7 +268,7 @@ public:
           quicly_datagram_t* dgram = quicly_send_stateless_reset(
             &ctx_, reinterpret_cast<sockaddr*>(&sa), salen,
             packet.cid.dest.encrypted.base);
-          if (send_one(dgram) == -1)
+          if (::detail::send_one(handle_.id, dgram) == -1)
             CAF_LOG_ERROR("could not send stateless reset");
         }
       }
@@ -386,20 +386,6 @@ private:
     CAF_LOG_DEBUG("send failed" << CAF_ARG(err));
     dispatcher_.handle_error(err);
     return false;*/
-  }
-
-  int send_one(quicly_datagram_t* p) {
-    msghdr mess = {};
-    iovec vec = {};
-    memset(&mess, 0, sizeof(mess));
-    mess.msg_name = &p->sa;
-    mess.msg_namelen = p->salen;
-    vec.iov_base = p->data.base;
-    vec.iov_len = p->data.len;
-    mess.msg_iov = &vec;
-    mess.msg_iovlen = 1;
-    auto ret = sendmsg(handle_.id, &mess, 0);
-    return static_cast<int>(ret);
   }
 
   int on_stream_open(struct st_quicly_stream_open_t*,

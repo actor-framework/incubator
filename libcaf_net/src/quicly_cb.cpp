@@ -59,7 +59,7 @@ void on_closed_by_peer(quicly_closed_by_peer_t*, quicly_conn_t*, int err,
   }
 }
 
-/*int send_one(int fd, quicly_datagram_t* p) {
+int send_one(int fd, quicly_datagram_t* p) {
   msghdr mess = {};
   iovec vec = {};
   memset(&mess, 0, sizeof(mess));
@@ -71,7 +71,7 @@ void on_closed_by_peer(quicly_closed_by_peer_t*, quicly_conn_t*, int err,
   mess.msg_iovlen = 1;
   auto ret = sendmsg(fd, &mess, 0);
   return static_cast<int>(ret);
-}*/
+}
 
 int send_pending(int fd, quicly_conn_t* conn) {
   quicly_datagram_t* packets[16];
