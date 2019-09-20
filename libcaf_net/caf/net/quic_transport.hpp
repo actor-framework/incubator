@@ -58,8 +58,29 @@ extern "C" {
 namespace caf {
 namespace net {
 
-struct streambuf : public quicly_streambuf_t {
-  std::shared_ptr<std::vector<byte>> buf;
+struct received_data {
+  received_data(detail::quicly_conn_ptr conn, span<byte> data)
+    : conn(std::move(conn)) {
+    received.resize(data.size());
+    received.insert(received.begin(), data.begin(), data.end());
+  }
+
+  detail::quicly_conn_ptr conn;
+  std::vector<byte> received;
+};
+
+template <class Factory>
+struct quicly_stream_open : public quicly_stream_open_t {
+  quic_transport<Factory>* transport;
+};
+
+template <class Factory>
+struct quicly_closed_by_peer : public quicly_closed_by_peer_t {
+  quic_transport<Factory>* transport;
+};
+
+struct transport_streambuf : public quicly_streambuf_t {
+  std::shared_ptr<std::vector<received_data>> buf;
 };
 
 /// Implements a quic transport policy that manages a datagram socket.
@@ -80,47 +101,56 @@ public:
   quic_transport(udp_datagram_socket handle, factory_type factory)
     : dispatcher_(std::move(factory)),
       handle_(handle),
+      read_buf_(std::make_shared<std::vector<received_data>>()),
       max_consecutive_reads_(0),
       read_threshold_(1024),
       collected_(0),
       max_(1024),
       rd_flag_(receive_policy_flag::exactly),
-      stream_callbacks{quicly_streambuf_destroy, quicly_streambuf_egress_shift,
-                       quicly_streambuf_egress_emit, ::detail::on_stop_sending,
-                       // on_receive()
-                       [](quicly_stream_t* stream, size_t off, const void* src,
-                          size_t len) -> int {
-                         if (auto ret = quicly_streambuf_ingress_receive(stream,
-                                                                         off,
-                                                                         src,
-                                                                         len))
-                           return ret;
-                         ptls_iovec_t input;
-                         if ((input = quicly_streambuf_ingress_get(stream))
-                               .len) {
-                           CAF_LOG_TRACE("quicly received: "
-                                         << CAF_ARG(input.len) << "bytes");
-                           auto buf = reinterpret_cast<streambuf*>(stream->data)
-                                        ->buf;
-                           auto received_data = make_span(input.base,
-                                                          input.len);
-                           buf->insert(buf->end(), received_data.begin(),
-                                       received_data.end());
-                           quicly_streambuf_ingress_shift(stream, input.len);
-                         }
-                         return 0;
-                       },
-                       // on_receive_reset()
-                       [](quicly_stream_t* stream, int err) -> int {
-                         CAF_LOG_TRACE(
-                           "quicly_received reset-stream: "
-                           << CAF_ARG(QUICLY_ERROR_GET_ERROR_CODE(err)));
-                         quicly_close(stream->conn,
-                                      QUICLY_ERROR_FROM_APPLICATION_ERROR_CODE(
-                                        0),
-                                      "received reset");
-                       }} {
-    // nop
+      stream_callbacks{
+        quicly_streambuf_destroy, quicly_streambuf_egress_shift,
+        quicly_streambuf_egress_emit, ::detail::on_stop_sending,
+        // on_receive()
+        [](quicly_stream_t* stream, size_t off, const void* src,
+           size_t len) -> int {
+          if (auto ret = quicly_streambuf_ingress_receive(stream, off, src,
+                                                          len))
+            return ret;
+          ptls_iovec_t input;
+          if ((input = quicly_streambuf_ingress_get(stream)).len) {
+            CAF_LOG_TRACE("quicly received: " << CAF_ARG(input.len) << "bytes");
+            auto buf = reinterpret_cast<transport_streambuf*>(stream->data)
+                         ->buf;
+            buf->emplace_back(std::shared_ptr<quicly_conn_t>(stream->conn,
+                                                             [](
+                                                               quicly_conn_t*) {
+                                                             }),
+                              as_writable_bytes(
+                                make_span(input.base, input.len)));
+            quicly_streambuf_ingress_shift(stream, input.len);
+          }
+          return 0;
+        },
+        // on_receive_reset()
+        [](quicly_stream_t* stream, int err) -> int {
+          CAF_LOG_TRACE("quicly_received reset-stream: "
+                        << CAF_ARG(QUICLY_ERROR_GET_ERROR_CODE(err)));
+          return quicly_close(stream->conn,
+                              QUICLY_ERROR_FROM_APPLICATION_ERROR_CODE(0),
+                              "received reset");
+        }} {
+    stream_open_.transport = this;
+    stream_open_.cb = [](quicly_stream_open_t* self,
+                         quicly_stream_t* stream) -> int {
+      auto tmp = static_cast<quicly_stream_open<factory_type>*>(self);
+      return tmp->transport->on_stream_open(self, stream);
+    };
+    closed_by_peer_.transport = this;
+    closed_by_peer_.cb = [](quicly_closed_by_peer_t* self, quicly_conn_t* conn,
+                            int, uint64_t, const char*, size_t) {
+      auto tmp = static_cast<quicly_closed_by_peer<factory_type>*>(self);
+      tmp->transport->on_closed_by_peer(conn);
+    };
   }
 
   // -- public member functions ------------------------------------------------
@@ -138,34 +168,9 @@ public:
     tlsctx_.save_ticket = &save_ticket_;
     ctx_ = quicly_spec_context;
     ctx_.tls = &tlsctx_;
-    ctx_.stream_open = [&](st_quicly_stream_open_t*,
-                           st_quicly_stream_t* stream) -> int {
-      CAF_LOG_TRACE("new quic stream opened");
-      if (auto ret = quicly_streambuf_create(stream, sizeof(streambuf)))
-        return ret;
-      stream->callbacks = &stream_callbacks;
-      reinterpret_cast<streambuf*>(stream->data)->buf = read_buf_;
-      return 0;
-    };
-    ctx_.closed_by_peer = [](quicly_closed_by_peer_t*, quicly_conn_t*, int err,
-                             uint64_t frame_type, const char* reason, size_t) {
-      CAF_LOG_ERROR_IF(QUICLY_ERROR_IS_QUIC_TRANSPORT(err),
-                       "transport close: code=0x"
-                         << std::hex
-                         << CAF_ARG(QUICLY_ERROR_GET_ERROR_CODE(err))
-                         << " frame=" << CAF_ARG(frame_type)
-                         << " reason=" << CAF_ARG(reason));
-      CAF_LOG_ERROR_IF(QUICLY_ERROR_IS_QUIC_APPLICATION(err),
-                       "application close: code=0x"
-                         << std::hex
-                         << CAF_ARG(QUICLY_ERROR_GET_ERROR_CODE(err))
-                         << " reason=" << CAF_ARG(reason));
-      CAF_LOG_ERROR_IF(err == QUICLY_ERROR_RECEIVED_STATELESS_RESET,
-                       "stateless reset");
-      CAF_LOG_ERROR_IF(err != QUICLY_ERROR_RECEIVED_STATELESS_RESET,
-                       "unexpected close code: " << CAF_ARG(err));
-    };
-    setup_session_cache(ctx_.tls);
+    ctx_.stream_open = &stream_open_;
+    ctx_.closed_by_peer = &closed_by_peer_;
+    detail::setup_session_cache(ctx_.tls);
     quicly_amend_ptls_context(ctx_.tls);
     std::string path_to_certs;
     char* path = getenv("QUICLY_CERTS");
@@ -175,8 +180,9 @@ public:
       // try to load default certs
       path_to_certs = "/home/jakob/code/quicly/t/assets/";
     }
-    load_certificate_chain(ctx_.tls, (path_to_certs + "server.crt").c_str());
-    load_private_key(ctx_.tls, (path_to_certs + "server.key").c_str());
+    detail::load_certificate_chain(ctx_.tls,
+                                   (path_to_certs + "server.crt").c_str());
+    detail::load_private_key(ctx_.tls, (path_to_certs + "server.key").c_str());
     key_exchanges_[0] = &ptls_openssl_secp256r1;
     char random_key[17];
     tlsctx_.random_bytes(random_key, sizeof(random_key) - 1);
@@ -191,56 +197,63 @@ public:
   template <class Parent>
   bool handle_read_event(Parent& parent) {
     CAF_LOG_TRACE(CAF_ARG(handle_.id));
-    auto ret = read(handle_, make_span(*read_buf_));
+    uint8_t buf[4096];
+    auto ret = read(handle_, as_writable_bytes(make_span(buf, sizeof(buf))));
     if (auto err = get_if<sec>(&ret)) {
-      CAF_LOG_DEBUG("read failed" << CAF_ARG(err));
-      dispatcher_.handle_error(err);
+      CAF_LOG_DEBUG("read failed" << CAF_ARG(*err));
+      dispatcher_.handle_error(*err);
       return false;
     }
-    auto read_pair = get_if<std::pair<size_t, ip_endpoint>>(ret);
+    auto read_pair = get<std::pair<size_t, ip_endpoint>>(ret);
+    auto read_res = read_pair.first;
+    auto ep = read_pair.second;
+    sockaddr_storage sa = {};
+    detail::convert(ep, sa);
+    socklen_t salen = (sa.ss_family = AF_INET) ? sizeof(sockaddr_in)
+                                               : sizeof(sockaddr_in6);
     size_t off = 0;
-    while (off != ret) {
+    while (off != read_res) {
       quicly_decoded_packet_t packet;
-      size_t packet_len = quicly_decode_packet(&ctx_, &packet,
-                                               read_buf_->data() + off,
-                                               read_pair.first - off);
-      if (packet_len == SIZE_MAX)
+      size_t plen = 0;
+      if (quicly_decode_packet(&ctx_, &packet, buf + off, read_pair.first - off)
+          == SIZE_MAX)
         break;
       if (QUICLY_PACKET_IS_LONG_HEADER(packet.octets.base[0])) {
         if (packet.version != QUICLY_PROTOCOL_VERSION) {
-          auto sa = detail::convert(read_pair.second);
           quicly_datagram_t* rp = quicly_send_version_negotiation(
-            &ctx_, &sa,
-            (sa.sin_family = AF_INET) ? sizeof(sockaddr_in)
-                                      : sizeof(sockaddr_in6),
-            packet.cid.src, packet.cid.dest.encrypted);
-          assert(rp != nullptr);
+            &ctx_, reinterpret_cast<sockaddr*>(&sa), salen, packet.cid.src,
+            packet.cid.dest.encrypted);
+          CAF_ASSERT(rp != nullptr);
           if (send_one(rp) == -1)
-            CAF_LOG_ERROR("sendmsg failed");
+            CAF_LOG_ERROR("send_one failed");
           break;
         }
       }
-
-      dispatcher_.handle_data(parent, );
-
-      auto it = std::find_if(newbs_.begin(), newbs_.end(),
-                             [&](const std::pair<quicly_conn_t*, actor>& pair) {
-                               return quicly_is_destination(pair.first, &sa,
-                                                            salen_, &packet);
-                             });
-
-      // was connection already accepted?
-      if (it != newbs_.end()) {
-        auto conn = (it->first);
-        quicly_receive(conn, &packet);
+      auto conn_it = std::
+        find_if(known_conns_.begin(), known_conns_.end(),
+                [&](const detail::quicly_conn_ptr& conn) {
+                  return quicly_is_destination(conn.get(),
+                                               reinterpret_cast<sockaddr*>(&sa),
+                                               salen, &packet);
+                });
+      if (conn_it != known_conns_.end()) {
+        // already accepted connection
+        quicly_receive(conn_it->get(), &packet);
+        for (auto& data : *read_buf_)
+          dispatcher_.handle_data(parent, make_span(data.received), data.conn);
+        read_buf_->clear();
       } else if (QUICLY_PACKET_IS_LONG_HEADER(packet.octets.base[0])) {
-        /* new connection */
+        // new connection
+        quicly_address_token_plaintext_t* token = nullptr;
         quicly_conn_t* conn = nullptr;
-        int ret = quicly_accept(&conn, &ctx_, &sa, mess.msg_namelen, &packet,
-                                packet.token, &next_cid_, nullptr);
-        if (ret == 0 && conn) {
+        auto accept_res = quicly_accept(&conn, &ctx_,
+                                        reinterpret_cast<sockaddr*>(&sa), salen,
+                                        &packet, token, &next_cid_, nullptr);
+        if (accept_res == 0 && conn) {
+          auto conn_ptr = detail::make_quicly_conn_ptr(conn);
+          known_conns_.insert(conn_ptr);
           ++next_cid_.master_id;
-          accept_connection(conn, base);
+          dispatcher_.add_new_worker(parent, node_id{}, conn_ptr);
         } else {
           CAF_LOG_ERROR("could not accept new connection");
         }
@@ -252,35 +265,14 @@ public:
          * contain a non-authenticating CID, ... */
         if (packet.cid.dest.plaintext.node_id == 0
             && packet.cid.dest.plaintext.thread_id == 0) {
-          quicly_datagram_t* dgram = quicly_send_stateless_reset(&ctx_, &sa,
-                                                                 salen_,
-                                                                 packet.cid.dest
-                                                                   .encrypted
-                                                                   .base);
-          if (send_one(fd_, dgram) == -1)
+          quicly_datagram_t* dgram = quicly_send_stateless_reset(
+            &ctx_, reinterpret_cast<sockaddr*>(&sa), salen,
+            packet.cid.dest.encrypted.base);
+          if (send_one(dgram) == -1)
             CAF_LOG_ERROR("could not send stateless reset");
         }
       }
       off += plen;
-    }
-    for (auto& pair : newbs_) {
-      if (send_pending(fd_, pair.first)) {
-        CAF_LOG_ERROR("send_pending failed");
-      }
-    }
-
-    auto ret = read(handle_, make_span(read_buf_));
-    if (auto res = get_if<std::pair<size_t, detail::quicly_conn_ptr>>(&ret)) {
-      auto num_bytes = res->first;
-      auto id = res->second;
-      collected_ += (num_bytes > 0) ? static_cast<size_t>(num_bytes) : 0;
-      dispatcher_.handle_data(parent, make_span(read_buf_), std::move(id));
-      prepare_next_read();
-    } else {
-      auto err = get<sec>(ret);
-      CAF_LOG_DEBUG("send failed" << CAF_ARG(err));
-      dispatcher_.handle_error(err);
-      return false;
     }
     return true;
   }
@@ -312,7 +304,6 @@ public:
     dispatcher_.timeout(decorator, value, id);
   }
 
-  template <class Parent>
   void set_timeout(uint64_t timeout_id, detail::quicly_conn_ptr ep) {
     dispatcher_.set_timeout(timeout_id, ep);
   }
@@ -356,7 +347,6 @@ public:
   void configure_read(receive_policy::config cfg) {
     rd_flag_ = cfg.first;
     max_ = cfg.second;
-    prepare_next_read();
   }
 
   template <class Parent>
@@ -370,22 +360,23 @@ public:
   }
 
   struct packet {
-    quicly_stream_t destination;
+    detail::quicly_conn_ptr destination;
     std::vector<byte> bytes;
 
-    packet(quicly_stream_t destination, std::vector<byte> bytes)
-      : destination(destination), bytes(std::move(bytes)) {
+    packet(detail::quicly_conn_ptr destination, std::vector<byte> bytes)
+      : destination(std::move(destination)), bytes(std::move(bytes)) {
       // nop
     }
   };
 
 private:
   bool write_some() {
-    if (packet_queue_.empty())
+    return false;
+    /*if (packet_queue_.empty())
       return false;
     auto& next_packet = packet_queue_.front();
-    auto send_res = write(handle_, make_span(next_packet.bytes),
-                          next_packet.destination->);
+    auto send_res = write(handle_, as_bytes(make_span(next_packet.bytes)),
+                          next_packet.destination);
     if (auto num_bytes = get_if<size_t>(&send_res)) {
       CAF_LOG_DEBUG(CAF_ARG(handle_.id) << CAF_ARG(*num_bytes));
       packet_queue_.pop_front();
@@ -394,7 +385,7 @@ private:
     auto err = get<sec>(send_res);
     CAF_LOG_DEBUG("send failed" << CAF_ARG(err));
     dispatcher_.handle_error(err);
-    return false;
+    return false;*/
   }
 
   int send_one(quicly_datagram_t* p) {
@@ -411,10 +402,26 @@ private:
     return static_cast<int>(ret);
   }
 
+  int on_stream_open(struct st_quicly_stream_open_t*,
+                     struct st_quicly_stream_t* stream) {
+    CAF_LOG_TRACE("new quic stream opened");
+    if (auto ret = quicly_streambuf_create(stream, sizeof(transport_streambuf)))
+      return ret;
+    stream->callbacks = &stream_callbacks;
+    reinterpret_cast<transport_streambuf*>(stream->data)->buf = read_buf_;
+    return 0;
+  }
+
+  void on_closed_by_peer(quicly_conn_t* conn) {
+    known_conns_.erase(
+      std::shared_ptr<quicly_conn_t>(conn, [](quicly_conn_t*) {}));
+    // TODO: delete worker that handles this connection.
+  }
+
   dispatcher_type dispatcher_;
   udp_datagram_socket handle_;
 
-  std::shared_ptr<std::vector<byte>> read_buf_;
+  std::shared_ptr<std::vector<received_data>> read_buf_;
   std::deque<packet> packet_queue_;
 
   size_t max_consecutive_reads_;
@@ -433,6 +440,10 @@ private:
   quicly_context_t ctx_;
 
   quicly_stream_callbacks_t stream_callbacks;
+  std::set<detail::quicly_conn_ptr> known_conns_;
+
+  quicly_stream_open<factory_type> stream_open_;
+  quicly_closed_by_peer<factory_type> closed_by_peer_;
 }; // namespace net
 
 } // namespace net

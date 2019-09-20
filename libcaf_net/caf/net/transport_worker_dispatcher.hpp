@@ -64,7 +64,7 @@ public:
   }
 
   template <class Parent>
-  void handle_data(Parent& parent, span<byte> data, id_type id) {
+  void handle_data(Parent& parent, span<const byte> data, id_type id) {
     auto it = workers_by_id_.find(id);
     if (it == workers_by_id_.end()) {
       // TODO: where to get node_id from here?
