@@ -209,8 +209,6 @@ public:
     auto ep = read_pair.second;
     sockaddr_storage sa = {};
     detail::convert(ep, sa);
-    socklen_t salen = (sa.ss_family = AF_INET) ? sizeof(sockaddr_in)
-                                               : sizeof(sockaddr_in6);
     size_t off = 0;
     while (off != read_res) {
       quicly_decoded_packet_t packet;
@@ -220,9 +218,11 @@ public:
         break;
       if (QUICLY_PACKET_IS_LONG_HEADER(packet.octets.base[0])) {
         if (packet.version != QUICLY_PROTOCOL_VERSION) {
-          quicly_datagram_t* rp = quicly_send_version_negotiation(
-            &ctx_, reinterpret_cast<sockaddr*>(&sa), salen, packet.cid.src,
-            packet.cid.dest.encrypted);
+          auto rp = quicly_send_version_negotiation(&ctx_,
+                                                    reinterpret_cast<sockaddr*>(
+                                                      &sa),
+                                                    packet.cid.src, nullptr,
+                                                    packet.cid.dest.encrypted);
           CAF_ASSERT(rp != nullptr);
           if (::detail::send_one(handle_.id, rp) == -1)
             CAF_LOG_ERROR("send_one failed");
@@ -232,13 +232,14 @@ public:
       auto conn_it = std::
         find_if(known_conns_.begin(), known_conns_.end(),
                 [&](const detail::quicly_conn_ptr& conn) {
-                  return quicly_is_destination(conn.get(),
+                  return quicly_is_destination(conn.get(), nullptr,
                                                reinterpret_cast<sockaddr*>(&sa),
-                                               salen, &packet);
+                                               &packet);
                 });
       if (conn_it != known_conns_.end()) {
         // already accepted connection
-        quicly_receive(conn_it->get(), &packet);
+        quicly_receive(conn_it->get(), nullptr,
+                       reinterpret_cast<sockaddr*>(&sa), &packet);
         for (auto& data : *read_buf_)
           dispatcher_.handle_data(parent, make_span(data.received), data.conn);
         read_buf_->clear();
@@ -246,9 +247,9 @@ public:
         // new connection
         quicly_address_token_plaintext_t* token = nullptr;
         quicly_conn_t* conn = nullptr;
-        auto accept_res = quicly_accept(&conn, &ctx_,
-                                        reinterpret_cast<sockaddr*>(&sa), salen,
-                                        &packet, token, &next_cid_, nullptr);
+        int accept_res = quicly_accept(&conn, &ctx_, nullptr,
+                                       reinterpret_cast<sockaddr*>(&sa),
+                                       &packet, token, &next_cid_, nullptr);
         if (accept_res == 0 && conn) {
           auto conn_ptr = detail::make_quicly_conn_ptr(conn);
           known_conns_.insert(conn_ptr);
@@ -265,9 +266,12 @@ public:
          * contain a non-authenticating CID, ... */
         if (packet.cid.dest.plaintext.node_id == 0
             && packet.cid.dest.plaintext.thread_id == 0) {
-          quicly_datagram_t* dgram = quicly_send_stateless_reset(
-            &ctx_, reinterpret_cast<sockaddr*>(&sa), salen,
-            packet.cid.dest.encrypted.base);
+          auto dgram = quicly_send_stateless_reset(&ctx_,
+                                                   reinterpret_cast<sockaddr*>(
+                                                     &sa),
+                                                   nullptr,
+                                                   packet.cid.dest.encrypted
+                                                     .base);
           if (::detail::send_one(handle_.id, dgram) == -1)
             CAF_LOG_ERROR("could not send stateless reset");
         }

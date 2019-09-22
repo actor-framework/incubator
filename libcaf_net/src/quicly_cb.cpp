@@ -63,8 +63,8 @@ int send_one(int fd, quicly_datagram_t* p) {
   msghdr mess = {};
   iovec vec = {};
   memset(&mess, 0, sizeof(mess));
-  mess.msg_name = &p->sa;
-  mess.msg_namelen = p->salen;
+  mess.msg_name = &p->dest.sa;
+  mess.msg_namelen = quicly_get_socklen(&p->dest.sa);
   vec.iov_base = p->data.base;
   vec.iov_len = p->data.len;
   mess.msg_iov = &vec;
