@@ -107,7 +107,7 @@ public:
       rd_flag_(receive_policy_flag::exactly),
       stream_callbacks{
         quicly_streambuf_destroy, quicly_streambuf_egress_shift,
-        quicly_streambuf_egress_emit, ::detail::on_stop_sending,
+        quicly_streambuf_egress_emit, detail::on_stop_sending,
         // on_receive()
         [](quicly_stream_t* stream, size_t off, const void* src,
            size_t len) -> int {
@@ -219,8 +219,9 @@ public:
                                                     packet.cid.src, nullptr,
                                                     packet.cid.dest.encrypted);
           CAF_ASSERT(rp != nullptr);
-          if (::detail::send_one(handle_.id, rp) == -1)
-            CAF_LOG_ERROR("send_one failed");
+          auto send_res = detail::send_quicly_datagram(handle_, rp);
+          if (auto err = get_if<sec>(&send_res))
+            CAF_LOG_ERROR("send_quicly_datagram failed" << CAF_ARG(*err));
           break;
         }
       }
@@ -250,6 +251,11 @@ public:
           auto conn_ptr = detail::make_quicly_conn_ptr(conn);
           ++next_cid_.master_id;
           dispatcher_.add_new_worker(parent, node_id{}, id);
+          quicly_stream_t* stream = nullptr;
+          if (quicly_open_stream(conn, &stream, 0)) {
+            CAF_LOG_ERROR("quicly_open_stream failed");
+          }
+          known_streams_.emplace(id, stream);
           known_conns_.emplace(id, std::move(conn_ptr));
         } else {
           CAF_LOG_ERROR("could not accept new connection");
@@ -268,8 +274,10 @@ public:
                                                    nullptr,
                                                    packet.cid.dest.encrypted
                                                      .base);
-          if (::detail::send_one(handle_.id, dgram) == -1)
-            CAF_LOG_ERROR("could not send stateless reset");
+          auto send_res = detail::send_quicly_datagram(handle_, dgram);
+          if (auto err = get_if<sec>(&send_res))
+            CAF_LOG_ERROR("send_quicly_datagram failed" << CAF_ARG(*err));
+          break;
         }
       }
       off += plen;
@@ -371,20 +379,40 @@ public:
 
 private:
   bool write_some() {
-    /*if (packet_queue_.empty())
+    if (packet_queue_.empty())
       return false;
     auto& next_packet = packet_queue_.front();
-    auto send_res = write(handle_, as_bytes(make_span(next_packet.bytes)),
-                          known_conns_.at(next_packet.id).get());
-    if (auto num_bytes = get_if<size_t>(&send_res)) {
-      CAF_LOG_DEBUG(CAF_ARG(handle_.id) << CAF_ARG(*num_bytes));
-      packet_queue_.pop_front();
-      return true;
+    auto id = next_packet.id;
+    auto& bytes = next_packet.bytes;
+    auto buf = bytes.data();
+    auto len = bytes.size();
+    // stream should be opened by now. If not move check back here!
+    auto conn_it = known_conns_.find(id);
+    if (conn_it == known_conns_.end()) {
+      CAF_LOG_ERROR("connection not found.");
+      dispatcher_.handle_error(sec::runtime_error);
+      return false;
     }
-    auto err = get<sec>(send_res);
-    CAF_LOG_DEBUG("send failed" << CAF_ARG(err));
-    dispatcher_.handle_error(err);
-    return false;*/
+    auto stream_it = known_streams_.find(id);
+    if (stream_it == known_streams_.end()) {
+      // stream was not opened. Something went wrong!
+      CAF_LOG_ERROR("stream was not opened before");
+      dispatcher_.handle_error(sec::runtime_error);
+      return false;
+    }
+    auto stream = stream_it->second;
+    auto conn = conn_it->second;
+    // write data to stream
+    quicly_streambuf_egress_write(stream, buf, len);
+    if (detail::send_pending_datagrams(handle_, conn) != sec::none) {
+      CAF_LOG_ERROR("send failed"
+                    << CAF_ARG(last_socket_error_as_string()));
+      dispatcher_.handle_error(sec::socket_operation_failed);
+      return false;
+    }
+    // set_timeout(parent);
+    packet_queue_.pop_front();
+    return true;
   }
 
   int on_stream_open(struct st_quicly_stream_open_t*,
@@ -425,6 +453,8 @@ private:
 
   quicly_stream_callbacks_t stream_callbacks;
   std::unordered_map<size_t, detail::quicly_conn_ptr> known_conns_;
+  // TODO: wrapping in smart_ptr is not the right thing.. But what is?
+  std::unordered_map<size_t, quicly_stream_t*> known_streams_;
 
   quicly_stream_open<factory_type> stream_open_;
   quicly_closed_by_peer<factory_type> closed_by_peer_;
