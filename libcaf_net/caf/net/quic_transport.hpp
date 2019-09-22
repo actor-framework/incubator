@@ -59,13 +59,12 @@ namespace caf {
 namespace net {
 
 struct received_data {
-  received_data(detail::quicly_conn_ptr conn, span<byte> data)
-    : conn(std::move(conn)) {
+  received_data(size_t id, span<byte> data) : id(id) {
     received.resize(data.size());
     received.insert(received.begin(), data.begin(), data.end());
   }
 
-  detail::quicly_conn_ptr conn;
+  size_t id;
   std::vector<byte> received;
 };
 
@@ -93,8 +92,7 @@ public:
 
   using application_type = typename Factory::application_type;
 
-  using dispatcher_type = transport_worker_dispatcher<factory_type,
-                                                      detail::quicly_conn_ptr>;
+  using dispatcher_type = transport_worker_dispatcher<factory_type, size_t>;
 
   // -- constructors, destructors, and assignment operators --------------------
 
@@ -121,12 +119,9 @@ public:
             CAF_LOG_TRACE("quicly received: " << CAF_ARG(input.len) << "bytes");
             auto buf = reinterpret_cast<transport_streambuf*>(stream->data)
                          ->buf;
-            buf->emplace_back(std::shared_ptr<quicly_conn_t>(stream->conn,
-                                                             [](
-                                                               quicly_conn_t*) {
-                                                             }),
-                              as_writable_bytes(
-                                make_span(input.base, input.len)));
+            auto id = detail::convert(stream->conn);
+            buf->emplace_back(id, as_writable_bytes(
+                                    make_span(input.base, input.len)));
             quicly_streambuf_ingress_shift(stream, input.len);
           }
           return 0;
@@ -231,17 +226,17 @@ public:
       }
       auto conn_it = std::
         find_if(known_conns_.begin(), known_conns_.end(),
-                [&](const detail::quicly_conn_ptr& conn) {
-                  return quicly_is_destination(conn.get(), nullptr,
+                [&](const std::pair<size_t, detail::quicly_conn_ptr>& p) {
+                  return quicly_is_destination(p.second.get(), nullptr,
                                                reinterpret_cast<sockaddr*>(&sa),
                                                &packet);
                 });
       if (conn_it != known_conns_.end()) {
         // already accepted connection
-        quicly_receive(conn_it->get(), nullptr,
+        quicly_receive(conn_it->second.get(), nullptr,
                        reinterpret_cast<sockaddr*>(&sa), &packet);
         for (auto& data : *read_buf_)
-          dispatcher_.handle_data(parent, make_span(data.received), data.conn);
+          dispatcher_.handle_data(parent, make_span(data.received), data.id);
         read_buf_->clear();
       } else if (QUICLY_PACKET_IS_LONG_HEADER(packet.octets.base[0])) {
         // new connection
@@ -251,10 +246,11 @@ public:
                                        reinterpret_cast<sockaddr*>(&sa),
                                        &packet, token, &next_cid_, nullptr);
         if (accept_res == 0 && conn) {
+          auto id = detail::convert(conn);
           auto conn_ptr = detail::make_quicly_conn_ptr(conn);
-          known_conns_.insert(conn_ptr);
           ++next_cid_.master_id;
-          dispatcher_.add_new_worker(parent, node_id{}, conn_ptr);
+          dispatcher_.add_new_worker(parent, node_id{}, id);
+          known_conns_.emplace(id, std::move(conn_ptr));
         } else {
           CAF_LOG_ERROR("could not accept new connection");
         }
@@ -355,32 +351,31 @@ public:
 
   template <class Parent>
   void write_packet(Parent&, span<const byte> header, span<const byte> payload,
-                    detail::quicly_conn_ptr conn) {
+                    size_t id) {
     std::vector<byte> buf;
     buf.reserve(header.size() + payload.size());
     buf.insert(buf.end(), header.begin(), header.end());
     buf.insert(buf.end(), payload.begin(), payload.end());
-    packet_queue_.emplace_back(std::move(conn), std::move(buf));
+    packet_queue_.emplace_back(id, std::move(buf));
   }
 
   struct packet {
-    detail::quicly_conn_ptr destination;
+    size_t id;
     std::vector<byte> bytes;
 
-    packet(detail::quicly_conn_ptr destination, std::vector<byte> bytes)
-      : destination(std::move(destination)), bytes(std::move(bytes)) {
+    packet(size_t id, std::vector<byte> bytes)
+      : id(id), bytes(std::move(bytes)) {
       // nop
     }
   };
 
 private:
   bool write_some() {
-    return false;
     /*if (packet_queue_.empty())
       return false;
     auto& next_packet = packet_queue_.front();
     auto send_res = write(handle_, as_bytes(make_span(next_packet.bytes)),
-                          next_packet.destination);
+                          known_conns_.at(next_packet.id).get());
     if (auto num_bytes = get_if<size_t>(&send_res)) {
       CAF_LOG_DEBUG(CAF_ARG(handle_.id) << CAF_ARG(*num_bytes));
       packet_queue_.pop_front();
@@ -403,8 +398,7 @@ private:
   }
 
   void on_closed_by_peer(quicly_conn_t* conn) {
-    known_conns_.erase(
-      std::shared_ptr<quicly_conn_t>(conn, [](quicly_conn_t*) {}));
+    known_conns_.erase(detail::convert(conn));
     // TODO: delete worker that handles this connection.
   }
 
@@ -430,7 +424,7 @@ private:
   quicly_context_t ctx_;
 
   quicly_stream_callbacks_t stream_callbacks;
-  std::set<detail::quicly_conn_ptr> known_conns_;
+  std::unordered_map<size_t, detail::quicly_conn_ptr> known_conns_;
 
   quicly_stream_open<factory_type> stream_open_;
   quicly_closed_by_peer<factory_type> closed_by_peer_;

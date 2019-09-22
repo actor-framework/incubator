@@ -69,6 +69,14 @@ namespace detail {
 
 using quicly_conn_ptr = std::shared_ptr<quicly_conn_t>;
 
+size_t convert(quicly_conn_t* ptr) {
+  return reinterpret_cast<size_t>(ptr);
+}
+
+size_t convert(quicly_conn_ptr ptr) {
+  return convert(ptr.get());
+}
+
 quicly_conn_ptr make_quicly_conn_ptr(quicly_conn_t* conn) {
   return std::shared_ptr<quicly_conn_t>(conn, quicly_free);
 }
