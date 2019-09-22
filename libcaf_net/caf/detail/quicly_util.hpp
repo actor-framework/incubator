@@ -77,16 +77,17 @@ size_t convert(quicly_conn_ptr ptr);
 quicly_conn_ptr make_quicly_conn_ptr(quicly_conn_t* conn);
 void load_certificate_chain(ptls_context_t* ctx, const char* fn);
 void load_private_key(ptls_context_t* ctx, const char* fn);
-//int util_save_ticket_cb(ptls_save_ticket_t* _self, ptls_t*, ptls_iovec_t src);
-//void setup_session_file(ptls_context_t* ctx,
+// int util_save_ticket_cb(ptls_save_ticket_t* _self, ptls_t*, ptls_iovec_t
+// src); void setup_session_file(ptls_context_t* ctx,
 //                        ptls_handshake_properties_t* hsprop, const char* fn);
-//void setup_verify_certificate(ptls_context_t* ctx);
-//void setup_esni(ptls_context_t* ctx, const char* esni_fn,
+// void setup_verify_certificate(ptls_context_t* ctx);
+// void setup_esni(ptls_context_t* ctx, const char* esni_fn,
 //                ptls_key_exchange_context_t** key_exchanges);
-//int encrypt_ticket_cb(ptls_encrypt_ticket_t* _self, ptls_t* tls, int is_encrypt,
+// int encrypt_ticket_cb(ptls_encrypt_ticket_t* _self, ptls_t* tls, int
+// is_encrypt,
 //                      ptls_buffer_t* dst, ptls_iovec_t src);
 void setup_session_cache(ptls_context_t* ctx);
-//ptls_iovec_t resolve_esni_keys(const char* server_name);
+// ptls_iovec_t resolve_esni_keys(const char* server_name);
 
 } // namespace detail
 } // namespace caf

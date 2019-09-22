@@ -76,7 +76,7 @@ Exit:
 // -- quicly send functions ----------------------------------------------------
 
 variant<size_t, sec> send_quicly_datagram(net::udp_datagram_socket handle,
-                         quicly_datagram_t* datagram) {
+                                          quicly_datagram_t* datagram) {
   msghdr mess = {};
   iovec vec = {};
   mess.msg_name = &datagram->dest.sa;

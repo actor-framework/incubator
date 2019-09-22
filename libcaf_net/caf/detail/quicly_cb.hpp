@@ -39,7 +39,8 @@ int save_ticket_cb(ptls_save_ticket_t* _self, ptls_t* tls, ptls_iovec_t src);
 
 // -- quicly send functions ----------------------------------------------------
 
-variant<size_t, sec> send_quicly_datagram(net::udp_datagram_socket handle, quicly_datagram_t* p);
+variant<size_t, sec> send_quicly_datagram(net::udp_datagram_socket handle,
+                                          quicly_datagram_t* p);
 sec send_pending_datagrams(net::udp_datagram_socket handle,
                            detail::quicly_conn_ptr conn);
 

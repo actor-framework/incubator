@@ -405,8 +405,7 @@ private:
     // write data to stream
     quicly_streambuf_egress_write(stream, buf, len);
     if (detail::send_pending_datagrams(handle_, conn) != sec::none) {
-      CAF_LOG_ERROR("send failed"
-                    << CAF_ARG(last_socket_error_as_string()));
+      CAF_LOG_ERROR("send failed" << CAF_ARG(last_socket_error_as_string()));
       dispatcher_.handle_error(sec::socket_operation_failed);
       return false;
     }
