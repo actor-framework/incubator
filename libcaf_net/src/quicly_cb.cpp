@@ -16,86 +16,26 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#pragma once
-
 #include "caf/detail/quicly_cb.hpp"
 
 #include <fstream>
 #include <iostream>
 #include <quicly.h>
 
+#include "caf/sec.hpp"
+
+namespace caf {
 namespace detail {
 
 constexpr char ticket_file[] = "ticket.bin";
+
+// -- callbacks ----------------------------------------------------------------
 
 int on_stop_sending(quicly_stream_t*, int err) {
   assert(QUICLY_ERROR_IS_QUIC_APPLICATION(err));
   std::cerr << "received STOP_SENDING: " << QUICLY_ERROR_GET_ERROR_CODE(err)
             << std::endl;
   return 0;
-}
-
-int on_receive_reset(quicly_stream_t*, int err) {
-  assert(QUICLY_ERROR_IS_QUIC_APPLICATION(err));
-  std::cerr << "received RESET_STREAM: " << QUICLY_ERROR_GET_ERROR_CODE(err)
-            << std::endl;
-  return 0;
-}
-
-void on_closed_by_peer(quicly_closed_by_peer_t*, quicly_conn_t*, int err,
-                       uint64_t frame_type, const char* reason, size_t) {
-  if (QUICLY_ERROR_IS_QUIC_TRANSPORT(err)) {
-    std::cerr << "transport close:code=0x" << std::hex
-              << QUICLY_ERROR_GET_ERROR_CODE(err) << ";frame=" << frame_type
-              << ";reason=" << reason << std::endl;
-  } else if (QUICLY_ERROR_IS_QUIC_APPLICATION(err)) {
-    std::cerr << "application close:code=0x" << std::hex
-              << QUICLY_ERROR_GET_ERROR_CODE(err) << ";reason=" << reason
-              << std::endl;
-  } else if (err == QUICLY_ERROR_RECEIVED_STATELESS_RESET) {
-    std::cerr << "stateless reset" << std::endl;
-  } else {
-    std::cerr << "unexpected close:code=" << err << std::endl;
-  }
-}
-
-int send_one(int fd, quicly_datagram_t* p) {
-  msghdr mess = {};
-  iovec vec = {};
-  memset(&mess, 0, sizeof(mess));
-  mess.msg_name = &p->dest.sa;
-  mess.msg_namelen = quicly_get_socklen(&p->dest.sa);
-  vec.iov_base = p->data.base;
-  vec.iov_len = p->data.len;
-  mess.msg_iov = &vec;
-  mess.msg_iovlen = 1;
-  auto ret = sendmsg(fd, &mess, 0);
-  return static_cast<int>(ret);
-}
-
-int send_pending(int fd, quicly_conn_t* conn) {
-  quicly_datagram_t* packets[16];
-  size_t num_packets, i;
-  int ret;
-
-  do {
-    num_packets = sizeof(packets) / sizeof(packets[0]);
-    if ((ret = quicly_send(conn, packets, &num_packets)) == 0) {
-      for (i = 0; i != num_packets; ++i) {
-        if ((send_one(fd, packets[i])) == -1) {
-          perror("sendmsg failed");
-        } else {
-        }
-        ret = 0;
-        quicly_packet_allocator_t* pa = quicly_get_context(conn)
-                                          ->packet_allocator;
-        pa->free_packet(pa, packets[i]);
-      }
-    } else {
-    }
-  } while (ret == 0 && num_packets == sizeof(packets) / sizeof(packets[0]));
-
-  return ret;
 }
 
 int save_ticket_cb(ptls_save_ticket_t*, ptls_t* tls, ptls_iovec_t src) {
@@ -133,6 +73,45 @@ Exit:
   return 0;
 }
 
+// -- quicly send functions ----------------------------------------------------
+
+variant<size_t, sec> send_quicly_datagram(net::udp_datagram_socket handle,
+                         quicly_datagram_t* datagram) {
+  msghdr mess = {};
+  iovec vec = {};
+  mess.msg_name = &datagram->dest.sa;
+  mess.msg_namelen = quicly_get_socklen(&datagram->dest.sa);
+  vec.iov_base = datagram->data.base;
+  vec.iov_len = datagram->data.len;
+  mess.msg_iov = &vec;
+  mess.msg_iovlen = 1;
+  auto ret = sendmsg(handle.id, &mess, 0);
+  return net::check_udp_datagram_socket_io_res(ret);
+}
+
+sec send_pending_datagrams(net::udp_datagram_socket handle,
+                           detail::quicly_conn_ptr conn) {
+  quicly_datagram_t* packets[16];
+  size_t num_packets;
+  int ret = 0;
+  do {
+    num_packets = sizeof(packets) / sizeof(packets[0]);
+    if ((ret = quicly_send(conn.get(), packets, &num_packets)) == 0) {
+      for (size_t i = 0; i < num_packets; ++i) {
+        auto res = send_quicly_datagram(handle, packets[i]);
+        if (auto err = get_if<sec>(&res)) {
+          return *err; // how to make error from this sec?
+        }
+        auto pa = quicly_get_context(conn.get())->packet_allocator;
+        pa->free_packet(pa, packets[i]);
+      }
+    }
+  } while (ret == 0 && num_packets == sizeof(packets) / sizeof(packets[0]));
+  return sec::none;
+}
+
+// -- ticket management --------------------------------------------------------
+
 void load_ticket(ptls_handshake_properties_t* hs_properties,
                  quicly_transport_parameters_t* resumed_transport_params) {
   using namespace std;
@@ -164,3 +143,4 @@ Exit:;
 }
 
 } // namespace detail
+} // namespace caf
