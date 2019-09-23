@@ -53,7 +53,6 @@ extern "C" {
 #include "caf/span.hpp"
 #include "caf/variant.hpp"
 #include "picotls/openssl.h"
-#include "picotls/pembase64.h"
 
 namespace caf {
 namespace net {
@@ -208,7 +207,8 @@ public:
     while (off != read_res) {
       quicly_decoded_packet_t packet;
       size_t plen = 0;
-      if (quicly_decode_packet(&ctx_, &packet, buf + off, read_pair.first - off)
+      if ((plen = quicly_decode_packet(&ctx_, &packet, buf + off,
+                                       read_pair.first - off))
           == SIZE_MAX)
         break;
       if (QUICLY_PACKET_IS_LONG_HEADER(packet.octets.base[0])) {
@@ -256,7 +256,8 @@ public:
             CAF_LOG_ERROR("quicly_open_stream failed");
           }
           known_streams_.emplace(id, stream);
-          known_conns_.emplace(id, std::move(conn_ptr));
+          known_conns_.emplace(id, conn_ptr);
+          detail::send_pending_datagrams(handle_, conn_ptr);
         } else {
           CAF_LOG_ERROR("could not accept new connection");
         }

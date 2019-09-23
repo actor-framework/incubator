@@ -16,7 +16,7 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#define CAF_SUITE datagram_transport
+#define CAF_SUITE quic_transport
 
 #include "caf/net/quic_transport.hpp"
 
@@ -25,12 +25,13 @@
 #include "host_fixture.hpp"
 
 #include "caf/byte.hpp"
+#include "caf/detail/quicly_cb.hpp"
+#include "caf/detail/quicly_util.hpp"
 #include "caf/make_actor.hpp"
 #include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/endpoint_manager.hpp"
 #include "caf/net/make_endpoint_manager.hpp"
 #include "caf/net/multiplexer.hpp"
-#include "caf/net/socket_guard.hpp"
 #include "caf/net/udp_datagram_socket.hpp"
 #include "caf/serializer_impl.hpp"
 #include "caf/span.hpp"
@@ -43,10 +44,26 @@ namespace {
 constexpr string_view hello_manager = "hello manager!";
 
 struct fixture : test_coordinator_fixture<>, host_fixture {
-  fixture() {
+  fixture() : buf{std::make_shared<std::vector<byte>>()} {
     mpx = std::make_shared<multiplexer>();
     if (auto err = mpx->init())
       CAF_FAIL("mpx->init failed: " << sys.render(err));
+    CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);
+    if (auto err = parse("127.0.0.1:0", recv_ep))
+      CAF_FAIL("parse returned an error: " << err);
+    auto send_pair = unbox(make_udp_datagram_socket(recv_ep));
+    send_sock = send_pair.first;
+    auto receive_pair = unbox(make_udp_datagram_socket(recv_ep));
+    recv_sock = receive_pair.first;
+    recv_ep.port(ntohs(receive_pair.second));
+    CAF_MESSAGE("sending data to: " << to_string(recv_ep));
+    if (auto err = nonblocking(recv_sock, true))
+      CAF_LOG_ERROR("nonblocking returned an error: " << err);
+  }
+
+  ~fixture() {
+    close(send_sock);
+    close(recv_sock);
   }
 
   bool handle_io_event() override {
@@ -54,8 +71,103 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     return mpx->poll_once(false);
   }
 
+  void quic_setup() {
+    memset(&tlsctx, 0, sizeof(ptls_context_t));
+    tlsctx.random_bytes = ptls_openssl_random_bytes;
+    tlsctx.get_time = &ptls_get_time;
+    tlsctx.key_exchanges = key_exchanges;
+    tlsctx.cipher_suites = ptls_openssl_cipher_suites;
+    tlsctx.require_dhe_on_psk = 1;
+    tlsctx.save_ticket = &save_ticket;
+
+    ctx = quicly_spec_context;
+    ctx.tls = &tlsctx;
+    ctx.stream_open = &stream_open;
+    ctx.closed_by_peer = &closed_by_peer;
+
+    detail::setup_session_cache(ctx.tls);
+    quicly_amend_ptls_context(ctx.tls);
+
+    key_exchanges[0] = &ptls_openssl_secp256r1;
+    detail::load_ticket(&hs_properties, &resumed_transport_params);
+  }
+
+  void quic_connect() {
+    sockaddr_storage sa = {};
+    detail::convert(recv_ep, sa);
+    quicly_conn_t* conn = nullptr;
+    if (quicly_connect(&conn, &ctx, "localhost",
+                       reinterpret_cast<sockaddr*>(&sa), nullptr, &next_cid,
+                       resumption_token, &hs_properties,
+                       &resumed_transport_params))
+      CAF_FAIL("quicly_connect failed");
+    conn_ptr = detail::make_quicly_conn_ptr(conn);
+    ++next_cid.master_id;
+    detail::send_pending_datagrams(send_sock, conn_ptr);
+    run();
+    detail::send_pending_datagrams(send_sock, conn_ptr);
+  }
+
+  /// this function receives data and passes it to the quic stack.
+  /// Needed for accepting incoming packets.
+  void quic_receive() {
+    sockaddr_storage sa = {};
+    std::vector<byte> buf(4096);
+    auto read_res = read(send_sock, make_span(buf));
+    if (auto err = get_if<sec>(&read_res))
+      CAF_FAIL("read returned an error: " << err);
+    auto read_pair = get<std::pair<size_t, ip_endpoint>>(read_res);
+    auto received_bytes = read_pair.first;
+    auto ep = read_pair.second;
+    detail::convert(ep, sa);
+    ssize_t off = 0;
+    while (off != received_bytes) {
+      quicly_decoded_packet_t packet;
+      auto packet_length = quicly_decode_packet(&ctx, &packet,
+                                                reinterpret_cast<uint8_t*>(
+                                                  buf.data())
+                                                  + off,
+                                                received_bytes - off);
+      if (packet_length == SIZE_MAX)
+        break;
+      quicly_receive(conn_ptr.get(), nullptr, reinterpret_cast<sockaddr*>(&sa),
+                     &packet);
+      off += packet_length;
+    }
+  }
+
+  void quic_send(std::string msg) {
+  }
+
+  void quicly_test_send(string_view msg) {
+    quic_setup();
+    quic_connect();
+    // quic_send(msg);
+  }
+
   multiplexer_ptr mpx;
-};
+  std::shared_ptr<std::vector<byte>> buf;
+  ip_endpoint recv_ep;
+  udp_datagram_socket send_sock;
+  udp_datagram_socket recv_sock;
+
+  // -- quicly state -----------------------------------------------------------
+  bool connected;
+  char* cid_key;
+  quicly_cid_plaintext_t next_cid;
+  ptls_handshake_properties_t hs_properties;
+  quicly_transport_parameters_t resumed_transport_params;
+  quicly_closed_by_peer_t closed_by_peer;
+  quicly_stream_open_t stream_open;
+  ptls_save_ticket_t save_ticket;
+  ptls_key_exchange_algorithm_t* key_exchanges[128];
+  ptls_context_t tlsctx;
+  quicly_context_t ctx;
+  transport_streambuf streambuf;
+  ptls_iovec_t resumption_token;
+  detail::quicly_conn_ptr conn_ptr;
+  quicly_stream_t* stream;
+}; // namespace
 
 class dummy_application {
 public:
@@ -133,36 +245,20 @@ private:
   std::shared_ptr<std::vector<byte>> buf_;
 };
 
+using transport_type = quic_transport<dummy_application_factory>;
+
 } // namespace
 
-CAF_TEST_FIXTURE_SCOPE(datagram_transport_tests, fixture)
+CAF_TEST_FIXTURE_SCOPE(quic_transport_tests, fixture)
 
 CAF_TEST(receive) {
-  using transport_type = quic_transport<dummy_application_factory>;
-  auto buf = std::make_shared<std::vector<byte>>();
-  CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);
-  ip_endpoint ep;
-  if (auto err = parse("127.0.0.1:0", ep))
-    CAF_FAIL("parse returned an error: " << err);
-  auto send_pair = unbox(make_udp_datagram_socket(ep));
-  auto send_socket = send_pair.first;
-  auto receive_pair = unbox(make_udp_datagram_socket(ep));
-  auto receive_socket = receive_pair.first;
-  ep.port(ntohs(receive_pair.second));
-  CAF_MESSAGE("sending data to: " << to_string(ep));
-  auto send_guard = make_socket_guard(send_socket);
-  auto receive_guard = make_socket_guard(receive_socket);
-  if (auto err = nonblocking(receive_socket, true))
-    CAF_FAIL("nonblocking() returned an error: " << err);
-  transport_type transport{receive_socket, dummy_application_factory{buf}};
+  transport_type transport{recv_sock, dummy_application_factory{buf}};
   transport.configure_read(net::receive_policy::exactly(hello_manager.size()));
   auto mgr = make_endpoint_manager(mpx, sys, transport);
   CAF_CHECK_EQUAL(mgr->init(), none);
   mpx->handle_updates();
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 2u);
-  CAF_CHECK_EQUAL(write(send_socket, as_bytes(make_span(hello_manager)), ep),
-                  hello_manager.size());
-  CAF_MESSAGE("wrote " << hello_manager.size() << " bytes.");
+  quicly_test_send(hello_manager);
   run();
   CAF_CHECK_EQUAL(string_view(reinterpret_cast<char*>(buf->data()),
                               buf->size()),
