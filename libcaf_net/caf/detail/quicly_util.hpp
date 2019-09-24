@@ -71,6 +71,25 @@ struct st_util_session_cache_t {
   ptls_iovec_t data;
 };
 
+struct session_info {
+  ptls_iovec_t tls_ticket;
+  ptls_iovec_t address_token;
+};
+
+struct address_token_aead {
+  address_token_aead() : address_token_aead(nullptr, nullptr) {
+    // nop
+  }
+
+  address_token_aead(ptls_aead_context_t* enc, ptls_aead_context_t* dec)
+    : enc{enc}, dec{dec} {
+    // nop
+  }
+
+  const ptls_aead_context_t* enc;
+  const ptls_aead_context_t* dec;
+};
+
 size_t convert(quicly_conn_t* ptr);
 size_t convert(quicly_conn_ptr ptr);
 
@@ -88,6 +107,10 @@ void load_private_key(ptls_context_t* ctx, const char* fn);
 //                      ptls_buffer_t* dst, ptls_iovec_t src);
 void setup_session_cache(ptls_context_t* ctx);
 // ptls_iovec_t resolve_esni_keys(const char* server_name);
+int validate_token(sockaddr* remote, ptls_iovec_t client_cid,
+                   ptls_iovec_t server_cid,
+                   quicly_address_token_plaintext_t* token,
+                   quicly_context_t* ctx);
 
 } // namespace detail
 } // namespace caf

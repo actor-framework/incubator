@@ -49,5 +49,10 @@ sec send_pending_datagrams(net::udp_datagram_socket handle,
 void load_ticket(ptls_handshake_properties_t* hs_properties,
                  quicly_transport_parameters_t* resumed_transport_params);
 
+// -- session handling ---------------------------------------------------------
+
+int save_session(const quicly_transport_parameters_t* transport_params,
+                 const std::string& session_file_path, session_info info);
+
 } // namespace detail
 } // namespace caf

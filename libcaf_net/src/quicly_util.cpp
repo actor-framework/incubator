@@ -247,5 +247,53 @@ Error:
   return ptls_iovec_init(nullptr, 0);
 }*/
 
+int validate_token(sockaddr* remote, ptls_iovec_t client_cid,
+                   ptls_iovec_t server_cid,
+                   quicly_address_token_plaintext_t* token,
+                   quicly_context_t* ctx) {
+  int64_t age;
+  int port_is_equal;
+
+  if ((age = ctx->now->cb(ctx->now) - token->issued_at) < 0)
+    age = 0;
+  if (remote->sa_family != token->remote.sa.sa_family)
+    return 0;
+  switch (remote->sa_family) {
+    case AF_INET: {
+      auto sin = reinterpret_cast<sockaddr_in*>(remote);
+      if (sin->sin_addr.s_addr != token->remote.sin.sin_addr.s_addr)
+        return 0;
+      port_is_equal = sin->sin_port == token->remote.sin.sin_port;
+    } break;
+    case AF_INET6: {
+      auto sin6 = reinterpret_cast<sockaddr_in6*>(remote);
+      if (memcmp(&sin6->sin6_addr, &token->remote.sin6.sin6_addr,
+                 sizeof(sin6->sin6_addr))
+          != 0)
+        return 0;
+      port_is_equal = sin6->sin6_port == token->remote.sin6.sin6_port;
+    } break;
+    default:
+      return 0;
+  }
+  if (token->is_retry) {
+    if (age > 30000)
+      return 0;
+    if (!port_is_equal)
+      return 0;
+    uint64_t cidhash_actual;
+    if (quicly_retry_calc_cidpair_hash(&ptls_openssl_sha256, client_cid,
+                                       server_cid, &cidhash_actual)
+        != 0)
+      return 0;
+    if (token->retry.cidpair_hash != cidhash_actual)
+      return 0;
+  } else {
+    if (age > 10 * 60 * 1000)
+      return 0;
+  }
+  return 1;
+}
+
 } // namespace detail
 } // namespace caf

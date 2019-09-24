@@ -18,10 +18,13 @@
 
 #include "caf/detail/quicly_cb.hpp"
 
-#include <fstream>
 #include <iostream>
-#include <quicly.h>
 
+extern "C" {
+#include <picotls/minicrypto.h>
+#include <quicly.h>
+}
+#include "caf/logger.hpp"
 #include "caf/sec.hpp"
 
 namespace caf {
@@ -141,6 +144,45 @@ void load_ticket(ptls_handshake_properties_t* hs_properties,
 
 Exit:;
 }
+
+int save_session(const quicly_transport_parameters_t* transport_params,
+                 const std::string& session_file_path, session_info info) {
+  ptls_buffer_t buf;
+  int ret;
+  if (session_file_path.empty())
+    return 0;
+  std::ofstream session_file(session_file_path,
+                             std::ios::out | std::ios::app | std::ios::binary);
+  if (!session_file.is_open()) {
+    CAF_LOG_ERROR("failed to open file:" << CAF_ARG(session_file_path) << ": "
+                                         << CAF_ARG(strerror(errno)));
+    ret = PTLS_ERROR_LIBRARY;
+    goto Exit;
+  }
+  ptls_buffer_init(&buf, const_cast<char*>(""), 0);
+  /* build data (session ticket and transport parameters) */
+  ptls_buffer_push_block(&buf, 2, {
+    ptls_buffer_pushv(&buf, info.tls_ticket.base, info.tls_ticket.len);
+  });
+  ptls_buffer_push_block(&buf, 2, {
+    if ((ret = quicly_encode_transport_parameter_list(&buf, 1, transport_params,
+                                                      nullptr, nullptr))
+        != 0)
+      goto Exit;
+  });
+  ptls_buffer_push_block(&buf, 2, {
+    ptls_buffer_pushv(&buf, info.address_token.base, info.address_token.len);
+  });
+
+  // write file
+  session_file.write(reinterpret_cast<const char*>(buf.base), buf.off);
+  ret = 0;
+Exit:
+  if (session_file.is_open())
+    session_file.close();
+  ptls_buffer_dispose(&buf);
+  return ret;
+} // namespace detail
 
 } // namespace detail
 } // namespace caf
