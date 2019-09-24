@@ -43,8 +43,45 @@ namespace {
 
 constexpr string_view hello_manager = "hello manager!";
 
+struct fixture;
+
+struct quicly_stream_open : public quicly_stream_open_t {
+  fixture* state;
+};
+
 struct fixture : test_coordinator_fixture<>, host_fixture {
-  fixture() : buf{std::make_shared<std::vector<byte>>()} {
+  fixture()
+    : transport_buf{std::make_shared<std::vector<byte>>()},
+      stream_callbacks{quicly_streambuf_destroy, quicly_streambuf_egress_shift,
+                       quicly_streambuf_egress_emit, detail::on_stop_sending,
+                       // on_receive()
+                       [](quicly_stream_t* stream, size_t off, const void* src,
+                          size_t len) -> int {
+                         if (auto ret = quicly_streambuf_ingress_receive(stream,
+                                                                         off,
+                                                                         src,
+                                                                         len))
+                           return ret;
+                         ptls_iovec_t input;
+                         if ((input = quicly_streambuf_ingress_get(stream))
+                               .len) {
+                           string_view message(reinterpret_cast<char*>(
+                                                 input.base),
+                                               input.len);
+                           CAF_MESSAGE("received: " << CAF_ARG(message));
+                           quicly_streambuf_ingress_shift(stream, input.len);
+                         }
+                         return 0;
+                       },
+                       // on_receive_reset()
+                       [](quicly_stream_t* stream, int err) -> int {
+                         quicly_close(stream->conn,
+                                      QUICLY_ERROR_FROM_APPLICATION_ERROR_CODE(
+                                        0),
+                                      "received reset");
+                         CAF_FAIL("received stream reset.");
+                         return 0;
+                       }} {
     mpx = std::make_shared<multiplexer>();
     if (auto err = mpx->init())
       CAF_FAIL("mpx->init failed: " << sys.render(err));
@@ -53,13 +90,26 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
       CAF_FAIL("parse returned an error: " << err);
     auto send_pair = unbox(make_udp_datagram_socket(recv_ep));
     send_sock = send_pair.first;
+    if (auto err = nonblocking(send_sock, true))
+      CAF_LOG_ERROR("nonblocking returned an error: " << err);
     auto receive_pair = unbox(make_udp_datagram_socket(recv_ep));
     recv_sock = receive_pair.first;
     recv_ep.port(ntohs(receive_pair.second));
     CAF_MESSAGE("sending data to: " << to_string(recv_ep));
     if (auto err = nonblocking(recv_sock, true))
       CAF_LOG_ERROR("nonblocking returned an error: " << err);
-  }
+    stream_open.state = this;
+    stream_open.cb = [](quicly_stream_open_t* self,
+                        quicly_stream_t* new_stream) -> int {
+      auto tmp = static_cast<quicly_stream_open*>(self);
+      return tmp->state->on_stream_open(self, new_stream);
+    };
+    closed_by_peer.cb = [](quicly_closed_by_peer_t*, quicly_conn_t*, int,
+                           uint64_t, const char*, size_t) {
+      CAF_FAIL("peer closed connection");
+      // nop
+    };
+  };
 
   ~fixture() {
     close(send_sock);
@@ -72,6 +122,10 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   }
 
   void quic_setup() {
+    ctx = quicly_spec_context;
+    ctx.tls = &tlsctx;
+    ctx.stream_open = &stream_open;
+
     memset(&tlsctx, 0, sizeof(ptls_context_t));
     tlsctx.random_bytes = ptls_openssl_random_bytes;
     tlsctx.get_time = &ptls_get_time;
@@ -92,6 +146,12 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     detail::load_ticket(&hs_properties, &resumed_transport_params);
   }
 
+  void quic_roundtrip() {
+    run();
+    quic_receive();
+    detail::send_pending_datagrams(send_sock, conn_ptr);
+  }
+
   void quic_connect() {
     sockaddr_storage sa = {};
     detail::convert(recv_ep, sa);
@@ -104,29 +164,35 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     conn_ptr = detail::make_quicly_conn_ptr(conn);
     ++next_cid.master_id;
     detail::send_pending_datagrams(send_sock, conn_ptr);
-    run();
-    detail::send_pending_datagrams(send_sock, conn_ptr);
+    // do roundtrips until connected
+    int i = 0;
+    while (quicly_get_state(conn_ptr.get()) != QUICLY_STATE_CONNECTED) {
+      if (++i > 5)
+        CAF_FAIL("connection process took too many roundtrips");
+      quic_roundtrip();
+    }
+    CAF_MESSAGE("connected after " << CAF_ARG(i) << " rounds");
+
+    quic_roundtrip(); // get new stream!
   }
 
   /// this function receives data and passes it to the quic stack.
   /// Needed for accepting incoming packets.
   void quic_receive() {
     sockaddr_storage sa = {};
-    std::vector<byte> buf(4096);
-    auto read_res = read(send_sock, make_span(buf));
+    std::vector<byte> receive_buf(4096);
+    auto read_res = read(send_sock, make_span(receive_buf));
     if (auto err = get_if<sec>(&read_res))
       CAF_FAIL("read returned an error: " << err);
     auto read_pair = get<std::pair<size_t, ip_endpoint>>(read_res);
     auto received_bytes = read_pair.first;
     auto ep = read_pair.second;
     detail::convert(ep, sa);
-    ssize_t off = 0;
-    while (off != received_bytes) {
+    size_t off = 0;
+    while (off < received_bytes) {
       quicly_decoded_packet_t packet;
-      auto packet_length = quicly_decode_packet(&ctx, &packet,
-                                                reinterpret_cast<uint8_t*>(
-                                                  buf.data())
-                                                  + off,
+      auto buf = reinterpret_cast<uint8_t*>(receive_buf.data());
+      auto packet_length = quicly_decode_packet(&ctx, &packet, buf + off,
                                                 received_bytes - off);
       if (packet_length == SIZE_MAX)
         break;
@@ -145,28 +211,46 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     // quic_send(msg);
   }
 
+  // -- quic callbacks
+  // ---------------------------------------------------------
+
+  int on_stream_open(st_quicly_stream_open_t*, st_quicly_stream_t* new_stream) {
+    if (quicly_streambuf_create(new_stream, sizeof(quicly_streambuf_t)))
+      CAF_FAIL("streambuf_create failed");
+    new_stream->callbacks = &stream_callbacks;
+    stream = new_stream;
+    return 0;
+  }
+
+  // -- test state
+  // -------------------------------------------------------------
+
   multiplexer_ptr mpx;
-  std::shared_ptr<std::vector<byte>> buf;
+  std::shared_ptr<std::vector<byte>> transport_buf;
   ip_endpoint recv_ep;
   udp_datagram_socket send_sock;
   udp_datagram_socket recv_sock;
 
-  // -- quicly state -----------------------------------------------------------
+  // -- quicly state
+  // -----------------------------------------------------------
+
   bool connected;
   char* cid_key;
   quicly_cid_plaintext_t next_cid;
   ptls_handshake_properties_t hs_properties;
   quicly_transport_parameters_t resumed_transport_params;
   quicly_closed_by_peer_t closed_by_peer;
-  quicly_stream_open_t stream_open;
+  quicly_stream_open stream_open;
   ptls_save_ticket_t save_ticket;
   ptls_key_exchange_algorithm_t* key_exchanges[128];
   ptls_context_t tlsctx;
   quicly_context_t ctx;
-  transport_streambuf streambuf;
+  quicly_transport_streambuf streambuf;
   ptls_iovec_t resumption_token;
   detail::quicly_conn_ptr conn_ptr;
   quicly_stream_t* stream;
+  quicly_stream_callbacks_t stream_callbacks;
+
 }; // namespace
 
 class dummy_application {
@@ -252,16 +336,15 @@ using transport_type = quic_transport<dummy_application_factory>;
 CAF_TEST_FIXTURE_SCOPE(quic_transport_tests, fixture)
 
 CAF_TEST(receive) {
-  transport_type transport{recv_sock, dummy_application_factory{buf}};
+  transport_type transport{recv_sock, dummy_application_factory{transport_buf}};
   transport.configure_read(net::receive_policy::exactly(hello_manager.size()));
-  auto mgr = make_endpoint_manager(mpx, sys, transport);
+  auto mgr = make_endpoint_manager(mpx, sys, std::move(transport));
   CAF_CHECK_EQUAL(mgr->init(), none);
   mpx->handle_updates();
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 2u);
   quicly_test_send(hello_manager);
-  run();
-  CAF_CHECK_EQUAL(string_view(reinterpret_cast<char*>(buf->data()),
-                              buf->size()),
+  CAF_CHECK_EQUAL(string_view(reinterpret_cast<char*>(transport_buf->data()),
+                              transport_buf->size()),
                   hello_manager);
 }
 
