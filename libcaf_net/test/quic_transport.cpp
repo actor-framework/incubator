@@ -25,7 +25,7 @@
 #include "host_fixture.hpp"
 
 #include "caf/byte.hpp"
-#include "caf/detail/quicly_cb.hpp"
+#include "caf/detail/ptls_util.hpp"
 #include "caf/detail/quicly_util.hpp"
 #include "caf/make_actor.hpp"
 #include "caf/net/actor_proxy_impl.hpp"
@@ -143,7 +143,8 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     quicly_amend_ptls_context(ctx.tls);
 
     key_exchanges[0] = &ptls_openssl_secp256r1;
-    detail::load_ticket(&hs_properties, &resumed_transport_params);
+    detail::load_ticket(&hs_properties, &resumed_transport_params,
+                        session_ticket_path_);
   }
 
   void quic_roundtrip() {

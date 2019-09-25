@@ -37,7 +37,7 @@ extern "C" {
 
 #include "caf/byte.hpp"
 #include "caf/detail/convert_ip_endpoint.hpp"
-#include "caf/detail/quicly_cb.hpp"
+#include "caf/detail/ptls_util.hpp"
 #include "caf/detail/quicly_util.hpp"
 #include "caf/detail/socket_sys_aliases.hpp"
 #include "caf/detail/socket_sys_includes.hpp"
@@ -240,7 +240,7 @@ public:
     tlsctx_.random_bytes(random_key, sizeof(random_key) - 1);
     memcpy(cid_key_, random_key, sizeof(random_key)); // save cid_key
     ctx_.cid_encryptor = quicly_new_default_cid_encryptor(
-      &ptls_openssl_bfecb, &ptls_openssl_sha256,
+      &ptls_openssl_bfecb, &ptls_openssl_aes128ecb, &ptls_openssl_sha256,
       ptls_iovec_init(cid_key_, strlen(cid_key_)));
     parent.mask_add(operation::read);
     return none;
@@ -571,6 +571,7 @@ private:
   ptls_key_exchange_algorithm_t* key_exchanges_[128];
   ptls_context_t tlsctx_;
   quicly_context_t ctx_;
+  ptls_handshake_properties_t hs_properties_;
 
   quicly_stream_callbacks_t stream_callbacks;
   std::unordered_map<size_t, detail::quicly_conn_ptr> known_conns_;
@@ -585,6 +586,8 @@ private:
   quicly_stream_open<factory_type> stream_open_;
   quicly_closed_by_peer<factory_type> closed_by_peer_;
 
+  quicly_transport_parameters_t resumed_transport_params_;
+  ptls_iovec_t resumption_token_;
   detail::address_token_aead address_token_aead_;
   std::string session_file_path_;
   detail::session_info session_info_;
