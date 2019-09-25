@@ -44,73 +44,74 @@
 #include <memory>
 #include <sys/param.h>
 
+#include "caf/fwd.hpp"
+#include "caf/net/fwd.hpp"
+#include "caf/net/udp_datagram_socket.hpp"
 extern "C" {
-#include "quicly.h"
+#include <quicly.h>
 }
 
 namespace caf {
 namespace detail {
 
+// -- type aliases -------------------------------------------------------------
+
 using quicly_conn_ptr = std::shared_ptr<quicly_conn_t>;
+
 using quicly_stream_ptr = std::unique_ptr<quicly_stream_t>;
 
-struct st_util_save_ticket_t {
-  ptls_save_ticket_t super;
-  char fn[MAXPATHLEN];
-};
+// -- needed struct definitions ------------------------------------------------
 
-struct st_util_log_event_t {
-  ptls_log_event_t super;
-  FILE* fp;
-};
-
-/* single-entry session cache */
-struct st_util_session_cache_t {
-  ptls_encrypt_ticket_t super;
-  uint8_t id[32];
-  ptls_iovec_t data;
-};
-
+/// stores informations about a quic session. session
 struct session_info {
   ptls_iovec_t tls_ticket;
   ptls_iovec_t address_token;
 };
 
+///
 struct address_token_aead {
-  address_token_aead() : address_token_aead(nullptr, nullptr) {
-    // nop
-  }
-
-  address_token_aead(ptls_aead_context_t* enc, ptls_aead_context_t* dec)
-    : enc{enc}, dec{dec} {
-    // nop
-  }
-
-  const ptls_aead_context_t* enc;
-  const ptls_aead_context_t* dec;
+  ptls_aead_context_t* enc;
+  ptls_aead_context_t* dec;
 };
 
-size_t convert(quicly_conn_t* ptr);
-size_t convert(quicly_conn_ptr ptr);
+// -- helper functions ---------------------------------------------------------
 
+/// makes a `quicly_conn_ptr` aka `std::shared_ptr<quicly_conn_t>` from given
+/// `quicly_conn_t*`
 quicly_conn_ptr make_quicly_conn_ptr(quicly_conn_t* conn);
-void load_certificate_chain(ptls_context_t* ctx, const char* fn);
-void load_private_key(ptls_context_t* ctx, const char* fn);
-// int util_save_ticket_cb(ptls_save_ticket_t* _self, ptls_t*, ptls_iovec_t
-// src); void setup_session_file(ptls_context_t* ctx,
-//                        ptls_handshake_properties_t* hsprop, const char* fn);
-// void setup_verify_certificate(ptls_context_t* ctx);
-// void setup_esni(ptls_context_t* ctx, const char* esni_fn,
-//                ptls_key_exchange_context_t** key_exchanges);
-// int encrypt_ticket_cb(ptls_encrypt_ticket_t* _self, ptls_t* tls, int
-// is_encrypt,
-//                      ptls_buffer_t* dst, ptls_iovec_t src);
-void setup_session_cache(ptls_context_t* ctx);
-// ptls_iovec_t resolve_esni_keys(const char* server_name);
+/// converts a `quicly_conn_t*` to `size_t` for use as key/id_type.
+size_t convert(quicly_conn_t* ptr) noexcept;
+/// converts a `quicly_conn_ptr` to `size_t` for use as key/id_type.
+size_t convert(quicly_conn_ptr ptr) noexcept;
+
+// -- quicly send functions ----------------------------------------------------
+
+/// sends a single `quicly_datagram_t` to its endpoint.
+variant<size_t, sec> send_quicly_datagram(net::udp_datagram_socket handle,
+                                          quicly_datagram_t* p);
+/// sends pending `quicly_datagram_t` for given connection to their endpoint.
+sec send_pending_datagrams(net::udp_datagram_socket handle,
+                           detail::quicly_conn_ptr conn);
+
+// -- quicly default callbacks -------------------------------------------------
+
+///
+int on_stop_sending(quicly_stream_t* stream, int err);
+
+// -- general quicly routines --------------------------------------------------
+
+///
 int validate_token(sockaddr* remote, ptls_iovec_t client_cid,
                    ptls_iovec_t server_cid,
                    quicly_address_token_plaintext_t* token,
                    quicly_context_t* ctx);
+///
+int load_session(quicly_transport_parameters_t* params,
+                 ptls_iovec_t& resumption_token,
+                 ptls_handshake_properties_t& hs_properties, std::string path);
+///
+int save_session(const quicly_transport_parameters_t* transport_params,
+                 const std::string& session_file_path, session_info info);
 
 } // namespace detail
 } // namespace caf

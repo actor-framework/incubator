@@ -18,234 +18,90 @@
 
 #include "caf/detail/quicly_util.hpp"
 
-#include <arpa/nameser.h>
 #include <cerrno>
-#include <cstdio>
 #include <cstring>
-#include <netdb.h>
+#include <fstream>
 #include <netinet/in.h>
 #include <openssl/pem.h>
-#include <resolv.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+extern "C" {
+#include <picotls/minicrypto.h>
+#include <picotls/openssl.h>
+#include <quicly.h>
+}
 
-#include "caf/detail/comparable.hpp"
 #include "caf/detail/fnv_hash.hpp"
-#include "caf/meta/type_name.hpp"
-#include "picotls/openssl.h"
-#include "picotls/pembase64.h"
+#include "caf/logger.hpp"
+#include "caf/sec.hpp"
+#include "caf/variant.hpp"
 
 namespace caf {
 namespace detail {
 
-size_t convert(quicly_conn_t* ptr) {
-  return reinterpret_cast<size_t>(ptr);
-}
-
-size_t convert(quicly_conn_ptr ptr) {
-  return convert(ptr.get());
-}
+// -- helper functions ---------------------------------------------------------
 
 quicly_conn_ptr make_quicly_conn_ptr(quicly_conn_t* conn) {
   return std::shared_ptr<quicly_conn_t>(conn, quicly_free);
 }
 
-void load_certificate_chain(ptls_context_t* ctx, const char* fn) {
-  if (ptls_load_certificates(ctx, (char*) fn) != 0) {
-    fprintf(stderr, "failed to load certificate:%s:%s\n", fn, strerror(errno));
-    exit(1);
-  }
+size_t convert(quicly_conn_t* ptr) noexcept {
+  return reinterpret_cast<size_t>(ptr);
 }
 
-void load_private_key(ptls_context_t* ctx, const char* fn) {
-  static ptls_openssl_sign_certificate_t sc;
-  FILE* fp;
-  EVP_PKEY* pkey;
-  if ((fp = fopen(fn, "rb")) == nullptr) {
-    fprintf(stderr, "failed to open file:%s:%s\n", fn, strerror(errno));
-    exit(1);
-  }
-  pkey = PEM_read_PrivateKey(fp, nullptr, nullptr, nullptr);
-  fclose(fp);
-  if (pkey == nullptr) {
-    fprintf(stderr, "failed to read private key from file:%s\n", fn);
-    exit(1);
-  }
-  ptls_openssl_init_sign_certificate(&sc, pkey);
-  EVP_PKEY_free(pkey);
-  ctx->sign_certificate = &sc.super;
+size_t convert(quicly_conn_ptr ptr) noexcept {
+  return convert(ptr.get());
 }
 
-int util_save_ticket_cb(ptls_save_ticket_t* _self, ptls_t*, ptls_iovec_t src) {
-  auto self = reinterpret_cast<st_util_save_ticket_t*>(_self);
-  FILE* fp;
-  if ((fp = fopen(self->fn, "wb")) == nullptr) {
-    fprintf(stderr, "failed to open file:%s:%s\n", self->fn, strerror(errno));
-    return PTLS_ERROR_LIBRARY;
-  }
-  fwrite(src.base, 1, src.len, fp);
-  fclose(fp);
+// -- quicly send functions ----------------------------------------------------
 
+variant<size_t, sec> send_quicly_datagram(net::udp_datagram_socket handle,
+                                          quicly_datagram_t* datagram) {
+  msghdr mess = {};
+  iovec vec = {};
+  mess.msg_name = &datagram->dest.sa;
+  mess.msg_namelen = quicly_get_socklen(&datagram->dest.sa);
+  vec.iov_base = datagram->data.base;
+  vec.iov_len = datagram->data.len;
+  mess.msg_iov = &vec;
+  mess.msg_iovlen = 1;
+  auto ret = sendmsg(handle.id, &mess, 0);
+  return net::check_udp_datagram_socket_io_res(ret);
+}
+
+sec send_pending_datagrams(net::udp_datagram_socket handle,
+                           detail::quicly_conn_ptr conn) {
+  std::vector<quicly_datagram_t*> datagrams(16);
+  size_t num_packets;
+  do {
+    num_packets = datagrams.size() / sizeof(quicly_datagram_t);
+    if (quicly_send(conn.get(), datagrams.data(), &num_packets)) {
+      for (size_t i = 0; i < num_packets; ++i) {
+        auto datagram = datagrams.at(i);
+        auto res = send_quicly_datagram(handle, datagram);
+        if (auto err = get_if<sec>(&res)) {
+          return *err; // how to make error from this sec?
+        }
+        auto pa = quicly_get_context(conn.get())->packet_allocator;
+        pa->free_packet(pa, datagram);
+      }
+    } else {
+      break;
+    }
+  } while (num_packets == datagrams.size() / sizeof(quicly_datagram_t));
+  return sec::none;
+}
+
+// -- quicly default callbacks -------------------------------------------------
+
+int on_stop_sending(quicly_stream_t*, int err) {
+  assert(QUICLY_ERROR_IS_QUIC_APPLICATION(err));
+  CAF_LOG_TRACE(
+    "received STOP_SENDING: " << CAF_ARG(QUICLY_ERROR_GET_ERROR_CODE(err)));
   return 0;
 }
 
-/*void setup_session_file(ptls_context_t* ctx,
-                        ptls_handshake_properties_t* hsprop, const char* fn) {
-  static struct st_util_save_ticket_t st;
-  FILE* fp;
-
-  // setup save_ticket callback
-  strcpy(st.fn, fn);
-  st.super.cb = util_save_ticket_cb;
-  ctx->save_ticket = &st.super;
-
-  // load session ticket if possible
-  if ((fp = fopen(fn, "rb")) != nullptr) {
-    static uint8_t ticket[16384];
-    size_t ticket_size = fread(ticket, 1, sizeof(ticket), fp);
-    if (ticket_size == 0 || !feof(fp)) {
-      fprintf(stderr, "failed to load ticket from file:%s\n", fn);
-      exit(1);
-    }
-    fclose(fp);
-    hsprop->client.session_ticket = ptls_iovec_init(ticket, ticket_size);
-  }
-}
-
-void setup_verify_certificate(ptls_context_t* ctx) {
-  static ptls_openssl_verify_certificate_t vc;
-  ptls_openssl_init_verify_certificate(&vc, nullptr);
-  ctx->verify_certificate = &vc.super;
-}
-
-void setup_esni(ptls_context_t* ctx, const char* esni_fn,
-                ptls_key_exchange_context_t** key_exchanges) {
-  uint8_t esnikeys[65536];
-  size_t esnikeys_len;
-  int ret = 0;
-
-  { // read esnikeys
-    FILE* fp;
-    if ((fp = fopen(esni_fn, "rb")) == nullptr) {
-      fprintf(stderr, "failed to open file:%s:%s\n", esni_fn, strerror(errno));
-      exit(1);
-    }
-    esnikeys_len = fread(esnikeys, 1, sizeof(esnikeys), fp);
-    if (esnikeys_len == 0 || !feof(fp)) {
-      fprintf(stderr, "failed to load ESNI data from file:%s\n", esni_fn);
-      exit(1);
-    }
-    fclose(fp);
-  }
-
-  if ((ctx->esni = reinterpret_cast<ptls_esni_context_t**>(
-         malloc(sizeof(*ctx->esni) * 2)))
-        == nullptr
-      || (*ctx->esni = reinterpret_cast<ptls_esni_context_t*>(
-            malloc(sizeof(**ctx->esni))))
-           == nullptr) {
-    fprintf(stderr, "no memory\n");
-    exit(1);
-  }
-
-  if ((ret = ptls_esni_init_context(ctx, ctx->esni[0],
-                                    ptls_iovec_init(esnikeys, esnikeys_len),
-                                    key_exchanges))
-      != 0) {
-    fprintf(stderr, "failed to parse ESNI data of file:%s:error=%d\n", esni_fn,
-            ret);
-    exit(1);
-  }
-}*/
-
-int encrypt_ticket_cb(ptls_encrypt_ticket_t* _self, ptls_t* tls, int is_encrypt,
-                      ptls_buffer_t* dst, ptls_iovec_t src) {
-  auto self = reinterpret_cast<st_util_session_cache_t*>(_self);
-  int ret;
-
-  if (is_encrypt) {
-    /* replace the cached entry along with a newly generated session id */
-    free(self->data.base);
-    if ((self->data.base = reinterpret_cast<uint8_t*>(malloc(src.len)))
-        == nullptr)
-      return PTLS_ERROR_NO_MEMORY;
-
-    ptls_get_context(tls)->random_bytes(self->id, sizeof(self->id));
-    memcpy(self->data.base, src.base, src.len);
-    self->data.len = src.len;
-
-    /* store the session id in buffer */
-    if ((ret = ptls_buffer_reserve(dst, sizeof(self->id))) != 0)
-      return ret;
-    memcpy(dst->base + dst->off, self->id, sizeof(self->id));
-    dst->off += sizeof(self->id);
-
-  } else {
-    /* check if session id is the one stored in cache */
-    if (src.len != sizeof(self->id))
-      return PTLS_ERROR_SESSION_NOT_FOUND;
-    if (memcmp(self->id, src.base, sizeof(self->id)) != 0)
-      return PTLS_ERROR_SESSION_NOT_FOUND;
-
-    /* return the cached value */
-    if ((ret = ptls_buffer_reserve(dst, self->data.len)) != 0)
-      return ret;
-    memcpy(dst->base + dst->off, self->data.base, self->data.len);
-    dst->off += self->data.len;
-  }
-
-  return 0;
-}
-
-void setup_session_cache(ptls_context_t* ctx) {
-  static struct st_util_session_cache_t sc;
-
-  sc.super.cb = encrypt_ticket_cb;
-
-  ctx->ticket_lifetime = 86400;
-  ctx->max_early_data_size = 8192;
-  ctx->encrypt_ticket = &sc.super;
-}
-
-/*ptls_iovec_t resolve_esni_keys(const char* server_name) {
-  char esni_name[256], *base64;
-  uint8_t answer[1024];
-  ns_msg msg;
-  ns_rr rr;
-  ptls_buffer_t decode_buf;
-  ptls_base64_decode_state_t ds;
-  int answer_len;
-  char none[] = "";
-
-  ptls_buffer_init(&decode_buf, reinterpret_cast<void*>(none), 0);
-
-  if (snprintf(esni_name, sizeof(esni_name), "_esni.%s", server_name)
-      > sizeof(esni_name) - 1)
-    goto Error;
-  if ((answer_len = res_query(esni_name, ns_c_in, ns_t_txt, answer,
-                              sizeof(answer)))
-      <= 0)
-    goto Error;
-  if (ns_initparse(answer, answer_len, &msg) != 0)
-    goto Error;
-  if (ns_msg_count(msg, ns_s_an) < 1)
-    goto Error;
-  if (ns_parserr(&msg, ns_s_an, 0, &rr) != 0)
-    goto Error;
-  base64 = reinterpret_cast<char*>(const_cast<unsigned char*>(ns_rr_rdata(rr)));
-  if (!normalize_txt(reinterpret_cast<uint8_t*>(base64), ns_rr_rdlen(rr)))
-    goto Error;
-
-  ptls_base64_decode_init(&ds);
-  if (ptls_base64_decode(base64, &ds, &decode_buf) != 0)
-    goto Error;
-  assert(decode_buf.is_allocated);
-
-  return ptls_iovec_init(decode_buf.base, decode_buf.off);
-Error:
-  ptls_buffer_dispose(&decode_buf);
-  return ptls_iovec_init(nullptr, 0);
-}*/
+// -- general quicly routines --------------------------------------------------
 
 int validate_token(sockaddr* remote, ptls_iovec_t client_cid,
                    ptls_iovec_t server_cid,
@@ -294,6 +150,88 @@ int validate_token(sockaddr* remote, ptls_iovec_t client_cid,
   }
   return 1;
 }
+
+int load_session(quicly_transport_parameters_t* params,
+                 ptls_iovec_t& resumption_token,
+                 ptls_handshake_properties_t& hs_properties, std::string path) {
+  static uint8_t buf[65536];
+  size_t len;
+  int ret;
+  std::ifstream session_file(path, std::ios::binary);
+  if (!session_file.is_open())
+    return -1;
+  auto session_file_size = session_file.readsome(reinterpret_cast<char*>(buf),
+                                                 sizeof(buf));
+  if (session_file_size == 0 || !session_file.eof()) {
+    CAF_LOG_ERROR("failed to load ticket from file: " << CAF_ARG(path));
+    return -2;
+  }
+  session_file.close();
+  const uint8_t *src = buf, *end = buf + len;
+  ptls_iovec_t ticket;
+  ptls_decode_open_block(src, end, 2, {
+    ticket = ptls_iovec_init(src, end - src);
+    src = end;
+  });
+  ptls_decode_open_block(src, end, 2, {
+    if ((ret = quicly_decode_transport_parameter_list(params, nullptr, nullptr,
+                                                      1, src, end))
+        != 0)
+      goto Exit;
+    src = end;
+  });
+  ptls_decode_open_block(src, end, 2, {
+    if ((resumption_token.len = end - src) != 0) {
+      resumption_token.base = reinterpret_cast<uint8_t*>(
+        malloc(resumption_token.len));
+      memcpy(resumption_token.base, src, resumption_token.len);
+    }
+    src = end;
+  });
+  hs_properties.client.session_ticket = ticket;
+
+Exit:;
+  return ret;
+}
+
+int save_session(const quicly_transport_parameters_t* transport_params,
+                 const std::string& session_file_path, session_info info) {
+  ptls_buffer_t buf;
+  int ret;
+  if (session_file_path.empty())
+    return 0;
+  std::ofstream session_file(session_file_path,
+                             std::ios::out | std::ios::app | std::ios::binary);
+  if (!session_file.is_open()) {
+    CAF_LOG_ERROR("failed to open file:" << CAF_ARG(session_file_path) << ": "
+                                         << CAF_ARG(strerror(errno)));
+    ret = PTLS_ERROR_LIBRARY;
+    goto Exit;
+  }
+  ptls_buffer_init(&buf, const_cast<char*>(""), 0);
+  /* build data (session ticket and transport parameters) */
+  ptls_buffer_push_block(&buf, 2, {
+    ptls_buffer_pushv(&buf, info.tls_ticket.base, info.tls_ticket.len);
+  });
+  ptls_buffer_push_block(&buf, 2, {
+    if ((ret = quicly_encode_transport_parameter_list(&buf, 1, transport_params,
+                                                      nullptr, nullptr))
+        != 0)
+      goto Exit;
+  });
+  ptls_buffer_push_block(&buf, 2, {
+    ptls_buffer_pushv(&buf, info.address_token.base, info.address_token.len);
+  });
+
+  // write file
+  session_file.write(reinterpret_cast<const char*>(buf.base), buf.off);
+  ret = 0;
+Exit:
+  if (session_file.is_open())
+    session_file.close();
+  ptls_buffer_dispose(&buf);
+  return ret;
+} // namespace detail
 
 } // namespace detail
 } // namespace caf
