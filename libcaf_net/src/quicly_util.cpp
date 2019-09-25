@@ -109,7 +109,6 @@ int validate_token(sockaddr* remote, ptls_iovec_t client_cid,
                    quicly_context_t* ctx) {
   int64_t age;
   int port_is_equal;
-
   if ((age = ctx->now->cb(ctx->now) - token->issued_at) < 0)
     age = 0;
   if (remote->sa_family != token->remote.sa.sa_family)
@@ -144,9 +143,8 @@ int validate_token(sockaddr* remote, ptls_iovec_t client_cid,
       return 0;
     if (token->retry.cidpair_hash != cidhash_actual)
       return 0;
-  } else {
-    if (age > 10 * 60 * 1000)
-      return 0;
+  } else if (age > 10 * 60 * 1000) {
+    return 0;
   }
   return 1;
 }
@@ -155,7 +153,6 @@ int load_session(quicly_transport_parameters_t* params,
                  ptls_iovec_t& resumption_token,
                  ptls_handshake_properties_t& hs_properties, std::string path) {
   static uint8_t buf[65536];
-  size_t len;
   int ret;
   std::ifstream session_file(path, std::ios::binary);
   if (!session_file.is_open())
@@ -167,7 +164,7 @@ int load_session(quicly_transport_parameters_t* params,
     return -2;
   }
   session_file.close();
-  const uint8_t *src = buf, *end = buf + len;
+  const uint8_t *src = buf, *end = buf + session_file_size;
   ptls_iovec_t ticket;
   ptls_decode_open_block(src, end, 2, {
     ticket = ptls_iovec_init(src, end - src);
@@ -189,7 +186,6 @@ int load_session(quicly_transport_parameters_t* params,
     src = end;
   });
   hs_properties.client.session_ticket = ticket;
-
 Exit:;
   return ret;
 }
@@ -209,7 +205,7 @@ int save_session(const quicly_transport_parameters_t* transport_params,
     goto Exit;
   }
   ptls_buffer_init(&buf, const_cast<char*>(""), 0);
-  /* build data (session ticket and transport parameters) */
+  // build data (session ticket and transport parameters)
   ptls_buffer_push_block(&buf, 2, {
     ptls_buffer_pushv(&buf, info.tls_ticket.base, info.tls_ticket.len);
   });
@@ -231,7 +227,7 @@ Exit:
     session_file.close();
   ptls_buffer_dispose(&buf);
   return ret;
-} // namespace detail
+}
 
 } // namespace detail
 } // namespace caf

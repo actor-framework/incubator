@@ -28,11 +28,11 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unordered_map>
-
 extern "C" {
-#include "quicly.h"
-#include "quicly/defaults.h"
-#include "quicly/streambuf.h"
+#include <picotls/openssl.h>
+#include <quicly.h>
+#include <quicly/defaults.h>
+#include <quicly/streambuf.h>
 }
 
 #include "caf/byte.hpp"
@@ -52,7 +52,6 @@ extern "C" {
 #include "caf/sec.hpp"
 #include "caf/span.hpp"
 #include "caf/variant.hpp"
-#include "picotls/openssl.h"
 
 namespace caf {
 namespace net {
@@ -120,8 +119,8 @@ public:
       max_(1024),
       rd_flag_(receive_policy_flag::exactly),
       cid_key_{},
-      key_exchanges_{},
       next_cid_{},
+      key_exchanges_{},
       tlsctx_{},
       ctx_{},
       hs_properties_{},
@@ -167,6 +166,7 @@ public:
       address_token_aead_{},
       session_file_path_{},
       session_info_{} {
+    // TODO: think of a more general way to initialize these callbacks
     stream_open_.transport = this;
     stream_open_.cb = [](quicly_stream_open_t* self,
                          quicly_stream_t* stream) -> int {
@@ -227,12 +227,12 @@ public:
     quicly_amend_ptls_context(ctx_.tls);
     // generate cypher context for en-/decryption
     uint8_t secret[PTLS_MAX_DIGEST_SIZE];
-    ctx_.tls->random_bytes(secret, ptls_openssl_sha384.digest_size);
+    ctx_.tls->random_bytes(secret, ptls_openssl_sha256.digest_size);
     address_token_aead_.enc = ptls_aead_new(&ptls_openssl_aes128gcm,
-                                            &ptls_openssl_sha384, 1, secret,
+                                            &ptls_openssl_sha256, 1, secret,
                                             "");
     address_token_aead_.dec = ptls_aead_new(&ptls_openssl_aes128gcm,
-                                            &ptls_openssl_sha384, 0, secret,
+                                            &ptls_openssl_sha256, 0, secret,
                                             "");
     // read certificates from file.
     std::string path_to_certs;
@@ -250,17 +250,17 @@ public:
     if (detail::load_private_key(ctx_.tls, private_key_path))
       return make_error(sec::runtime_error,
                         "failed to load private keys: " + private_key_path);
+    CAF_ASSERT(ctx_.tls->certificates.count != 0
+               || ctx_.tls->sign_certificate != nullptr);
     key_exchanges_[0] = &ptls_openssl_secp256r1;
     tlsctx_.random_bytes(cid_key_, sizeof(cid_key_) - 1);
     auto iovec = ptls_iovec_init(cid_key_, sizeof(cid_key_) - 1);
     auto cid_cipher = &ptls_openssl_bfecb;
     auto reset_token_cipher = &ptls_openssl_aes128ecb;
-    auto hash = &ptls_openssl_sha384;
+    auto hash = &ptls_openssl_sha256;
     auto default_encryptor = quicly_new_default_cid_encryptor(
       cid_cipher, reset_token_cipher, hash, iovec);
     ctx_.cid_encryptor = default_encryptor;
-    detail::load_session(&resumed_transport_params_, resumption_token_,
-                         hs_properties_, session_file_path_);
     parent.mask_add(operation::read);
     return none;
   }
@@ -608,8 +608,7 @@ private:
   detail::address_token_aead address_token_aead_;
   std::string session_file_path_;
   detail::session_info session_info_;
-
-}; // namespace net
+};
 
 } // namespace net
 } // namespace caf

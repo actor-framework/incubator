@@ -43,13 +43,13 @@
 #include <functional>
 #include <memory>
 #include <sys/param.h>
+extern "C" {
+#include <quicly.h>
+}
 
 #include "caf/fwd.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/udp_datagram_socket.hpp"
-extern "C" {
-#include <quicly.h>
-}
 
 namespace caf {
 namespace detail {

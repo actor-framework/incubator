@@ -74,7 +74,7 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
                          return 0;
                        },
                        // on_receive_reset()
-                       [](quicly_stream_t* stream, int err) -> int {
+                       [](quicly_stream_t* stream, int) -> int {
                          quicly_close(stream->conn,
                                       QUICLY_ERROR_FROM_APPLICATION_ERROR_CODE(
                                         0),
@@ -201,10 +201,10 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     }
   }
 
-  void quic_send(std::string msg) {
+  void quic_send(std::string) {
   }
 
-  void quicly_test_send(string_view msg) {
+  void quicly_test_send(string_view) {
     quic_setup();
     quic_connect();
     // quic_send(msg);
