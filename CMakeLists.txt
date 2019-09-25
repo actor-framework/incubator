@@ -309,6 +309,10 @@ if (DEFINED CMAKE_LD_LIBS)
   list(APPEND ${CMAKE_LD_LIBS})
 endif()
 
+if (NOT CAF_NO_QUIC)
+  list(APPEND CAF_EXTRA_LDFLAGS "-lresolv")
+endif()
+
 # -- install targets -----------------------------------------------------------
 
 # Process cmake_uninstall.cmake.in.
