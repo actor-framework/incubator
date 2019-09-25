@@ -76,7 +76,7 @@ struct st_util_session_cache_t {
 ///
 int load_certificate_chain(ptls_context_t* ctx, std::string path);
 ///
-void load_private_key(ptls_context_t* ctx, const char* fn);
+int load_private_key(ptls_context_t* ctx, std::string path);
 ///
 int util_save_ticket_cb(ptls_save_ticket_t* _self, ptls_t* tls,
                         ptls_iovec_t src);
@@ -104,7 +104,7 @@ int resolve_address(sockaddr* sa, socklen_t* salen, std::string host,
 /// converts base64 encoded keys to c_strings. Weird function..
 int normalize_txt(uint8_t* p, size_t len);
 ///
-ptls_iovec_t resolve_esni_keys(const char* server_name);
+ptls_iovec_t resolve_esni_keys(std::string server_name);
 
 } // namespace detail
 } // namespace caf

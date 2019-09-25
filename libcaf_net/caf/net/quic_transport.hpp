@@ -119,6 +119,12 @@ public:
       collected_(0),
       max_(1024),
       rd_flag_(receive_policy_flag::exactly),
+      cid_key_{},
+      key_exchanges_{},
+      next_cid_{},
+      tlsctx_{},
+      ctx_{},
+      hs_properties_{},
       stream_callbacks{
         quicly_streambuf_destroy, quicly_streambuf_egress_shift,
         quicly_streambuf_egress_emit, detail::on_stop_sending,
@@ -148,7 +154,19 @@ public:
           return quicly_close(stream->conn,
                               QUICLY_ERROR_FROM_APPLICATION_ERROR_CODE(0),
                               "received reset");
-        }} {
+        }},
+      known_conns_{},
+      known_streams_{},
+      save_resumption_token_{},
+      generate_resumption_token_{},
+      save_session_ticket_{},
+      stream_open_{},
+      closed_by_peer_{},
+      resumed_transport_params_{},
+      resumption_token_{},
+      address_token_aead_{},
+      session_file_path_{},
+      session_info_{} {
     stream_open_.transport = this;
     stream_open_.cb = [](quicly_stream_open_t* self,
                          quicly_stream_t* stream) -> int {
@@ -184,64 +202,65 @@ public:
     };
   }
 
-  quic_transport(const quic_transport&) = delete;
-
-  quic_transport(quic_transport&&) = default;
-
-  quic_transport& operator=(const quic_transport&) = delete;
-
-  quic_transport& operator=(quic_transport&&) = default;
-
   // -- public member functions ------------------------------------------------
 
   template <class Parent>
   error init(Parent& parent) {
     if (auto err = dispatcher_.init(parent))
       return err;
+    // initialize tls_context
     tlsctx_.random_bytes = ptls_openssl_random_bytes;
     tlsctx_.get_time = &ptls_get_time;
     tlsctx_.key_exchanges = key_exchanges_;
     tlsctx_.cipher_suites = ptls_openssl_cipher_suites;
     tlsctx_.require_dhe_on_psk = 1;
     tlsctx_.save_ticket = &save_session_ticket_;
-
+    // initialize quicly_context
     ctx_ = quicly_spec_context;
     ctx_.tls = &tlsctx_;
     ctx_.stream_open = &stream_open_;
     ctx_.closed_by_peer = &closed_by_peer_;
     ctx_.save_resumption_token = &save_resumption_token_;
     ctx_.generate_resumption_token = &generate_resumption_token_;
-
+    // initialize session_context
     detail::setup_session_cache(ctx_.tls);
     quicly_amend_ptls_context(ctx_.tls);
-
-    {
-      uint8_t secret[PTLS_MAX_DIGEST_SIZE];
-      auto enc = ptls_aead_new(&ptls_openssl_aes128gcm, &ptls_openssl_sha256, 1,
-                               secret, "");
-      auto dec = ptls_aead_new(&ptls_openssl_aes128gcm, &ptls_openssl_sha256, 0,
-                               secret, "");
-      address_token_aead_ = detail::address_token_aead{enc, dec};
-    }
-
+    // generate cypher context for en-/decryption
+    uint8_t secret[PTLS_MAX_DIGEST_SIZE];
+    ctx_.tls->random_bytes(secret, ptls_openssl_sha384.digest_size);
+    address_token_aead_.enc = ptls_aead_new(&ptls_openssl_aes128gcm,
+                                            &ptls_openssl_sha384, 1, secret,
+                                            "");
+    address_token_aead_.dec = ptls_aead_new(&ptls_openssl_aes128gcm,
+                                            &ptls_openssl_sha384, 0, secret,
+                                            "");
+    // read certificates from file.
     std::string path_to_certs;
-    char* path = getenv("QUICLY_CERTS");
-    if (path) {
+    if (auto path = getenv("QUICLY_CERTS")) {
       path_to_certs = path;
     } else {
       // try to load default certs
       path_to_certs = "/home/jakob/code/quicly/t/assets/";
     }
-    detail::load_certificate_chain(ctx_.tls,
-                                   (path_to_certs + "server.crt").c_str());
-    detail::load_private_key(ctx_.tls, (path_to_certs + "server.key").c_str());
+    auto certificate_chain_path = (path_to_certs + std::string("server.crt"));
+    auto private_key_path = (path_to_certs + std::string("server.key"));
+    if (detail::load_certificate_chain(ctx_.tls, certificate_chain_path))
+      return make_error(sec::runtime_error, "failed to load certificate chain: "
+                                              + certificate_chain_path);
+    if (detail::load_private_key(ctx_.tls, private_key_path))
+      return make_error(sec::runtime_error,
+                        "failed to load private keys: " + private_key_path);
     key_exchanges_[0] = &ptls_openssl_secp256r1;
-    char random_key[17];
-    tlsctx_.random_bytes(random_key, sizeof(random_key) - 1);
-    memcpy(cid_key_, random_key, sizeof(random_key)); // save cid_key
-    ctx_.cid_encryptor = quicly_new_default_cid_encryptor(
-      &ptls_openssl_bfecb, &ptls_openssl_aes128ecb, &ptls_openssl_sha256,
-      ptls_iovec_init(cid_key_, strlen(cid_key_)));
+    tlsctx_.random_bytes(cid_key_, sizeof(cid_key_) - 1);
+    auto iovec = ptls_iovec_init(cid_key_, sizeof(cid_key_) - 1);
+    auto cid_cipher = &ptls_openssl_bfecb;
+    auto reset_token_cipher = &ptls_openssl_aes128ecb;
+    auto hash = &ptls_openssl_sha384;
+    auto default_encryptor = quicly_new_default_cid_encryptor(
+      cid_cipher, reset_token_cipher, hash, iovec);
+    ctx_.cid_encryptor = default_encryptor;
+    detail::load_session(&resumed_transport_params_, resumption_token_,
+                         hs_properties_, session_file_path_);
     parent.mask_add(operation::read);
     return none;
   }
@@ -468,8 +487,6 @@ public:
       // nop
     }
   };
-
-  static int counterBOYYYYIIIIIIII;
 
 private:
   bool write_some() {

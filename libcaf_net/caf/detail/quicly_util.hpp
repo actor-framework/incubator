@@ -115,14 +115,3 @@ int save_session(const quicly_transport_parameters_t* transport_params,
 
 } // namespace detail
 } // namespace caf
-
-namespace std {
-
-template <>
-struct hash<caf::detail::quicly_conn_ptr> {
-  size_t operator()(const caf::detail::quicly_conn_ptr conn) const noexcept {
-    return std::hash<uintptr_t>{}(reinterpret_cast<uintptr_t>(conn.get()));
-  }
-};
-
-} // namespace std

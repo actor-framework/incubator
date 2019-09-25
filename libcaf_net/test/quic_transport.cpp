@@ -143,8 +143,6 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     quicly_amend_ptls_context(ctx.tls);
 
     key_exchanges[0] = &ptls_openssl_secp256r1;
-    detail::load_ticket(&hs_properties, &resumed_transport_params,
-                        session_ticket_path_);
   }
 
   void quic_roundtrip() {

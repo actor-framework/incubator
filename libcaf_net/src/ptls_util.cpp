@@ -305,10 +305,12 @@ ptls_iovec_t resolve_esni_keys(std::string server_name) {
   base64 = reinterpret_cast<char*>(const_cast<unsigned char*>(ns_rr_rdata(rr)));
   if (!normalize_txt(reinterpret_cast<uint8_t*>(base64), ns_rr_rdlen(rr)))
     goto Error;
+
   ptls_base64_decode_init(&ds);
   if (ptls_base64_decode(base64, &ds, &decode_buf) != 0)
     goto Error;
   assert(decode_buf.is_allocated);
+
   return ptls_iovec_init(decode_buf.base, decode_buf.off);
 Error:
   ptls_buffer_dispose(&decode_buf);
