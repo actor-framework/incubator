@@ -62,16 +62,36 @@ using quicly_stream_ptr = std::unique_ptr<quicly_stream_t>;
 
 // -- needed struct definitions ------------------------------------------------
 
-/// stores informations about a quic session. session
+/// stores informations about a quic session.
 struct session_info {
   ptls_iovec_t tls_ticket;
   ptls_iovec_t address_token;
 };
 
-///
+/// stores encryption and decryption contexts.
 struct address_token_aead {
   ptls_aead_context_t* enc;
   ptls_aead_context_t* dec;
+};
+
+// -- useful struct definitions ------------------------------------------------
+
+/// stores all necessary fields for a quicly connection.
+struct quicly_state {
+  explicit quicly_state(quicly_stream_callbacks_t callbacks);
+  ~quicly_state() = default;
+
+  char cid_key[17];
+  quicly_cid_plaintext_t next_cid;
+  ptls_key_exchange_algorithm_t* key_exchanges[128];
+  ptls_context_t tlsctx;
+  quicly_context_t ctx;
+  ptls_handshake_properties_t hs_properties;
+  quicly_stream_callbacks_t stream_callbacks;
+  quicly_transport_parameters_t resumed_transport_params;
+  ptls_iovec_t resumption_token;
+  detail::address_token_aead address_token_aead;
+  detail::session_info session_info;
 };
 
 // -- helper functions ---------------------------------------------------------
@@ -90,8 +110,8 @@ size_t convert(quicly_conn_ptr ptr) noexcept;
 variant<size_t, sec> send_quicly_datagram(net::udp_datagram_socket handle,
                                           quicly_datagram_t* p);
 /// sends pending `quicly_datagram_t` for given connection to their endpoint.
-sec send_pending_datagrams(net::udp_datagram_socket handle,
-                           detail::quicly_conn_ptr conn);
+error send_pending_datagrams(net::udp_datagram_socket handle,
+                             detail::quicly_conn_ptr conn);
 
 // -- quicly default callbacks -------------------------------------------------
 

@@ -39,6 +39,22 @@ extern "C" {
 namespace caf {
 namespace detail {
 
+// -- quicly_state constructors ------------------------------------------------
+
+quicly_state::quicly_state(quicly_stream_callbacks_t callbacks)
+  : cid_key{},
+    next_cid{},
+    key_exchanges{},
+    tlsctx{},
+    ctx{},
+    hs_properties{},
+    stream_callbacks{callbacks},
+    resumed_transport_params{},
+    resumption_token{},
+    address_token_aead{},
+    session_info{} {
+}
+
 // -- helper functions ---------------------------------------------------------
 
 quicly_conn_ptr make_quicly_conn_ptr(quicly_conn_t* conn) {
@@ -69,26 +85,27 @@ variant<size_t, sec> send_quicly_datagram(net::udp_datagram_socket handle,
   return net::check_udp_datagram_socket_io_res(ret);
 }
 
-sec send_pending_datagrams(net::udp_datagram_socket handle,
-                           detail::quicly_conn_ptr conn) {
-  std::vector<quicly_datagram_t*> datagrams(16);
-  size_t num_packets;
+error send_pending_datagrams(net::udp_datagram_socket handle,
+                             detail::quicly_conn_ptr conn) {
+  quicly_datagram_t* packets[16];
+  size_t num_packets, i;
+  int ret;
+
   do {
-    num_packets = datagrams.size() / sizeof(quicly_datagram_t);
-    if (quicly_send(conn.get(), datagrams.data(), &num_packets)) {
-      for (size_t i = 0; i < num_packets; ++i) {
-        auto datagram = datagrams.at(i);
-        auto res = send_quicly_datagram(handle, datagram);
-        if (auto err = get_if<sec>(&res)) {
-          return *err; // how to make error from this sec?
-        }
+    num_packets = sizeof(packets) / sizeof(packets[0]);
+    if ((ret = quicly_send(conn.get(), packets, &num_packets)) == 0) {
+      for (i = 0; i != num_packets; ++i) {
+        auto res = send_quicly_datagram(handle, packets[i]);
         auto pa = quicly_get_context(conn.get())->packet_allocator;
-        pa->free_packet(pa, datagram);
+        pa->free_packet(pa, packets[i]);
+        if (auto err = get_if<sec>(&res)) {
+          return make_error(*err, "send_quicly_datagram_failed");
+        }
       }
     } else {
-      break;
+      return make_error(sec::runtime_error, "quicly_send failed");
     }
-  } while (num_packets == datagrams.size() / sizeof(quicly_datagram_t));
+  } while (ret == 0 && num_packets == sizeof(packets) / sizeof(packets[0]));
   return sec::none;
 }
 

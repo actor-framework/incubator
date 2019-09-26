@@ -58,7 +58,8 @@ namespace net {
 
 struct received_data {
   received_data(size_t id, span<byte> data) : id(id) {
-    received.resize(data.size());
+    auto size = data.size();
+    received.reserve(size);
     received.insert(received.begin(), data.begin(), data.end());
   }
 
@@ -118,42 +119,37 @@ public:
       collected_(0),
       max_(1024),
       rd_flag_(receive_policy_flag::exactly),
-      cid_key_{},
-      next_cid_{},
-      key_exchanges_{},
-      tlsctx_{},
-      ctx_{},
-      hs_properties_{},
-      stream_callbacks{
-        quicly_streambuf_destroy, quicly_streambuf_egress_shift,
-        quicly_streambuf_egress_emit, detail::on_stop_sending,
-        // on_receive()
-        [](quicly_stream_t* stream, size_t off, const void* src,
-           size_t len) -> int {
-          if (auto ret = quicly_streambuf_ingress_receive(stream, off, src,
-                                                          len))
-            return ret;
-          ptls_iovec_t input;
-          if ((input = quicly_streambuf_ingress_get(stream)).len) {
-            CAF_LOG_TRACE("quicly received: " << CAF_ARG(input.len) << "bytes");
-            auto buf = reinterpret_cast<quicly_transport_streambuf*>(
-                         stream->data)
-                         ->buf;
-            auto id = detail::convert(stream->conn);
-            buf->emplace_back(id, as_writable_bytes(
-                                    make_span(input.base, input.len)));
-            quicly_streambuf_ingress_shift(stream, input.len);
-          }
-          return 0;
-        },
-        // on_receive_reset()
-        [](quicly_stream_t* stream, int err) -> int {
-          CAF_LOG_TRACE("quicly_received reset-stream: "
-                        << CAF_ARG(QUICLY_ERROR_GET_ERROR_CODE(err)));
-          return quicly_close(stream->conn,
-                              QUICLY_ERROR_FROM_APPLICATION_ERROR_CODE(0),
-                              "received reset");
-        }},
+      quicly_state_{
+        {quicly_streambuf_destroy, quicly_streambuf_egress_shift,
+         quicly_streambuf_egress_emit, detail::on_stop_sending,
+         // on_receive()
+         [](quicly_stream_t* stream, size_t off, const void* src,
+            size_t len) -> int {
+           if (auto ret = quicly_streambuf_ingress_receive(stream, off, src,
+                                                           len))
+             return ret;
+           ptls_iovec_t input;
+           if ((input = quicly_streambuf_ingress_get(stream)).len) {
+             CAF_LOG_TRACE("quicly received: " << CAF_ARG(input.len)
+                                               << "bytes");
+             auto buf = reinterpret_cast<quicly_transport_streambuf*>(
+                          stream->data)
+                          ->buf;
+             auto id = detail::convert(stream->conn);
+             buf->emplace_back(id, as_writable_bytes(
+                                     make_span(input.base, input.len)));
+             quicly_streambuf_ingress_shift(stream, input.len);
+           }
+           return 0;
+         },
+         // on_receive_reset()
+         [](quicly_stream_t* stream, int err) -> int {
+           CAF_LOG_TRACE("quicly_received reset-stream: "
+                         << CAF_ARG(QUICLY_ERROR_GET_ERROR_CODE(err)));
+           return quicly_close(stream->conn,
+                               QUICLY_ERROR_FROM_APPLICATION_ERROR_CODE(0),
+                               "received reset");
+         }}},
       known_conns_{},
       known_streams_{},
       save_resumption_token_{},
@@ -161,11 +157,16 @@ public:
       save_session_ticket_{},
       stream_open_{},
       closed_by_peer_{},
-      resumed_transport_params_{},
-      resumption_token_{},
-      address_token_aead_{},
-      session_file_path_{},
-      session_info_{} {
+      session_file_path_{} {
+    // nop
+  }
+
+  // -- public member functions ------------------------------------------------
+
+  template <class Parent>
+  error init(Parent& parent) {
+    if (auto err = dispatcher_.init(parent))
+      return err;
     // TODO: think of a more general way to initialize these callbacks
     stream_open_.transport = this;
     stream_open_.cb = [](quicly_stream_open_t* self,
@@ -200,40 +201,31 @@ public:
       auto tmp = static_cast<quicly_save_session_ticket<factory_type>*>(self);
       return tmp->transport->on_save_session_ticket(tls, src);
     };
-  }
-
-  // -- public member functions ------------------------------------------------
-
-  template <class Parent>
-  error init(Parent& parent) {
-    if (auto err = dispatcher_.init(parent))
-      return err;
     // initialize tls_context
-    tlsctx_.random_bytes = ptls_openssl_random_bytes;
-    tlsctx_.get_time = &ptls_get_time;
-    tlsctx_.key_exchanges = key_exchanges_;
-    tlsctx_.cipher_suites = ptls_openssl_cipher_suites;
-    tlsctx_.require_dhe_on_psk = 1;
-    tlsctx_.save_ticket = &save_session_ticket_;
+    quicly_state_.tlsctx.random_bytes = ptls_openssl_random_bytes;
+    quicly_state_.tlsctx.get_time = &ptls_get_time;
+    quicly_state_.tlsctx.key_exchanges = quicly_state_.key_exchanges;
+    quicly_state_.tlsctx.cipher_suites = ptls_openssl_cipher_suites;
+    quicly_state_.tlsctx.require_dhe_on_psk = 1;
+    quicly_state_.tlsctx.save_ticket = &save_session_ticket_;
     // initialize quicly_context
-    ctx_ = quicly_spec_context;
-    ctx_.tls = &tlsctx_;
-    ctx_.stream_open = &stream_open_;
-    ctx_.closed_by_peer = &closed_by_peer_;
-    ctx_.save_resumption_token = &save_resumption_token_;
-    ctx_.generate_resumption_token = &generate_resumption_token_;
+    quicly_state_.ctx = quicly_spec_context;
+    quicly_state_.ctx.tls = &quicly_state_.tlsctx;
+    quicly_state_.ctx.stream_open = &stream_open_;
+    quicly_state_.ctx.closed_by_peer = &closed_by_peer_;
+    quicly_state_.ctx.save_resumption_token = &save_resumption_token_;
+    quicly_state_.ctx.generate_resumption_token = &generate_resumption_token_;
     // initialize session_context
-    detail::setup_session_cache(ctx_.tls);
-    quicly_amend_ptls_context(ctx_.tls);
+    detail::setup_session_cache(quicly_state_.ctx.tls);
+    quicly_amend_ptls_context(quicly_state_.ctx.tls);
     // generate cypher context for en-/decryption
     uint8_t secret[PTLS_MAX_DIGEST_SIZE];
-    ctx_.tls->random_bytes(secret, ptls_openssl_sha256.digest_size);
-    address_token_aead_.enc = ptls_aead_new(&ptls_openssl_aes128gcm,
-                                            &ptls_openssl_sha256, 1, secret,
-                                            "");
-    address_token_aead_.dec = ptls_aead_new(&ptls_openssl_aes128gcm,
-                                            &ptls_openssl_sha256, 0, secret,
-                                            "");
+    quicly_state_.ctx.tls->random_bytes(secret,
+                                        ptls_openssl_sha256.digest_size);
+    quicly_state_.address_token_aead.enc = ptls_aead_new(
+      &ptls_openssl_aes128gcm, &ptls_openssl_sha256, 1, secret, "");
+    quicly_state_.address_token_aead.dec = ptls_aead_new(
+      &ptls_openssl_aes128gcm, &ptls_openssl_sha256, 0, secret, "");
     // read certificates from file.
     std::string path_to_certs;
     if (auto path = getenv("QUICLY_CERTS")) {
@@ -244,23 +236,26 @@ public:
     }
     auto certificate_chain_path = (path_to_certs + std::string("server.crt"));
     auto private_key_path = (path_to_certs + std::string("server.key"));
-    if (detail::load_certificate_chain(ctx_.tls, certificate_chain_path))
+    if (detail::load_certificate_chain(quicly_state_.ctx.tls,
+                                       certificate_chain_path))
       return make_error(sec::runtime_error, "failed to load certificate chain: "
                                               + certificate_chain_path);
-    if (detail::load_private_key(ctx_.tls, private_key_path))
+    if (detail::load_private_key(quicly_state_.ctx.tls, private_key_path))
       return make_error(sec::runtime_error,
                         "failed to load private keys: " + private_key_path);
-    CAF_ASSERT(ctx_.tls->certificates.count != 0
-               || ctx_.tls->sign_certificate != nullptr);
-    key_exchanges_[0] = &ptls_openssl_secp256r1;
-    tlsctx_.random_bytes(cid_key_, sizeof(cid_key_) - 1);
-    auto iovec = ptls_iovec_init(cid_key_, sizeof(cid_key_) - 1);
+    CAF_ASSERT(quicly_state_.ctx.tls->certificates.count != 0
+               || quicly_state_.ctx.tls->sign_certificate != nullptr);
+    quicly_state_.key_exchanges[0] = &ptls_openssl_secp256r1;
+    quicly_state_.tlsctx.random_bytes(quicly_state_.cid_key,
+                                      sizeof(quicly_state_.cid_key) - 1);
+    auto iovec = ptls_iovec_init(quicly_state_.cid_key,
+                                 sizeof(quicly_state_.cid_key) - 1);
     auto cid_cipher = &ptls_openssl_bfecb;
     auto reset_token_cipher = &ptls_openssl_aes128ecb;
     auto hash = &ptls_openssl_sha256;
     auto default_encryptor = quicly_new_default_cid_encryptor(
       cid_cipher, reset_token_cipher, hash, iovec);
-    ctx_.cid_encryptor = default_encryptor;
+    quicly_state_.ctx.cid_encryptor = default_encryptor;
     parent.mask_add(operation::read);
     return none;
   }
@@ -283,13 +278,13 @@ public:
     size_t off = 0;
     while (off != read_res) {
       quicly_decoded_packet_t packet;
-      auto plen = quicly_decode_packet(&ctx_, &packet, buf + off,
+      auto plen = quicly_decode_packet(&quicly_state_.ctx, &packet, buf + off,
                                        read_pair.first - off);
       if (plen == SIZE_MAX)
         break;
       if (QUICLY_PACKET_IS_LONG_HEADER(packet.octets.base[0])) {
         if (packet.version != QUICLY_PROTOCOL_VERSION) {
-          auto rp = quicly_send_version_negotiation(&ctx_,
+          auto rp = quicly_send_version_negotiation(&quicly_state_.ctx,
                                                     reinterpret_cast<sockaddr*>(
                                                       &sa),
                                                     packet.cid.src, nullptr,
@@ -327,24 +322,26 @@ public:
         quicly_address_token_plaintext_t token_buf;
         if (packet.token.len != 0
             && quicly_decrypt_address_token(const_cast<ptls_aead_context_t*>(
-                                              address_token_aead_.dec),
+                                              quicly_state_.address_token_aead
+                                                .dec),
                                             &token_buf, packet.token.base,
                                             packet.token.len, 0)
                  == 0
             && detail::validate_token(reinterpret_cast<sockaddr*>(&sa),
                                       packet.cid.src, packet.cid.dest.encrypted,
-                                      &token_buf, &ctx_))
+                                      &token_buf, &quicly_state_.ctx))
           token = &token_buf;
 
         quicly_conn_t* conn = nullptr;
-        int accept_res = quicly_accept(&conn, &ctx_, nullptr,
+        int accept_res = quicly_accept(&conn, &quicly_state_.ctx, nullptr,
                                        reinterpret_cast<sockaddr*>(&sa),
-                                       &packet, token, &next_cid_, nullptr);
+                                       &packet, token, &quicly_state_.next_cid,
+                                       nullptr);
         if (accept_res == 0 && conn) {
           CAF_LOG_TRACE("accepted new quic connection");
           auto id = detail::convert(conn);
           auto conn_ptr = detail::make_quicly_conn_ptr(conn);
-          ++next_cid_.master_id;
+          ++quicly_state_.next_cid.master_id;
           if (auto err = dispatcher_.add_new_worker(parent, node_id{}, id)) {
             CAF_LOG_ERROR("add_new_worker returned an error: " << CAF_ARG(err));
             return false;
@@ -369,7 +366,7 @@ public:
          * contain a non-authenticating CID, ... */
         if (packet.cid.dest.plaintext.node_id == 0
             && packet.cid.dest.plaintext.thread_id == 0) {
-          auto dgram = quicly_send_stateless_reset(&ctx_,
+          auto dgram = quicly_send_stateless_reset(&quicly_state_.ctx,
                                                    reinterpret_cast<sockaddr*>(
                                                      &sa),
                                                    nullptr,
@@ -385,7 +382,8 @@ public:
       off += plen;
     }
     for (const auto& p : known_conns_) {
-      if (quicly_get_first_timeout(p.second.get()) <= ctx_.now->cb(ctx_.now)) {
+      if (quicly_get_first_timeout(p.second.get())
+          <= quicly_state_.ctx.now->cb(quicly_state_.ctx.now)) {
         if (detail::send_pending_datagrams(handle_, p.second) != sec::none) {
           auto id = detail::convert(p.second);
           known_conns_.erase(id);
@@ -531,7 +529,7 @@ private:
     if (auto ret = quicly_streambuf_create(stream,
                                            sizeof(quicly_transport_streambuf)))
       return ret;
-    stream->callbacks = &stream_callbacks;
+    stream->callbacks = &quicly_state_.stream_callbacks;
     reinterpret_cast<quicly_transport_streambuf*>(stream->data)->buf
       = read_buf_;
     return 0;
@@ -545,30 +543,37 @@ private:
   }
 
   int on_save_resumption_token(quicly_conn_t* conn, ptls_iovec_t token) {
-    free(session_info_.address_token.base);
-    session_info_.address_token = ptls_iovec_init(malloc(token.len), token.len);
-    memcpy(session_info_.address_token.base, token.base, token.len);
+    free(quicly_state_.session_info.address_token.base);
+    quicly_state_.session_info.address_token = ptls_iovec_init(malloc(
+                                                                 token.len),
+                                                               token.len);
+    memcpy(quicly_state_.session_info.address_token.base, token.base,
+           token.len);
     return detail::save_session(quicly_get_peer_transport_parameters(conn),
-                                session_file_path_, session_info_);
+                                session_file_path_, quicly_state_.session_info);
   }
 
   int on_generate_resumption_token(ptls_buffer_t* buf,
                                    quicly_address_token_plaintext_t* token) {
-    return quicly_encrypt_address_token(tlsctx_.random_bytes,
+    return quicly_encrypt_address_token(quicly_state_.tlsctx.random_bytes,
                                         const_cast<ptls_aead_context_t*>(
-                                          address_token_aead_.enc),
+                                          quicly_state_.address_token_aead.enc),
                                         buf, buf->off, token);
   }
 
   int on_save_session_ticket(ptls_t* tls, ptls_iovec_t src) {
-    free(session_info_.tls_ticket.base);
-    session_info_.tls_ticket = ptls_iovec_init(malloc(src.len), src.len);
-    memcpy(session_info_.tls_ticket.base, src.base, src.len);
+    free(quicly_state_.session_info.tls_ticket.base);
+    quicly_state_.session_info.tls_ticket = ptls_iovec_init(malloc(src.len),
+                                                            src.len);
+    memcpy(quicly_state_.session_info.tls_ticket.base, src.base, src.len);
 
     auto conn = reinterpret_cast<quicly_conn_t*>(*ptls_get_data_ptr(tls));
     return detail::save_session(quicly_get_peer_transport_parameters(conn),
-                                session_file_path_, session_info_);
+                                session_file_path_, quicly_state_.session_info);
   }
+
+  // -- transport state --------------------------------------------------------
+
   dispatcher_type dispatcher_;
   udp_datagram_socket handle_;
 
@@ -583,31 +588,21 @@ private:
 
   // -- quicly state -----------------------------------------------------------
 
-  char cid_key_[17];
-  quicly_cid_plaintext_t next_cid_;
-  ptls_key_exchange_algorithm_t* key_exchanges_[128];
-  ptls_context_t tlsctx_;
-  quicly_context_t ctx_;
-  ptls_handshake_properties_t hs_properties_;
+  detail::quicly_state quicly_state_;
 
-  quicly_stream_callbacks_t stream_callbacks;
   std::unordered_map<size_t, detail::quicly_conn_ptr> known_conns_;
   // TODO: wrapping in smart_ptr is not the right thing.. But what is?
   std::unordered_map<size_t, quicly_stream_t*> known_streams_;
 
-  // -- quicly callbacks -------------------------------------------------------
-
+  // callbacks
   quicly_save_resumption_token<factory_type> save_resumption_token_;
   quicly_generate_resumption_token<factory_type> generate_resumption_token_;
   quicly_save_session_ticket<factory_type> save_session_ticket_;
   quicly_stream_open<factory_type> stream_open_;
   quicly_closed_by_peer<factory_type> closed_by_peer_;
 
-  quicly_transport_parameters_t resumed_transport_params_;
-  ptls_iovec_t resumption_token_;
-  detail::address_token_aead address_token_aead_;
+  // -- file paths -------------------------------------------------------------
   std::string session_file_path_;
-  detail::session_info session_info_;
 };
 
 } // namespace net
