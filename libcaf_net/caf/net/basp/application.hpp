@@ -54,7 +54,8 @@ public:
 
   using byte_span = span<const byte>;
 
-  using write_packet_callback = callback<byte_span, byte_span>;
+  using write_packet_callback = callback<std::vector<byte>, std::vector<byte>,
+                                         std::vector<byte>>;
 
   using proxy_registry_ptr = std::shared_ptr<proxy_registry>;
 
@@ -73,7 +74,8 @@ public:
       return err;
     auto hdr = to_bytes(header{message_type::handshake,
                                static_cast<uint32_t>(buf_.size()), version});
-    parent.write_packet(hdr, buf_);
+    std::vector<byte> header(hdr.begin(), hdr.end());
+    parent.write_packet(std::move(header), std::vector<byte>{}, buf_);
     parent.transport().configure_read(receive_policy::exactly(header_size));
     return none;
   }
@@ -101,14 +103,18 @@ public:
     header hdr{message_type::actor_message, static_cast<uint32_t>(buf_.size()),
                ptr->msg->mid.integer_value()};
     auto bytes = to_bytes(hdr);
-    parent.write_packet(make_span(bytes), make_span(buf_));
+    // TODO: figure out how NOT to copy buf_..
+    parent.write_packet({bytes.begin(), bytes.end()}, {}, buf_);
     return none;
   }
 
   template <class Parent>
   error handle_data(Parent& parent, byte_span bytes) {
-    auto write_packet = make_callback([&](byte_span hdr, byte_span payload) {
-      parent.write_packet(hdr, payload);
+    auto write_packet = make_callback([&](std::vector<byte> hdr,
+                                          std::vector<byte> payload_elem,
+                                          std::vector<byte> payload) {
+      parent.write_packet(std::move(hdr), std::move(payload_elem),
+                          std::move(payload));
       return none;
     });
     size_t next_read_size = header_size;
@@ -120,8 +126,11 @@ public:
 
   template <class Parent>
   void resolve(Parent& parent, string_view path, actor listener) {
-    auto write_packet = make_callback([&](byte_span hdr, byte_span payload) {
-      parent.write_packet(hdr, payload);
+    auto write_packet = make_callback([&](std::vector<byte> hdr,
+                                          std::vector<byte> payload_elem,
+                                          std::vector<byte> payload) {
+      parent.write_packet(std::move(hdr), std::move(payload_elem),
+                          std::move(payload));
       return none;
     });
     resolve_remote_path(write_packet, path, listener);

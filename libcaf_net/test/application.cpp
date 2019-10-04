@@ -64,8 +64,10 @@ struct fixture : test_coordinator_fixture<>, proxy_registry::backend {
     input = to_buf(xs...);
   }
 
-  void write_packet(span<const byte> hdr, span<const byte> payload) {
+  void write_packet(std::vector<byte> hdr, std::vector<byte> payload_elem,
+                    std::vector<byte> payload) {
     output.insert(output.end(), hdr.begin(), hdr.end());
+    output.insert(output.end(), payload_elem.begin(), payload_elem.end());
     output.insert(output.end(), payload.begin(), payload.end());
   }
 

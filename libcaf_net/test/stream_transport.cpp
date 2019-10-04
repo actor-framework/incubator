@@ -72,10 +72,16 @@ public:
     return none;
   }
 
-  template <class Transport>
-  void write_message(Transport& transport,
+  template <class Parent>
+  void write_message(Parent& parent,
                      std::unique_ptr<endpoint_manager::message> msg) {
-    transport.write_packet(span<byte>{}, msg->payload);
+    auto transport = parent.transport();
+    auto header = transport.get_buffer();
+    auto payload_elem = transport.get_buffer();
+    header.clear();
+    payload_elem.clear();
+    parent.write_packet(std::move(header), std::move(payload_elem),
+                        std::move(msg->payload));
   }
 
   template <class Parent>
@@ -155,7 +161,8 @@ CAF_TEST(resolve and proxy communication) {
   std::vector<byte> read_buf(1024);
   auto buf = std::make_shared<std::vector<byte>>();
   auto sockets = unbox(make_stream_socket_pair());
-  nonblocking(sockets.second, true);
+  if (auto err = nonblocking(sockets.second, true))
+    CAF_FAIL("nonblocking returned an error: " << err);
   auto guard = detail::make_scope_guard([&] { close(sockets.second); });
   auto mgr = make_endpoint_manager(mpx, sys,
                                    transport_type{sockets.first,

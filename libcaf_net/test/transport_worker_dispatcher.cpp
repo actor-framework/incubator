@@ -66,7 +66,8 @@ public:
   void write_message(Transport& transport,
                      std::unique_ptr<endpoint_manager::message> msg) {
     rec_buf_->push_back(static_cast<byte>(id_));
-    transport.write_packet(span<byte>{}, make_span(msg->payload));
+    transport.write_packet(std::vector<byte>{}, std::vector<byte>{},
+                           std::move(msg->payload));
   }
 
   template <class Parent>
@@ -121,12 +122,15 @@ struct dummy_transport {
 
   using application_type = dummy_application;
 
-  dummy_transport(std::shared_ptr<std::vector<byte>> buf) : buf_(buf) {
+  dummy_transport(std::shared_ptr<std::vector<byte>> buf)
+    : buf_(std::move(buf)) {
   }
 
   template <class IdType>
-  void write_packet(span<const byte> header, span<const byte> payload, IdType) {
+  void write_packet(IdType, std::vector<byte> header,
+                    std::vector<byte> payload_elem, std::vector<byte> payload) {
     buf_->insert(buf_->end(), header.begin(), header.end());
+    buf_->insert(buf_->end(), payload_elem.begin(), payload_elem.end());
     buf_->insert(buf_->end(), payload.begin(), payload.end());
   }
 
@@ -136,7 +140,7 @@ private:
 
 struct testdata {
   testdata(uint8_t worker_id, node_id id, ip_endpoint ep)
-    : worker_id(worker_id), nid(id), ep(ep) {
+    : worker_id(worker_id), nid(std::move(id)), ep(ep) {
     // nop
   }
 
@@ -178,7 +182,8 @@ struct fixture : host_fixture {
   make_dummy_message(node_id nid) {
     actor_id aid = 42;
     actor_config cfg;
-    auto p = make_actor<dummy_actor, strong_actor_ptr>(aid, nid, &sys, cfg);
+    auto p = make_actor<dummy_actor, strong_actor_ptr>(aid, std::move(nid),
+                                                       &sys, cfg);
     auto test_span = as_bytes(make_span(hello_test));
     std::vector<byte> payload(test_span.begin(), test_span.end());
     auto strong_actor = actor_cast<strong_actor_ptr>(p);

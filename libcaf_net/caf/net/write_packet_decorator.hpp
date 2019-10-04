@@ -59,10 +59,11 @@ public:
   // -- member functions -------------------------------------------------------
 
   template <class... Ts>
-  void write_packet(span<const byte> header, span<const byte> payload,
-                    Ts&&... xs) {
-    parent_.write_packet(header, payload, std::forward<Ts>(xs)...,
-                         object_.id());
+  void write_packet(std::vector<byte> header, std::vector<byte> payload_elem,
+                    std::vector<byte> payload, Ts&&... xs) {
+    parent_.write_packet(object_.id(), std::move(header),
+                         std::move(payload_elem), std::move(payload),
+                         std::forward<Ts>(xs)...);
   }
 
   void cancel_timeout(atom_value type, uint64_t id) {

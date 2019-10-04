@@ -20,6 +20,7 @@
 
 #include "caf/byte.hpp"
 #include "caf/error.hpp"
+#include "caf/expected.hpp"
 #include "caf/fwd.hpp"
 #include "caf/logger.hpp"
 #include "caf/net/endpoint_manager.hpp"
@@ -55,7 +56,6 @@ public:
       collected_(0),
       max_(1024),
       rd_flag_(net::receive_policy_flag::exactly),
-      written_(0),
       manager_(nullptr) {
     // nop
   }
@@ -183,38 +183,56 @@ public:
     prepare_next_read();
   }
 
-  void write_packet(span<const byte> header, span<const byte> payload,
-                    typename worker_type::id_type) {
-    if (write_buf_.empty())
+  void write_packet(typename worker_type::id_type, std::vector<byte> header,
+                    std::vector<byte> payload_elem, std::vector<byte> payload) {
+    if (write_queue_.empty())
       manager().mask_add(operation::write);
-    write_buf_.insert(write_buf_.end(), header.begin(), header.end());
-    write_buf_.insert(write_buf_.end(), payload.begin(), payload.end());
+    write_queue_.emplace_back(std::move(header));
+    write_queue_.emplace_back(std::move(payload_elem));
+    write_queue_.emplace_back(std::move(payload));
+  }
+
+  std::vector<byte> get_buffer() {
+    if (empty_buffers_.empty()) {
+      return {};
+    } else {
+      auto buf = std::move(empty_buffers_.front());
+      empty_buffers_.pop_front();
+      return buf; // not moved because that would prevent copy-elision??
+    }
   }
 
 private:
   // -- private member functions -----------------------------------------------
 
   bool write_some() {
-    if (write_buf_.empty())
+    // nothing to write
+    if (write_queue_.empty())
       return false;
-    auto len = write_buf_.size() - written_;
-    auto buf = write_buf_.data() + written_;
-    CAF_LOG_TRACE(CAF_ARG(handle_.id) << CAF_ARG(len));
-    auto ret = write(handle_, make_span(buf, len));
-    if (auto num_bytes = get_if<size_t>(&ret)) {
-      CAF_LOG_DEBUG(CAF_ARG(len) << CAF_ARG(handle_.id) << CAF_ARG(*num_bytes));
-      // Update state.
-      written_ += *num_bytes;
-      if (written_ >= write_buf_.size()) {
-        written_ = 0;
-        write_buf_.clear();
+    while (!write_queue_.empty()) {
+      // get size of send buffer
+      auto ret = send_buffer_size(handle_);
+      if (ret) {
+        CAF_LOG_ERROR("send_buffer_size returned an error" << CAF_ARG(ret));
         return false;
       }
-    } else {
-      auto err = get<sec>(ret);
-      CAF_LOG_DEBUG("send failed" << CAF_ARG(err));
-      worker_.handle_error(err);
-      return false;
+      // is send buffer of socket full?
+      if (write_queue_.begin()->size() > *ret)
+        return true;
+      CAF_LOG_TRACE(CAF_ARG(handle_.id));
+      auto write_ret = write(handle_, make_span(*write_queue_.begin()));
+      if (auto num_bytes = get_if<size_t>(&write_ret)) {
+        CAF_LOG_DEBUG(CAF_ARG(handle_.id) << CAF_ARG(*num_bytes));
+        if (*num_bytes >= write_queue_.begin()->size()) {
+          empty_buffers_.emplace_back(std::move(*write_queue_.begin()));
+          write_queue_.pop_front();
+        }
+      } else {
+        auto err = get<sec>(write_ret);
+        CAF_LOG_DEBUG("send failed" << CAF_ARG(err));
+        worker_.handle_error(err);
+        return false;
+      }
     }
     return true;
   }
@@ -223,7 +241,8 @@ private:
   stream_socket handle_;
 
   std::vector<byte> read_buf_;
-  std::vector<byte> write_buf_;
+  std::deque<std::vector<byte>> write_queue_;
+  std::deque<std::vector<byte>> empty_buffers_;
 
   // TODO implement retries using this member!
   // size_t max_consecutive_reads_;
@@ -231,8 +250,6 @@ private:
   size_t collected_;
   size_t max_;
   receive_policy_flag rd_flag_;
-
-  size_t written_;
 
   endpoint_manager* manager_;
 };

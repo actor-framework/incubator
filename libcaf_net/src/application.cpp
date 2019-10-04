@@ -88,7 +88,11 @@ void application::resolve_remote_path(write_packet_callback& write_packet,
   auto req_id = next_request_id_++;
   auto hdr = to_bytes(header{message_type::resolve_request,
                              static_cast<uint32_t>(buf_.size()), req_id});
-  if (auto err = write_packet(hdr, buf_)) {
+  // TODO: get transport somehow to call `get_buffer`
+  std::vector<byte> header_buf(hdr.begin(), hdr.end());
+  // TODO: figure out how NOT to copy buf_..
+  if (auto err = write_packet(std::move(header_buf), std::vector<byte>{},
+                              buf_)) {
     CAF_LOG_ERROR("unable to write resolve_request header");
     return;
   }
@@ -242,7 +246,10 @@ error application::handle_resolve_request(write_packet_callback& write_packet,
   auto out_hdr = to_bytes(header{message_type::resolve_response,
                                  static_cast<uint32_t>(buf_.size()),
                                  hdr.operation_data});
-  return write_packet(out_hdr, buf_);
+  // TODO: figure out how NOT to copy out_hdr..
+  std::vector<byte> header_buf(out_hdr.begin(), out_hdr.end());
+  // TODO: figure out how NOT to copy buf_..
+  return write_packet(std::move(header_buf), {}, buf_);
 }
 
 error application::handle_resolve_response(write_packet_callback&, header hdr,

@@ -41,6 +41,7 @@ namespace {
 constexpr string_view hello_test = "hello test!";
 
 struct application_result {
+  application_result() = default;
   bool initialized;
   std::vector<byte> data_buffer;
   std::string resolve_path;
@@ -57,7 +58,7 @@ struct transport_result {
 
 class dummy_application {
 public:
-  dummy_application(std::shared_ptr<application_result> res)
+  explicit dummy_application(std::shared_ptr<application_result> res)
     : res_(std::move(res)){
       // nop
     };
@@ -73,7 +74,13 @@ public:
   template <class Parent>
   void write_message(Parent& parent,
                      std::unique_ptr<endpoint_manager::message> msg) {
-    parent.write_packet(span<const byte>{}, msg->payload);
+    auto transport = parent.transport();
+    auto header = transport.get_buffer();
+    header.clear();
+    auto payload_elem = transport.get_buffer();
+    payload_elem.clear();
+    parent.write_packet(std::move(header), std::move(payload_elem),
+                        std::move(msg->payload));
   }
 
   template <class Parent>
@@ -118,16 +125,26 @@ public:
 
   using application_type = dummy_application;
 
-  dummy_transport(std::shared_ptr<transport_result> res) : res_(res) {
+  dummy_transport(std::shared_ptr<transport_result> res)
+    : res_(std::move(res)) {
     // nop
   }
 
-  void write_packet(span<const byte> header, span<const byte> payload,
-                    ip_endpoint ep) {
+  void write_packet(ip_endpoint ep, std::vector<byte> header,
+                    std::vector<byte> payload_elem, std::vector<byte> payload) {
     auto& buf = res_->packet_buffer;
     buf.insert(buf.begin(), header.begin(), header.end());
+    buf.insert(buf.begin(), payload_elem.begin(), payload_elem.end());
     buf.insert(buf.begin(), payload.begin(), payload.end());
     res_->ep = ep;
+  }
+
+  static std::vector<byte> get_buffer() {
+    return std::vector<byte>{};
+  }
+
+  dummy_transport& transport() {
+    return *this;
   }
 
 private:
