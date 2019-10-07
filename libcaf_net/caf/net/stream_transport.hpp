@@ -198,7 +198,7 @@ public:
     } else {
       auto buf = std::move(empty_buffers_.front());
       empty_buffers_.pop_front();
-      return buf; // not moved because that would prevent copy-elision??
+      return buf;
     }
   }
 
@@ -206,13 +206,21 @@ private:
   // -- private member functions -----------------------------------------------
 
   bool write_some() {
+    auto recycle = [&]() {
+      empty_buffers_.emplace_back(std::move(*write_queue_.begin()));
+      write_queue_.pop_front();
+    };
     // nothing to write
     if (write_queue_.empty())
       return false;
-    while (!write_queue_.empty()) {
+    do {
+      if (write_queue_.front().empty()) {
+        recycle();
+        continue;
+      }
       // get size of send buffer
       auto ret = send_buffer_size(handle_);
-      if (ret) {
+      if (!ret) {
         CAF_LOG_ERROR("send_buffer_size returned an error" << CAF_ARG(ret));
         return false;
       }
@@ -224,8 +232,7 @@ private:
       if (auto num_bytes = get_if<size_t>(&write_ret)) {
         CAF_LOG_DEBUG(CAF_ARG(handle_.id) << CAF_ARG(*num_bytes));
         if (*num_bytes >= write_queue_.begin()->size()) {
-          empty_buffers_.emplace_back(std::move(*write_queue_.begin()));
-          write_queue_.pop_front();
+          recycle();
         }
       } else {
         auto err = get<sec>(write_ret);
@@ -233,8 +240,8 @@ private:
         worker_.handle_error(err);
         return false;
       }
-    }
-    return true;
+    } while (!write_queue_.empty());
+    return false;
   }
 
   worker_type worker_;
