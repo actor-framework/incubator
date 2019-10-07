@@ -222,6 +222,10 @@ variant<size_t, sec> write(stream_socket x,
 
 variant<size_t, sec>
 check_stream_socket_io_res(std::make_signed<size_t>::type res) {
+  // TODO should send and receive be checked equally?
+  // send could return '0' if no data was written which is valid.
+  // receive returns '0' in case of disconnect.
+  // https://stackoverflow.com/questions/3081952/with-c-tcp-sockets-can-send-return-zero
   if (res == 0)
     return sec::socket_disconnected;
   if (res < 0) {

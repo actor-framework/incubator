@@ -101,8 +101,7 @@ public:
   void write_message(Parent& parent,
                      std::unique_ptr<net::endpoint_manager::message> msg) {
     header_type header{static_cast<uint32_t>(msg->payload.size())};
-    auto& transport = parent.transport();
-    auto header_buf = transport.get_buffer();
+    auto header_buf = parent.transport().get_buffer();
     header_buf.clear();
     serializer_impl<std::vector<byte>> sink(nullptr, header_buf);
     sink(header);
@@ -150,7 +149,8 @@ public:
     } else {
       if (data.size() != sizeof(header_type))
         CAF_FAIL("");
-      memcpy(&header_, data.data(), sizeof(header_type));
+      binary_deserializer source(nullptr, data);
+      source(header_);
       if (header_.payload == 0)
         Base::handle_packet(parent, header_, span<const byte>{});
       else
@@ -195,7 +195,7 @@ CAF_TEST(receive) {
   using application_type = extend<string_application>::with<
     stream_string_application>;
   using transport_type = stream_transport<application_type>;
-  std::vector<byte> read_buf(1024);
+  std::vector<byte> read_buf;
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);
   auto buf = std::make_shared<std::vector<byte>>();
   auto sockets = unbox(make_stream_socket_pair());

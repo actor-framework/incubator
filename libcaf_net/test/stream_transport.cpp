@@ -75,9 +75,8 @@ public:
   template <class Parent>
   void write_message(Parent& parent,
                      std::unique_ptr<endpoint_manager::message> msg) {
-    auto transport = parent.transport();
-    auto header = transport.get_buffer();
-    auto payload_elem = transport.get_buffer();
+    auto header = parent.transport().get_buffer();
+    auto payload_elem = parent.transport().get_buffer();
     header.clear();
     payload_elem.clear();
     parent.write_packet(std::move(header), std::move(payload_elem),
@@ -109,8 +108,8 @@ public:
     // nop
   }
 
-  void handle_error(sec) {
-    // nop
+  void handle_error(sec err) {
+    CAF_FAIL("handle_error: " << to_string(err));
   }
 
   static expected<std::vector<byte>> serialize(actor_system& sys,
@@ -132,7 +131,7 @@ CAF_TEST_FIXTURE_SCOPE(endpoint_manager_tests, fixture)
 
 CAF_TEST(receive) {
   using transport_type = stream_transport<dummy_application>;
-  std::vector<byte> read_buf(1024);
+  std::vector<byte> read_buf;
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);
   auto buf = std::make_shared<std::vector<byte>>();
   auto sockets = unbox(make_stream_socket_pair());
@@ -158,11 +157,13 @@ CAF_TEST(receive) {
 
 CAF_TEST(resolve and proxy communication) {
   using transport_type = stream_transport<dummy_application>;
-  std::vector<byte> read_buf(1024);
+  std::vector<byte> read_buf;
   auto buf = std::make_shared<std::vector<byte>>();
   auto sockets = unbox(make_stream_socket_pair());
   if (auto err = nonblocking(sockets.second, true))
     CAF_FAIL("nonblocking returned an error: " << err);
+  CAF_CHECK_EQUAL(read(sockets.second, make_span(read_buf)),
+                  sec::unavailable_or_would_block);
   auto guard = detail::make_scope_guard([&] { close(sockets.second); });
   auto mgr = make_endpoint_manager(mpx, sys,
                                    transport_type{sockets.first,

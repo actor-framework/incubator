@@ -198,7 +198,7 @@ public:
     } else {
       auto buf = std::move(empty_buffers_.front());
       empty_buffers_.pop_front();
-      return buf; // not moved because that would prevent copy-elision??
+      return buf;
     }
   }
 
@@ -210,9 +210,14 @@ private:
     if (write_queue_.empty())
       return false;
     while (!write_queue_.empty()) {
+      if (write_queue_.front().empty()) {
+        // emplace used buffer back to empty buffers
+        write_queue_.pop_front();
+        continue;
+      }
       // get size of send buffer
       auto ret = send_buffer_size(handle_);
-      if (ret) {
+      if (!ret) {
         CAF_LOG_ERROR("send_buffer_size returned an error" << CAF_ARG(ret));
         return false;
       }
