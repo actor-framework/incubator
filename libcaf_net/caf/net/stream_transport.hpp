@@ -207,6 +207,7 @@ private:
 
   bool write_some() {
     auto recycle = [&]() {
+      empty_buffers_.front().clear();
       empty_buffers_.emplace_back(std::move(*write_queue_.begin()));
       write_queue_.pop_front();
     };

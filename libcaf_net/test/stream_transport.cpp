@@ -77,8 +77,6 @@ public:
                      std::unique_ptr<endpoint_manager::message> msg) {
     auto header = parent.transport().get_buffer();
     auto payload_elem = parent.transport().get_buffer();
-    header.clear();
-    payload_elem.clear();
     parent.write_packet(std::move(header), std::move(payload_elem),
                         std::move(msg->payload));
   }

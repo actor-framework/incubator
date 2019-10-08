@@ -102,7 +102,6 @@ public:
                      std::unique_ptr<net::endpoint_manager::message> msg) {
     header_type header{static_cast<uint32_t>(msg->payload.size())};
     auto header_buf = parent.transport().get_buffer();
-    header_buf.clear();
     serializer_impl<std::vector<byte>> sink(nullptr, header_buf);
     sink(header);
     parent.write_packet(std::move(header_buf), std::vector<byte>{},

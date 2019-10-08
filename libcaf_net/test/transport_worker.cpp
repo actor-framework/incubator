@@ -74,11 +74,8 @@ public:
   template <class Parent>
   void write_message(Parent& parent,
                      std::unique_ptr<endpoint_manager::message> msg) {
-    auto transport = parent.transport();
-    auto header = transport.get_buffer();
-    header.clear();
-    auto payload_elem = transport.get_buffer();
-    payload_elem.clear();
+    auto header = parent.transport().get_buffer();
+    auto payload_elem = parent.transport().get_buffer();
     parent.write_packet(std::move(header), std::move(payload_elem),
                         std::move(msg->payload));
   }
