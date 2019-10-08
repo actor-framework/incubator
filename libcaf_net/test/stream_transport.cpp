@@ -131,7 +131,7 @@ CAF_TEST_FIXTURE_SCOPE(endpoint_manager_tests, fixture)
 
 CAF_TEST(receive) {
   using transport_type = stream_transport<dummy_application>;
-  std::vector<byte> read_buf{};
+  std::vector<byte> read_buf(1024);
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);
   auto buf = std::make_shared<std::vector<byte>>();
   auto sockets = unbox(make_stream_socket_pair());
@@ -157,7 +157,7 @@ CAF_TEST(receive) {
 
 CAF_TEST(resolve and proxy communication) {
   using transport_type = stream_transport<dummy_application>;
-  std::vector<byte> read_buf{1024};
+  std::vector<byte> read_buf(1024);
   auto buf = std::make_shared<std::vector<byte>>();
   auto sockets = unbox(make_stream_socket_pair());
   if (auto err = nonblocking(sockets.second, true))

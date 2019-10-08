@@ -195,7 +195,7 @@ CAF_TEST(receive) {
   using application_type = extend<string_application>::with<
     stream_string_application>;
   using transport_type = stream_transport<application_type>;
-  std::vector<byte> read_buf;
+  std::vector<byte> read_buf(1024);
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);
   auto buf = std::make_shared<std::vector<byte>>();
   auto sockets = unbox(make_stream_socket_pair());
