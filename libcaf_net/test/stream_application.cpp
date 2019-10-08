@@ -35,7 +35,6 @@
 #include "caf/net/multiplexer.hpp"
 #include "caf/net/stream_socket.hpp"
 #include "caf/net/stream_transport.hpp"
-#include "caf/none.hpp"
 #include "caf/uri.hpp"
 
 using namespace caf;
@@ -214,7 +213,19 @@ CAF_TEST(resolve request without result) {
   CAF_CHECK_EQUAL(app->state(), basp::connection_state::await_header);
   actor_id aid;
   std::set<std::string> ifs;
-  RECEIVE(basp::message_type::resolve_response, 42u, aid, ifs);
+  // RECEIVE(basp::message_type::resolve_response, 42u, aid, ifs);
+  buffer_type buf(basp::header_size);
+  if (fetch_size(read(sock, make_span(buf))) != basp::header_size)
+    CAF_FAIL("unable to read " << basp::header_size << " bytes");
+  auto hdr = basp::header::from_bytes(buf);
+  CAF_CHECK_EQUAL(hdr.type, basp::message_type::resolve_response);
+  CAF_CHECK_EQUAL(hdr.operation_data, 42u);
+  buf.resize(hdr.payload_len);
+  if (fetch_size(read(sock, make_span(buf))) != size_t{hdr.payload_len})
+    CAF_FAIL("unable to read " << hdr.payload_len << " bytes");
+  binary_deserializer source{sys, buf};
+  if (auto err = source(aid, ifs))
+    CAF_FAIL("failed to receive data: " << sys.render(err));
   CAF_CHECK_EQUAL(aid, 0u);
   CAF_CHECK(ifs.empty());
 }

@@ -110,6 +110,10 @@ struct fixture : test_coordinator_fixture<>, proxy_registry::backend {
     return *this;
   }
 
+  static std::vector<byte> get_buffer() {
+    return {};
+  }
+
   template <class... Ts>
   void configure_read(Ts...) {
     // nop

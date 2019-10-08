@@ -77,93 +77,6 @@ strong_actor_ptr application::resolve_local_path(string_view path) {
   return nullptr;
 }
 
-void application::resolve_remote_path(write_packet_callback& write_packet,
-                                      string_view path, actor listener) {
-  buf_.clear();
-  serializer_impl<buffer_type> sink{system(), buf_};
-  if (auto err = sink(path)) {
-    CAF_LOG_ERROR("unable to serialize path");
-    return;
-  }
-  auto req_id = next_request_id_++;
-  auto hdr = to_bytes(header{message_type::resolve_request,
-                             static_cast<uint32_t>(buf_.size()), req_id});
-  // TODO: get transport somehow to call `get_buffer`
-  std::vector<byte> header_buf(hdr.begin(), hdr.end());
-  // TODO: figure out how NOT to copy buf_..
-  if (auto err = write_packet(std::move(header_buf), std::vector<byte>{},
-                              buf_)) {
-    CAF_LOG_ERROR("unable to write resolve_request header");
-    return;
-  }
-  response_promise rp{nullptr, actor_cast<strong_actor_ptr>(listener),
-                      no_stages, make_message_id()};
-  pending_resolves_.emplace(req_id, std::move(rp));
-}
-
-error application::handle(size_t& next_read_size,
-                          write_packet_callback& write_packet,
-                          byte_span bytes) {
-  switch (state_) {
-    case connection_state::await_handshake_header: {
-      if (bytes.size() != header_size)
-        return ec::unexpected_number_of_bytes;
-      hdr_ = header::from_bytes(bytes);
-      if (hdr_.type != message_type::handshake)
-        return ec::missing_handshake;
-      if (hdr_.operation_data != version)
-        return ec::version_mismatch;
-      if (hdr_.payload_len == 0)
-        return ec::missing_payload;
-      state_ = connection_state::await_handshake_payload;
-      next_read_size = hdr_.payload_len;
-      return none;
-    }
-    case connection_state::await_handshake_payload: {
-      if (auto err = handle_handshake(write_packet, hdr_, bytes))
-        return err;
-      state_ = connection_state::await_header;
-      return none;
-    }
-    case connection_state::await_header: {
-      if (bytes.size() != header_size)
-        return ec::unexpected_number_of_bytes;
-      hdr_ = header::from_bytes(bytes);
-      if (hdr_.payload_len == 0)
-        return handle(write_packet, hdr_, byte_span{});
-      next_read_size = hdr_.payload_len;
-      state_ = connection_state::await_payload;
-      return none;
-    }
-    case connection_state::await_payload: {
-      if (bytes.size() != hdr_.payload_len)
-        return ec::unexpected_number_of_bytes;
-      state_ = connection_state::await_header;
-      return handle(write_packet, hdr_, bytes);
-    }
-    default:
-      return ec::illegal_state;
-  }
-}
-
-error application::handle(write_packet_callback& write_packet, header hdr,
-                          byte_span payload) {
-  switch (hdr.type) {
-    case message_type::handshake:
-      return ec::unexpected_handshake;
-    case message_type::actor_message:
-      return handle_actor_message(write_packet, hdr, payload);
-    case message_type::resolve_request:
-      return handle_resolve_request(write_packet, hdr, payload);
-    case message_type::resolve_response:
-      return handle_resolve_response(write_packet, hdr, payload);
-    case message_type::heartbeat:
-      return none;
-    default:
-      return ec::unimplemented;
-  }
-}
-
 error application::handle_handshake(write_packet_callback&, header hdr,
                                     byte_span payload) {
   if (hdr.type != message_type::handshake)
@@ -221,37 +134,6 @@ error application::handle_actor_message(write_packet_callback&, header hdr,
   return none;
 }
 
-error application::handle_resolve_request(write_packet_callback& write_packet,
-                                          header hdr, byte_span payload) {
-  CAF_ASSERT(hdr.type == message_type::resolve_request);
-  size_t path_size = 0;
-  binary_deserializer source{system(), payload};
-  if (auto err = source.begin_sequence(path_size))
-    return err;
-  // We expect the payload to consist only of the path.
-  if (path_size != source.remaining())
-    return ec::invalid_payload;
-  auto remainder = source.remainder();
-  string_view path{reinterpret_cast<const char*>(remainder.data()),
-                   remainder.size()};
-  // Write result.
-  auto result = resolve_local_path(path);
-  buf_.clear();
-  actor_id aid = result ? result->id() : 0;
-  std::set<std::string> ifs;
-  // TODO: figure out how to obtain messaging interface.
-  serializer_impl<buffer_type> sink{system(), buf_};
-  if (auto err = sink(aid, ifs))
-    return err;
-  auto out_hdr = to_bytes(header{message_type::resolve_response,
-                                 static_cast<uint32_t>(buf_.size()),
-                                 hdr.operation_data});
-  // TODO: figure out how NOT to copy out_hdr..
-  std::vector<byte> header_buf(out_hdr.begin(), out_hdr.end());
-  // TODO: figure out how NOT to copy buf_..
-  return write_packet(std::move(header_buf), {}, buf_);
-}
-
 error application::handle_resolve_response(write_packet_callback&, header hdr,
                                            byte_span payload) {
   CAF_ASSERT(hdr.type == message_type::resolve_response);
@@ -278,9 +160,8 @@ error application::handle_resolve_response(write_packet_callback&, header hdr,
   return none;
 }
 
-error application::generate_handshake() {
-  buf_.clear();
-  serializer_impl<buffer_type> sink{system(), buf_};
+error application::generate_handshake(std::vector<byte>& buf) {
+  serializer_impl<buffer_type> sink{system(), buf};
   return sink(system().node(),
               get_or(system().config(), "middleman.app-identifiers",
                      defaults::middleman::app_identifiers));
