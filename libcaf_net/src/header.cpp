@@ -57,6 +57,16 @@ std::array<byte, header_size> to_bytes(header x) {
   return result;
 }
 
+void to_bytes(header x, std::vector<byte>& buf) {
+  buf.resize(header_size);
+  auto ptr = buf.data();
+  *ptr = static_cast<byte>(x.type);
+  auto payload_len = detail::to_network_order(x.payload_len);
+  memcpy(ptr + 1, &payload_len, sizeof(payload_len));
+  auto operation_data = detail::to_network_order(x.operation_data);
+  memcpy(ptr + 5, &operation_data, sizeof(operation_data));
+}
+
 } // namespace basp
 } // namespace net
 } // namespace caf

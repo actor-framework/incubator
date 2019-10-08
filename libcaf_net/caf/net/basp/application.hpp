@@ -79,13 +79,11 @@ public:
     auto payload_buf = parent.transport().get_buffer();
     if (auto err = generate_handshake(payload_buf))
       return err;
-    auto hdr = to_bytes(header{message_type::handshake,
-                               static_cast<uint32_t>(payload_buf.size()),
-                               version});
-    // TODO: don't copy `header`.
-    header_buf.insert(header_buf.begin(), hdr.begin(), hdr.end());
+    to_bytes(header{message_type::handshake,
+                    static_cast<uint32_t>(payload_buf.size()), version},
+             header_buf);
     parent.write_packet(std::move(header_buf), std::move(payload_elem_buf),
-                        payload_buf);
+                        std::move(payload_buf));
     parent.transport().configure_read(receive_policy::exactly(header_size));
     return none;
   }
@@ -93,6 +91,7 @@ public:
   template <class Parent>
   error write_message(Parent& parent,
                       std::unique_ptr<endpoint_manager::message> ptr) {
+    auto header_buf = parent.transport().get_buffer();
     auto payload_elem_buf = parent.transport().get_buffer();
     serializer_impl<buffer_type> sink{system(), payload_elem_buf};
     const auto& src = ptr->msg->sender;
@@ -108,13 +107,12 @@ public:
       if (auto err = sink(node_id{}, actor_id{0}, dst->id(), ptr->msg->stages))
         return err;
     }
-    // TODO: Don't copy header.
-    header hdr{message_type::actor_message,
-               static_cast<uint32_t>(payload_elem_buf.size()),
-               ptr->msg->mid.integer_value()};
-    auto bytes = to_bytes(hdr);
-    parent.write_packet({bytes.begin(), bytes.end()},
-                        std::move(payload_elem_buf), std::move(ptr->payload));
+    to_bytes(header{message_type::actor_message,
+                    static_cast<uint32_t>(payload_elem_buf.size()),
+                    ptr->msg->mid.integer_value()},
+             header_buf);
+    parent.write_packet(std::move(header_buf), std::move(payload_elem_buf),
+                        std::move(ptr->payload));
     return none;
   }
 
@@ -174,11 +172,9 @@ public:
       return;
     }
     auto req_id = next_request_id_++;
-    auto hdr = to_bytes(header{message_type::resolve_request,
-                               static_cast<uint32_t>(payload_buf.size()),
-                               req_id});
-    // TODO: Don't copy `header`.
-    header_buf.insert(header_buf.begin(), hdr.begin(), hdr.end());
+    to_bytes(header{message_type::resolve_request,
+                    static_cast<uint32_t>(payload_buf.size()), req_id},
+             header_buf);
     if (auto err = write_packet(std::move(header_buf),
                                 std::move(payload_elem_buf),
                                 std::move(payload_buf))) {
@@ -299,11 +295,10 @@ private:
     serializer_impl<buffer_type> sink{system(), payload_buf};
     if (auto err = sink(aid, ifs))
       return err;
-    auto out_hdr = to_bytes(header{message_type::resolve_response,
-                                   static_cast<uint32_t>(payload_buf.size()),
-                                   hdr.operation_data});
-    // TODO: Don't copy `header`.
-    header_buf.insert(header_buf.begin(), out_hdr.begin(), out_hdr.end());
+    to_bytes(header{message_type::resolve_response,
+                    static_cast<uint32_t>(payload_buf.size()),
+                    hdr.operation_data},
+             header_buf);
     return write_packet(std::move(header_buf), std::move(payload_elem_buf),
                         std::move(payload_buf));
   }
