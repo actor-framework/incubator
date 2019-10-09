@@ -41,10 +41,12 @@ using namespace caf::net;
 
 namespace {
 
-struct fixture : test_coordinator_fixture<>, proxy_registry::backend {
+struct fixture : test_coordinator_fixture<>,
+                 proxy_registry::backend,
+                 basp::application::test_tag {
   using buffer_type = std::vector<byte>;
 
-  fixture() : app(std::make_shared<proxy_registry>(sys, *this)) {
+  fixture() : proxies(sys, *this), app(proxies) {
     REQUIRE_OK(app.init(*this));
     uri mars_uri;
     REQUIRE_OK(parse("tcp://mars", mars_uri));
@@ -110,8 +112,12 @@ struct fixture : test_coordinator_fixture<>, proxy_registry::backend {
     return *this;
   }
 
-  static std::vector<byte> get_buffer() {
+  std::vector<byte> get_buffer() {
     return {};
+  }
+
+  endpoint_manager& manager() {
+    CAF_FAIL("unexpected function call");
   }
 
   template <class... Ts>
@@ -135,6 +141,8 @@ struct fixture : test_coordinator_fixture<>, proxy_registry::backend {
   buffer_type output;
 
   node_id mars;
+
+  proxy_registry proxies;
 
   basp::application app;
 };
