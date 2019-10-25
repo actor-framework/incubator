@@ -18,10 +18,13 @@
 
 #pragma once
 
+#include "caf/actor_system_config.hpp"
 #include "caf/byte.hpp"
 #include "caf/error.hpp"
+#include "caf/expected.hpp"
 #include "caf/fwd.hpp"
 #include "caf/logger.hpp"
+#include "caf/net/defaults.hpp"
 #include "caf/net/endpoint_manager.hpp"
 #include "caf/net/receive_policy.hpp"
 #include "caf/net/stream_socket.hpp"
@@ -41,6 +44,14 @@ public:
 
   using application_type = Application;
 
+  using transport_type = stream_transport;
+
+  using worker_type = transport_worker<application_type>;
+
+  using buffer_type = std::vector<byte>;
+
+  using buffer_cache_type = std::vector<buffer_type>;
+
   // -- constructors, destructors, and assignment operators --------------------
 
   stream_transport(stream_socket handle, application_type application)
@@ -51,7 +62,8 @@ public:
       collected_(0),
       max_(1024),
       rd_flag_(net::receive_policy_flag::exactly),
-      written_(0) {
+      written_(0),
+      manager_(nullptr) {
     // nop
   }
 
@@ -61,18 +73,41 @@ public:
     return handle_;
   }
 
+  actor_system& system() {
+    return manager().system();
+  }
+
+  application_type& application() {
+    return worker_.application();
+  }
+
+  transport_type& transport() {
+    return *this;
+  }
+
+  endpoint_manager& manager() {
+    return *manager_;
+  }
+
   // -- member functions -------------------------------------------------------
 
   template <class Parent>
   error init(Parent& parent) {
-    if (auto err = worker_.init(parent))
+    manager_ = &parent;
+    auto& cfg = system().config();
+    auto max_header_bufs = get_or(cfg, "middleman.max-header-buffers",
+                                  defaults::middleman::max_header_buffers);
+    header_bufs_.reserve(max_header_bufs);
+    auto max_payload_bufs = get_or(cfg, "middleman.max-payload-buffers",
+                                   defaults::middleman::max_payload_buffers);
+    payload_bufs_.reserve(max_payload_bufs);
+    if (auto err = worker_.init(*this))
       return err;
-    parent.mask_add(operation::read);
     return none;
   }
 
   template <class Parent>
-  bool handle_read_event(Parent& parent) {
+  bool handle_read_event(Parent&) {
     auto buf = read_buf_.data() + collected_;
     size_t len = read_threshold_ - collected_;
     CAF_LOG_TRACE(CAF_ARG(handle_.id) << CAF_ARG(len));
@@ -82,17 +117,21 @@ public:
       CAF_LOG_DEBUG(CAF_ARG(len) << CAF_ARG(handle_.id) << CAF_ARG(*num_bytes));
       collected_ += *num_bytes;
       if (collected_ >= read_threshold_) {
-        auto decorator = make_write_packet_decorator(*this, parent);
-        worker_.handle_data(decorator, read_buf_);
+        if (auto err = worker_.handle_data(*this, read_buf_)) {
+          CAF_LOG_WARNING("handle_data failed:" << CAF_ARG(err));
+          return false;
+        }
         prepare_next_read();
       }
-      return true;
     } else {
       auto err = get<sec>(ret);
-      CAF_LOG_DEBUG("receive failed" << CAF_ARG(err));
-      worker_.handle_error(err);
-      return false;
+      if (err != sec::unavailable_or_would_block) {
+        CAF_LOG_DEBUG("receive failed" << CAF_ARG(err));
+        worker_.handle_error(err);
+        return false;
+      }
     }
+    return true;
   }
 
   template <class Parent>
@@ -103,26 +142,36 @@ public:
     // TODO: dont read all messages at once - get one by one.
     for (auto msg = parent.next_message(); msg != nullptr;
          msg = parent.next_message()) {
-      auto decorator = make_write_packet_decorator(*this, parent);
-      worker_.write_message(decorator, std::move(msg));
+      worker_.write_message(*this, std::move(msg));
     }
     // Write prepared data.
     return write_some();
   }
 
   template <class Parent>
-  void resolve(Parent& parent, const std::string& path, actor listener) {
-    worker_.resolve(parent, path, listener);
+  void resolve(Parent&, const uri& locator, const actor& listener) {
+    worker_.resolve(*this, locator.path(), listener);
+  }
+
+  template <class Parent>
+  void new_proxy(Parent&, const node_id& peer, actor_id id) {
+    worker_.new_proxy(*this, peer, id);
+  }
+
+  template <class Parent>
+  void local_actor_down(Parent&, const node_id& peer, actor_id id,
+                        error reason) {
+    worker_.local_actor_down(*this, peer, id, std::move(reason));
+  }
+
+  template <class Parent>
+  void timeout(Parent&, atom_value value, uint64_t id) {
+    worker_.timeout(*this, value, id);
   }
 
   template <class... Ts>
   void set_timeout(uint64_t, Ts&&...) {
     // nop
-  }
-
-  template <class Parent>
-  void timeout(Parent& parent, atom_value value, uint64_t id) {
-    worker_.timeout(parent, value, id);
   }
 
   void handle_error(sec code) {
@@ -163,46 +212,94 @@ public:
     prepare_next_read();
   }
 
-  template <class Parent>
-  void write_packet(Parent&, span<const byte> header, span<const byte> payload,
-                    unit_t) {
-    write_buf_.insert(write_buf_.end(), header.begin(), header.end());
-    write_buf_.insert(write_buf_.end(), payload.begin(), payload.end());
+  void write_packet(unit_t, span<buffer_type*> buffers) {
+    CAF_ASSERT(!buffers.empty());
+    if (write_queue_.empty())
+      manager().register_writing();
+    // By convention, the first buffer is a header buffer. Every other buffer is
+    // a payload buffer.
+    auto i = buffers.begin();
+    write_queue_.emplace_back(true, std::move(*(*i++)));
+    while (i != buffers.end())
+      write_queue_.emplace_back(false, std::move(*(*i++)));
+  }
+
+  // -- buffer management ------------------------------------------------------
+
+  buffer_type next_header_buffer() {
+    return next_buffer_impl(header_bufs_);
+  }
+
+  buffer_type next_payload_buffer() {
+    return next_buffer_impl(payload_bufs_);
   }
 
 private:
-  // -- private member functions -----------------------------------------------
+  // -- utility functions ------------------------------------------------------
 
-  bool write_some() {
-    if (write_buf_.empty())
-      return false;
-    auto len = write_buf_.size() - written_;
-    auto buf = write_buf_.data() + written_;
-    CAF_LOG_TRACE(CAF_ARG(handle_.id) << CAF_ARG(len));
-    auto ret = write(handle_, make_span(buf, len));
-    if (auto num_bytes = get_if<size_t>(&ret)) {
-      CAF_LOG_DEBUG(CAF_ARG(len) << CAF_ARG(handle_.id) << CAF_ARG(*num_bytes));
-      // Update state.
-      written_ += *num_bytes;
-      if (written_ >= write_buf_.size()) {
-        written_ = 0;
-        write_buf_.clear();
-        return false;
-      }
-    } else {
-      auto err = get<sec>(ret);
-      CAF_LOG_DEBUG("send failed" << CAF_ARG(err));
-      worker_.handle_error(err);
-      return false;
+  static buffer_type next_buffer_impl(buffer_cache_type cache) {
+    if (cache.empty()) {
+      return {};
     }
-    return true;
+    auto buf = std::move(cache.back());
+    cache.pop_back();
+    return buf;
   }
 
-  transport_worker<application_type> worker_;
+  bool write_some() {
+    CAF_LOG_TRACE(CAF_ARG(handle_.id));
+    // Helper function to sort empty buffers back into the right caches.
+    auto recycle = [&]() {
+      auto& front = write_queue_.front();
+      auto& is_header = front.first;
+      auto& buf = front.second;
+      written_ = 0;
+      buf.clear();
+      if (is_header) {
+        if (header_bufs_.size() < header_bufs_.capacity())
+          header_bufs_.emplace_back(std::move(buf));
+      } else if (payload_bufs_.size() < payload_bufs_.capacity()) {
+        payload_bufs_.emplace_back(std::move(buf));
+      }
+      write_queue_.pop_front();
+    };
+    // Write buffers from the write_queue_ for as long as possible.
+    while (!write_queue_.empty()) {
+      auto& buf = write_queue_.front().second;
+      CAF_ASSERT(!buf.empty());
+      auto data = buf.data() + written_;
+      auto len = buf.size() - written_;
+      auto write_ret = write(handle_, make_span(data, len));
+      if (auto num_bytes = get_if<size_t>(&write_ret)) {
+        CAF_LOG_DEBUG(CAF_ARG(handle_.id) << CAF_ARG(*num_bytes));
+        if (*num_bytes + written_ >= buf.size()) {
+          recycle();
+          written_ = 0;
+        } else {
+          written_ += *num_bytes;
+          return false;
+        }
+      } else {
+        auto err = get<sec>(write_ret);
+        if (err != sec::unavailable_or_would_block) {
+          CAF_LOG_DEBUG("send failed" << CAF_ARG(err));
+          worker_.handle_error(err);
+          return false;
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  worker_type worker_;
   stream_socket handle_;
 
-  std::vector<byte> read_buf_;
-  std::vector<byte> write_buf_;
+  buffer_cache_type header_bufs_;
+  buffer_cache_type payload_bufs_;
+
+  buffer_type read_buf_;
+  std::deque<std::pair<bool, buffer_type>> write_queue_;
 
   // TODO implement retries using this member!
   // size_t max_consecutive_reads_;
@@ -212,6 +309,8 @@ private:
   receive_policy_flag rd_flag_;
 
   size_t written_;
+
+  endpoint_manager* manager_;
 };
 
 } // namespace net

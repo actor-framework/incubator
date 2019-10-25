@@ -19,7 +19,6 @@
 #pragma once
 
 #include "caf/fwd.hpp"
-#include "caf/ip_endpoint.hpp"
 #include "caf/net/network_socket.hpp"
 
 namespace caf {
@@ -27,18 +26,10 @@ namespace net {
 
 /// A datagram-oriented network communication endpoint for bidirectional
 /// byte transmission.
-struct udp_datagram_socket : abstract_socket<udp_datagram_socket> {
-  using super = abstract_socket<udp_datagram_socket>;
+struct udp_datagram_socket : network_socket {
+  using super = network_socket;
 
   using super::super;
-
-  constexpr operator socket() const noexcept {
-    return socket{id};
-  }
-
-  constexpr operator network_socket() const noexcept {
-    return network_socket{id};
-  }
 };
 
 /// Creates a `udp_datagram_socket` bound to given port.
@@ -65,9 +56,23 @@ error allow_connreset(udp_datagram_socket x, bool new_value);
 variant<std::pair<size_t, ip_endpoint>, sec> read(udp_datagram_socket x,
                                                   span<byte> buf);
 
+/// Sends the content of `bufs` as a datagram to the endpoint `ep` on socket
+/// `x`.
+/// @param x x The UDP socket for sending datagrams.
+/// @param bufs Points to the datagram to send, scattered across up to 10
+///             buffers.
+/// @param ep The enpoint to send the datagram to.
+/// @returns The number of written bytes on success, otherwise an error code.
+/// @relates udp_datagram_socket
+/// @post either the result is a `sec` or a positive (non-zero) integer
+/// @pre `bufs.size() < 10`
+variant<size_t, sec> write(udp_datagram_socket x, span<std::vector<byte>*> bufs,
+                           ip_endpoint ep);
+
 /// Sends the content of `buf` as a datagram to the endpoint `ep` on socket `x`.
 /// @param x The UDP socket for sending datagrams.
 /// @param buf The buffer to send.
+/// @param ep The enpoint to send the datagram to.
 /// @returns The number of written bytes on success, otherwise an error code.
 /// @relates udp_datagram_socket
 variant<size_t, sec> write(udp_datagram_socket x, span<const byte> buf,

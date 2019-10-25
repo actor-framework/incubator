@@ -20,6 +20,7 @@
 
 #include <array>
 #include <cstdint>
+#include <mutex>
 
 #include "caf/byte.hpp"
 #include "caf/net/pipe_socket.hpp"
@@ -34,9 +35,11 @@ public:
 
   using super = socket_manager;
 
+  using msg_buf = std::array<byte, sizeof(intptr_t) + 1>;
+
   // -- constructors, destructors, and assignment operators --------------------
 
-  pollset_updater(pipe_socket read_handle, multiplexer_ptr parent);
+  pollset_updater(pipe_socket read_handle, const multiplexer_ptr& parent);
 
   ~pollset_updater() override;
 
@@ -56,7 +59,7 @@ public:
   void handle_error(sec code) override;
 
 private:
-  std::array<byte, sizeof(intptr_t)> buf_;
+  msg_buf buf_;
   size_t buf_size_;
 };
 

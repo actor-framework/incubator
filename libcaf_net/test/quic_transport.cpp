@@ -22,7 +22,7 @@
 
 #include "caf/test/dsl.hpp"
 
-#include "host_fixture.hpp"
+#include "caf/net/test/host_fixture.hpp"
 
 #include "caf/byte.hpp"
 #include "caf/detail/ptls_util.hpp"
@@ -128,7 +128,6 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   }
 
   bool handle_io_event() override {
-    mpx->handle_updates();
     return mpx->poll_once(false);
   }
 
@@ -297,8 +296,12 @@ private:
 }; // namespace
 
 class dummy_application {
+  using buffer_type = std::vector<byte>;
+
+  using buffer_ptr = std::shared_ptr<buffer_type>;
+
 public:
-  dummy_application(std::shared_ptr<std::vector<byte>> rec_buf)
+  dummy_application(buffer_ptr rec_buf)
     : rec_buf_(std::move(rec_buf)){
       // nop
     };
@@ -310,37 +313,51 @@ public:
     return none;
   }
 
-  template <class Transport>
-  void write_message(Transport& transport,
-                     std::unique_ptr<endpoint_manager::message> msg) {
-    transport.write_packet(span<byte>{}, msg->payload);
+  template <class Parent>
+  void write_message(Parent& parent,
+                     std::unique_ptr<endpoint_manager_queue::message> msg) {
+    parent.write_packet(msg->payload);
   }
 
   template <class Parent>
-  void handle_data(Parent&, span<const byte> data) {
+  error handle_data(Parent&, span<const byte> data) {
     rec_buf_->clear();
     rec_buf_->insert(rec_buf_->begin(), data.begin(), data.end());
+    return none;
   }
 
-  template <class Manager>
-  void resolve(Manager& manager, const std::string& path, actor listener) {
+  template <class Parent>
+  void resolve(Parent& parent, string_view path, const actor& listener) {
     actor_id aid = 42;
-    auto hid = "0011223344556677889900112233445566778899";
-    auto nid = unbox(make_node_id(42, hid));
+    auto uri = unbox(make_uri("test:/id/42"));
+    auto nid = make_node_id(uri);
     actor_config cfg;
+    endpoint_manager_ptr ptr{&parent.manager()};
     auto p = make_actor<actor_proxy_impl, strong_actor_ptr>(aid, nid,
-                                                            &manager.system(),
-                                                            cfg, &manager);
-    anon_send(listener, resolve_atom::value, std::move(path), p);
+                                                            &parent.system(),
+                                                            cfg,
+                                                            std::move(ptr));
+    anon_send(listener, resolve_atom::value,
+              std::string{path.begin(), path.end()}, p);
   }
 
-  template <class Transport>
-  void timeout(Transport&, atom_value, uint64_t) {
+  template <class Parent>
+  void new_proxy(Parent&, actor_id) {
     // nop
   }
 
-  void handle_error(sec) {
+  template <class Parent>
+  void local_actor_down(Parent&, actor_id, error) {
     // nop
+  }
+
+  template <class Parent>
+  void timeout(Parent&, atom_value, uint64_t) {
+    // nop
+  }
+
+  void handle_error(sec sec) {
+    CAF_FAIL("handle_error called: " << to_string(sec));
   }
 
   static expected<std::vector<byte>> serialize(actor_system& sys,
@@ -356,11 +373,13 @@ private:
   std::shared_ptr<std::vector<byte>> rec_buf_;
 };
 
-struct dummy_application_factory {
+class dummy_application_factory {
+  using buffer_ptr = std::shared_ptr<std::vector<byte>>;
+
+public:
   using application_type = dummy_application;
 
-  dummy_application_factory(std::shared_ptr<std::vector<byte>> buf)
-    : buf_(buf) {
+  dummy_application_factory(buffer_ptr buf) : buf_(buf) {
     // nop
   }
 
@@ -383,7 +402,7 @@ CAF_TEST(receive) {
   transport.configure_read(net::receive_policy::exactly(hello_manager.size()));
   auto mgr = make_endpoint_manager(mpx, sys, std::move(transport));
   CAF_CHECK_EQUAL(mgr->init(), none);
-  mpx->handle_updates();
+  run();
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 2u);
   quicly_test_send(hello_manager);
   auto received_str = string_view(reinterpret_cast<char*>(

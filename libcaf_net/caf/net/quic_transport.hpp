@@ -28,12 +28,26 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unordered_map>
+
+#include "caf/config.hpp"
+
+CAF_PUSH_WARNINGS
+#ifdef CAF_GCC
+#  pragma GCC diagnostic ignored "-Wunused-parameter"
+#  pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#  pragma GCC diagnostic ignored "-Wsign-compare"
+#elif defined(CAF_CLANG)
+#  pragma clang diagnostic ignored "-Wunused-parameter"
+#  pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#  pragma clang diagnostic ignored "-Wsign-compare"
+#endif
 extern "C" {
 #include <picotls/openssl.h>
 #include <quicly.h>
 #include <quicly/defaults.h>
 #include <quicly/streambuf.h>
 }
+CAF_POP_WARNINGS
 
 #include "caf/byte.hpp"
 #include "caf/detail/convert_ip_endpoint.hpp"
@@ -102,16 +116,48 @@ class quic_transport {
 public:
   // -- member types -----------------------------------------------------------
 
+  using id_type = size_t;
+
+  using buffer_type = std::vector<byte>;
+
+  using buffer_cache_type = std::vector<buffer_type>;
+
   using factory_type = Factory;
+
+  using transport_type = quic_transport;
+
+  using dispatcher_type = transport_worker_dispatcher<transport_type, id_type>;
 
   using application_type = typename Factory::application_type;
 
-  using dispatcher_type = transport_worker_dispatcher<factory_type, size_t>;
+  // -- properties -------------------------------------------------------------
+
+  udp_datagram_socket handle() const noexcept {
+    return handle_;
+  }
+
+  actor_system& system() {
+    return manager().system();
+  }
+
+  application_type& application() {
+    // TODO: This wont work. We need information on which application is wanted
+    return application_type{};
+    // dispatcher_.application();
+  }
+
+  transport_type& transport() {
+    return *this;
+  }
+
+  endpoint_manager& manager() {
+    return *manager_;
+  }
 
   // -- constructors, destructors, and assignment operators --------------------
 
   quic_transport(udp_datagram_socket handle, factory_type factory)
-    : dispatcher_(std::move(factory)),
+    : dispatcher_(*this, std::move(factory)),
       handle_(handle),
       read_buf_(std::make_shared<std::vector<received_data>>()),
       max_consecutive_reads_(0),
@@ -165,8 +211,6 @@ public:
 
   template <class Parent>
   error init(Parent& parent) {
-    if (auto err = dispatcher_.init(parent))
-      return err;
     // TODO: think of a more general way to initialize these callbacks
     stream_open_.transport = this;
     stream_open_.cb = [](quicly_stream_open_t* self,
@@ -257,11 +301,11 @@ public:
       cid_cipher, reset_token_cipher, hash, iovec);
     quicly_state_.ctx.cid_encryptor = default_encryptor;
     parent.mask_add(operation::read);
-    return none;
+    return dispatcher_.init(*this);
   }
 
   template <class Parent>
-  bool handle_read_event(Parent& parent) {
+  bool handle_read_event(Parent&) {
     CAF_LOG_TRACE(CAF_ARG(handle_.id));
     uint8_t buf[4096];
     auto ret = read(handle_, as_writable_bytes(make_span(buf, sizeof(buf))));
@@ -302,7 +346,7 @@ public:
       }
       auto conn_it = std::
         find_if(known_conns_.begin(), known_conns_.end(),
-                [&](const std::pair<size_t, detail::quicly_conn_ptr>& p) {
+                [&](const std::pair<id_type, detail::quicly_conn_ptr>& p) {
                   return quicly_is_destination(p.second.get(), nullptr,
                                                reinterpret_cast<sockaddr*>(&sa),
                                                &packet);
@@ -313,7 +357,7 @@ public:
         quicly_receive(conn.get(), nullptr, reinterpret_cast<sockaddr*>(&sa),
                        &packet);
         for (auto& data : *read_buf_)
-          dispatcher_.handle_data(parent, make_span(data.received), data.id);
+          dispatcher_.handle_data(*this, make_span(data.received), data.id);
         read_buf_->clear();
         detail::send_pending_datagrams(handle_, conn);
       } else if (QUICLY_PACKET_IS_LONG_HEADER(packet.octets.base[0])) {
@@ -342,7 +386,8 @@ public:
           auto id = detail::convert(conn);
           auto conn_ptr = detail::make_quicly_conn_ptr(conn);
           ++quicly_state_.next_cid.master_id;
-          if (auto err = dispatcher_.add_new_worker(parent, node_id{}, id)) {
+          // TODO: node_id is missing here
+          if (auto err = dispatcher_.add_new_worker(*this, node_id{}, id)) {
             CAF_LOG_ERROR("add_new_worker returned an error: " << CAF_ARG(err));
             return false;
           }
@@ -403,34 +448,43 @@ public:
     // Get new data from parent.
     for (auto msg = parent.next_message(); msg != nullptr;
          msg = parent.next_message()) {
-      auto decorator = make_write_packet_decorator(*this, parent);
-      dispatcher_.write_message(decorator, std::move(msg));
+      dispatcher_.write_message(*this, std::move(msg));
     }
     // Write prepared data.
     return write_some();
   }
 
   template <class Parent>
-  void resolve(Parent& parent, const std::string& path, actor listener) {
-    dispatcher_.resolve(parent, path, listener);
+  void resolve(Parent&, const uri& locator, const actor& listener) {
+    dispatcher_.resolve(*this, locator, listener);
   }
 
   template <class Parent>
-  void timeout(Parent& parent, atom_value value, uint64_t id) {
-    auto decorator = make_write_packet_decorator(*this, parent);
-    dispatcher_.timeout(decorator, value, id);
+  void new_proxy(Parent&, const node_id& peer, actor_id id) {
+    dispatcher_.new_proxy(*this, peer, id);
   }
 
-  void set_timeout(uint64_t timeout_id, detail::quicly_conn_ptr ep) {
-    dispatcher_.set_timeout(timeout_id, ep);
+  template <class Parent>
+  void local_actor_down(Parent&, const node_id& peer, actor_id id,
+                        error reason) {
+    dispatcher_.local_actor_down(*this, peer, id, std::move(reason));
+  }
+
+  template <class Parent>
+  void timeout(Parent&, atom_value value, uint64_t id) {
+    dispatcher_.timeout(*this, value, id);
+  }
+
+  void set_timeout(uint64_t timeout_id, id_type id) {
+    dispatcher_.set_timeout(timeout_id, id);
   }
 
   void handle_error(sec code) {
     dispatcher_.handle_error(code);
   }
 
-  udp_datagram_socket handle() const noexcept {
-    return handle_;
+  error add_new_worker(node_id node, id_type id) {
+    return dispatcher_.add_new_worker(*this, node, id);
   }
 
   void prepare_next_read() {
@@ -466,61 +520,105 @@ public:
     max_ = cfg.second;
   }
 
-  template <class Parent>
-  void write_packet(Parent&, span<const byte> header, span<const byte> payload,
-                    size_t id) {
-    std::vector<byte> buf;
-    buf.reserve(header.size() + payload.size());
-    buf.insert(buf.end(), header.begin(), header.end());
-    buf.insert(buf.end(), payload.begin(), payload.end());
-    packet_queue_.emplace_back(id, std::move(buf));
+  void write_packet(id_type ep, span<buffer_type*> buffers) {
+    CAF_ASSERT(!buffers.empty());
+    if (packet_queue_.empty())
+      manager().register_writing();
+    // By convention, the first buffer is a header buffer. Every other buffer is
+    // a payload buffer.
+    packet_queue_.emplace_back(ep, buffers);
   }
 
-  struct packet {
-    size_t id;
-    std::vector<byte> bytes;
+  // -- buffer management ------------------------------------------------------
 
-    packet(size_t id, std::vector<byte> bytes)
-      : id(id), bytes(std::move(bytes)) {
-      // nop
+  buffer_type next_header_buffer() {
+    return next_buffer_impl(header_bufs_);
+  }
+
+  buffer_type next_payload_buffer() {
+    return next_buffer_impl(payload_bufs_);
+  }
+
+  /// Helper struct for managing outgoing packets
+  struct packet {
+    id_type id;
+    buffer_cache_type bytes;
+    size_t size;
+
+    packet(size_t destination, span<buffer_type*> bufs) : id(destination) {
+      size = 0;
+      for (auto buf : bufs) {
+        size += buf->size();
+        bytes.emplace_back(std::move(*buf));
+      }
     }
   };
 
 private:
+  // -- utility functions ------------------------------------------------------
+
+  static buffer_type next_buffer_impl(buffer_cache_type cache) {
+    if (cache.empty()) {
+      return {};
+    }
+    auto buf = std::move(cache.back());
+    cache.pop_back();
+    return buf;
+  }
+
   bool write_some() {
-    if (packet_queue_.empty())
-      return false;
-    auto& next_packet = packet_queue_.front();
-    auto id = next_packet.id;
-    auto& bytes = next_packet.bytes;
-    auto buf = bytes.data();
-    auto len = bytes.size();
-    // stream should be opened by now. If not move check back here!
-    auto conn_it = known_conns_.find(id);
-    if (conn_it == known_conns_.end()) {
-      CAF_LOG_ERROR("connection not found.");
-      dispatcher_.handle_error(sec::runtime_error);
-      return false;
+    CAF_LOG_TRACE(CAF_ARG(handle_.id));
+    // Helper function to sort empty buffers back into the right caches.
+    auto recycle = [&]() {
+      auto& front = packet_queue_.front();
+      auto& bufs = front.bytes;
+      auto it = bufs.begin();
+      if (header_bufs_.size() < header_bufs_.capacity()) {
+        it->clear();
+        header_bufs_.emplace_back(std::move(*it++));
+      }
+      for (;
+           it != bufs.end() && payload_bufs_.size() < payload_bufs_.capacity();
+           ++it) {
+        it->clear();
+        payload_bufs_.emplace_back(std::move(*it));
+      }
+      packet_queue_.pop_front();
+    };
+    // Write as many bytes as possible.
+    while (!packet_queue_.empty()) {
+      auto& packet = packet_queue_.front();
+      auto id = packet.id;
+      // find connection
+      auto conn_it = known_conns_.find(id);
+      if (conn_it == known_conns_.end()) {
+        CAF_LOG_ERROR("connection not found.");
+        dispatcher_.handle_error(sec::runtime_error);
+        return false;
+      }
+      // find_stream
+      auto stream_it = known_streams_.find(id);
+      if (stream_it == known_streams_.end()) {
+        // stream was not opened. Something went wrong!
+        CAF_LOG_ERROR("stream was not opened before");
+        dispatcher_.handle_error(sec::runtime_error);
+        return false;
+      }
+      auto stream = stream_it->second;
+      auto conn = conn_it->second;
+      // write data to stream
+      for (auto buf : packet.bytes)
+        // TODO: How to check for write_errors??
+        quicly_streambuf_egress_write(stream, buf.data(), buf.size());
+      if (detail::send_pending_datagrams(handle_, conn) != sec::none) {
+        CAF_LOG_ERROR("send failed" << CAF_ARG(last_socket_error_as_string()));
+        dispatcher_.handle_error(sec::socket_operation_failed);
+        return false;
+      }
+      // TODO: set_timeout(parent);
+      recycle();
     }
-    auto stream_it = known_streams_.find(id);
-    if (stream_it == known_streams_.end()) {
-      // stream was not opened. Something went wrong!
-      CAF_LOG_ERROR("stream was not opened before");
-      dispatcher_.handle_error(sec::runtime_error);
-      return false;
-    }
-    auto stream = stream_it->second;
-    auto conn = conn_it->second;
-    // write data to stream
-    quicly_streambuf_egress_write(stream, buf, len);
-    if (detail::send_pending_datagrams(handle_, conn) != sec::none) {
-      CAF_LOG_ERROR("send failed" << CAF_ARG(last_socket_error_as_string()));
-      dispatcher_.handle_error(sec::socket_operation_failed);
-      return false;
-    }
-    // set_timeout(parent);
-    packet_queue_.pop_front();
-    return true;
+    return false;
   }
 
   int on_stream_open(struct st_quicly_stream_open_t*,
@@ -577,6 +675,9 @@ private:
   dispatcher_type dispatcher_;
   udp_datagram_socket handle_;
 
+  buffer_cache_type header_bufs_;
+  buffer_cache_type payload_bufs_;
+
   std::shared_ptr<std::vector<received_data>> read_buf_;
   std::deque<packet> packet_queue_;
 
@@ -585,6 +686,8 @@ private:
   size_t collected_;
   size_t max_;
   receive_policy_flag rd_flag_;
+
+  endpoint_manager* manager_;
 
   // -- quicly state -----------------------------------------------------------
 

@@ -20,9 +20,8 @@
 
 #include "caf/net/transport_worker_dispatcher.hpp"
 
+#include "caf/net/test/host_fixture.hpp"
 #include "caf/test/dsl.hpp"
-
-#include "host_fixture.hpp"
 
 #include "caf/make_actor.hpp"
 #include "caf/monitorable_actor.hpp"
@@ -33,6 +32,8 @@ using namespace caf;
 using namespace caf::net;
 
 namespace {
+
+using buffer_type = std::vector<byte>;
 
 constexpr string_view hello_test = "hello_test";
 
@@ -48,7 +49,7 @@ struct dummy_actor : public monitorable_actor {
 
 class dummy_application {
 public:
-  dummy_application(std::shared_ptr<std::vector<byte>> rec_buf, uint8_t id)
+  dummy_application(std::shared_ptr<buffer_type> rec_buf, uint8_t id)
     : rec_buf_(std::move(rec_buf)),
       id_(id){
         // nop
@@ -62,16 +63,18 @@ public:
     return none;
   }
 
-  template <class Transport>
-  void write_message(Transport& transport,
-                     std::unique_ptr<endpoint_manager::message> msg) {
+  template <class Parent>
+  void write_message(Parent& parent,
+                     std::unique_ptr<endpoint_manager_queue::message> msg) {
     rec_buf_->push_back(static_cast<byte>(id_));
-    transport.write_packet(span<byte>{}, make_span(msg->payload));
+    auto header_buf = parent.next_header_buffer();
+    parent.write_packet(header_buf, msg->payload);
   }
 
   template <class Parent>
-  void handle_data(Parent&, span<const byte>) {
+  error handle_data(Parent&, span<const byte>) {
     rec_buf_->push_back(static_cast<byte>(id_));
+    return none;
   }
 
   template <class Manager>
@@ -88,13 +91,13 @@ public:
     rec_buf_->push_back(static_cast<byte>(id_));
   }
 
-  static expected<std::vector<byte>> serialize(actor_system&,
-                                               const type_erased_tuple&) {
-    return std::vector<byte>{};
+  static expected<buffer_type> serialize(actor_system&,
+                                         const type_erased_tuple&) {
+    return buffer_type{};
   }
 
 private:
-  std::shared_ptr<std::vector<byte>> rec_buf_;
+  std::shared_ptr<buffer_type> rec_buf_;
   uint8_t id_;
 };
 
@@ -102,8 +105,8 @@ struct dummy_application_factory {
 public:
   using application_type = dummy_application;
 
-  dummy_application_factory(std::shared_ptr<std::vector<byte>> buf)
-    : buf_(buf), application_cnt_(0) {
+  dummy_application_factory(std::shared_ptr<buffer_type> buf)
+    : buf_(std::move(buf)), application_cnt_(0) {
     // nop
   }
 
@@ -112,31 +115,46 @@ public:
   }
 
 private:
-  std::shared_ptr<std::vector<byte>> buf_;
+  std::shared_ptr<buffer_type> buf_;
   uint8_t application_cnt_;
 };
 
 struct dummy_transport {
   using transport_type = dummy_transport;
 
+  using factory_type = dummy_application_factory;
+
   using application_type = dummy_application;
 
-  dummy_transport(std::shared_ptr<std::vector<byte>> buf) : buf_(buf) {
+  dummy_transport(std::shared_ptr<buffer_type> buf) : buf_(std::move(buf)) {
+    // nop
   }
 
   template <class IdType>
-  void write_packet(span<const byte> header, span<const byte> payload, IdType) {
-    buf_->insert(buf_->end(), header.begin(), header.end());
-    buf_->insert(buf_->end(), payload.begin(), payload.end());
+  void write_packet(IdType, span<buffer_type*> buffers) {
+    for (auto buf : buffers)
+      buf_->insert(buf_->end(), buf->begin(), buf->end());
+  }
+
+  transport_type& transport() {
+    return *this;
+  }
+
+  buffer_type next_header_buffer() {
+    return {};
+  }
+
+  buffer_type next_payload_buffer() {
+    return {};
   }
 
 private:
-  std::shared_ptr<std::vector<byte>> buf_;
+  std::shared_ptr<buffer_type> buf_;
 };
 
 struct testdata {
   testdata(uint8_t worker_id, node_id id, ip_endpoint ep)
-    : worker_id(worker_id), nid(id), ep(ep) {
+    : worker_id(worker_id), nid(std::move(id)), ep(ep) {
     // nop
   }
 
@@ -164,30 +182,32 @@ uri operator"" _u(const char* cstr, size_t cstr_len) {
 }
 
 struct fixture : host_fixture {
-  using dispatcher_type = transport_worker_dispatcher<dummy_application_factory,
+  using dispatcher_type = transport_worker_dispatcher<dummy_transport,
                                                       ip_endpoint>;
 
   fixture()
-    : buf{std::make_shared<std::vector<byte>>()},
-      dispatcher{dummy_application_factory{buf}},
+    : buf{std::make_shared<buffer_type>()},
+      dispatcher{dummy, dummy_application_factory{buf}},
       dummy{buf} {
     add_new_workers();
   }
 
-  std::unique_ptr<net::endpoint_manager::message>
+  std::unique_ptr<net::endpoint_manager_queue::message>
   make_dummy_message(node_id nid) {
     actor_id aid = 42;
     actor_config cfg;
     auto p = make_actor<dummy_actor, strong_actor_ptr>(aid, nid, &sys, cfg);
     auto test_span = as_bytes(make_span(hello_test));
-    std::vector<byte> payload(test_span.begin(), test_span.end());
-    auto strong_actor = actor_cast<strong_actor_ptr>(p);
+    buffer_type payload(test_span.begin(), test_span.end());
+    auto receiver = actor_cast<strong_actor_ptr>(p);
+    if (!receiver)
+      CAF_FAIL("receiver cast failed");
     mailbox_element::forwarding_stack stack;
-    auto elem = make_mailbox_element(std::move(strong_actor),
-                                     make_message_id(12345), std::move(stack),
-                                     make_message());
-    return detail::make_unique<endpoint_manager::message>(std::move(elem),
-                                                          payload);
+    auto elem = make_mailbox_element(nullptr, make_message_id(12345),
+                                     std::move(stack), make_message());
+    return detail::make_unique<endpoint_manager_queue::message>(std::move(elem),
+                                                                receiver,
+                                                                payload);
   }
 
   bool contains(byte x) {
@@ -204,15 +224,15 @@ struct fixture : host_fixture {
 
   void test_write_message(testdata& testcase) {
     auto msg = make_dummy_message(testcase.nid);
-    if (!msg->msg->sender)
-      CAF_FAIL("sender is null");
+    if (!msg->receiver)
+      CAF_FAIL("receiver is null");
     dispatcher.write_message(dummy, std::move(msg));
   }
 
   actor_system_config cfg{};
   actor_system sys{cfg};
 
-  std::shared_ptr<std::vector<byte>> buf;
+  std::shared_ptr<buffer_type> buf;
   dispatcher_type dispatcher;
   dummy_transport dummy;
 
@@ -251,7 +271,7 @@ struct fixture : host_fixture {
 CAF_TEST_FIXTURE_SCOPE(transport_worker_dispatcher_test, fixture)
 
 CAF_TEST(init) {
-  dispatcher_type dispatcher{dummy_application_factory{buf}};
+  dispatcher_type dispatcher{dummy, dummy_application_factory{buf}};
   if (auto err = dispatcher.init(dummy))
     CAF_FAIL("init failed with error: " << err);
 }

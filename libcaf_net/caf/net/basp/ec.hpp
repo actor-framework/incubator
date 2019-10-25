@@ -18,52 +18,39 @@
 
 #pragma once
 
-#include <cstddef>
-#include <limits>
+#include <cstdint>
+#include <string>
 
-#include "caf/net/socket_id.hpp"
+#include "caf/fwd.hpp"
 
 namespace caf {
 namespace net {
+namespace basp {
 
-template <class Derived>
-struct abstract_socket {
-  socket_id id;
-
-  constexpr abstract_socket() : id(invalid_socket_id) {
-    // nop
-  }
-
-  constexpr abstract_socket(socket_id id) : id(id) {
-    // nop
-  }
-
-  constexpr abstract_socket(const Derived& other) : id(other.id) {
-    // nop
-  }
-
-  abstract_socket& operator=(const Derived& other) {
-    id = other.id;
-    return *this;
-  }
-
-  template <class Inspector>
-  friend typename Inspector::result_type inspect(Inspector& f, Derived& x) {
-    return f(x.id);
-  }
-
-  friend constexpr bool operator==(Derived x, Derived y) {
-    return x.id == y.id;
-  }
-
-  friend constexpr bool operator!=(Derived x, Derived y) {
-    return x.id != y.id;
-  }
-
-  friend constexpr bool operator<(Derived x, Derived y) {
-    return x.id < y.id;
-  }
+/// BASP-specific error codes.
+enum class ec : uint8_t {
+  invalid_magic_number = 1,
+  unexpected_number_of_bytes,
+  unexpected_payload,
+  missing_payload,
+  illegal_state,
+  invalid_handshake,
+  missing_handshake,
+  unexpected_handshake,
+  version_mismatch,
+  unimplemented = 10,
+  app_identifiers_mismatch,
+  invalid_payload,
+  invalid_scheme,
+  invalid_locator,
 };
 
+/// @relates ec
+std::string to_string(ec x);
+
+/// @relates ec
+error make_error(ec x);
+
+} // namespace basp
 } // namespace net
 } // namespace caf
