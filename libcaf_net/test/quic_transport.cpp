@@ -380,7 +380,7 @@ class dummy_application_factory {
 public:
   using application_type = dummy_application;
 
-  dummy_application_factory(buffer_ptr buf) : buf_(buf) {
+  dummy_application_factory(buffer_ptr buf) : buf_(std::move(buf)) {
     // nop
   }
 
@@ -416,37 +416,16 @@ CAF_TEST(receive) {
   CAF_CHECK_EQUAL(received_str, hello_manager);
 }
 
-// TODO: test is disabled until resolve in transport_worker_dispatcher is
-// implemented correctly.
-// Idea is to use caf::uri instead of std::string.
-/*
 CAF_TEST(resolve and proxy communication) {
-  using transport_type = datagram_transport<dummy_application_factory>;
-  auto buf = std::make_shared<std::vector<byte>>();
-  CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);
-  ip_endpoint ep;
-  if (auto err = parse("127.0.0.1:0", ep))
-    CAF_FAIL("parse returned an error: " << err);
-  auto sender = unbox(make_udp_datagram_socket(ep));
-  ep.port(0);
-  auto receiver = unbox(make_udp_datagram_socket(ep));
-  auto send_guard = make_socket_guard(sender);
-  auto receive_guard = make_socket_guard(receiver);
-  if (auto err = nonblocking(receiver, true))
-    CAF_FAIL("nonblocking() returned an error: " << err);
-  auto test_read_res = read(receiver, make_span(*buf));
-  if (auto p = get_if<std::pair<size_t, ip_endpoint>>(&test_read_res))
-    CAF_CHECK_EQUAL(p->first, 0u);
-  else
-    CAF_FAIL("read returned an error: " << get<sec>(test_read_res));
+  using transport_type = quic_transport<dummy_application_factory>;
+  auto uri = unbox(make_uri("test:/id/42"));
   auto mgr = make_endpoint_manager(mpx, sys,
-                                   transport_type{sender,
+                                   transport_type{send_sock,
                                                   dummy_application_factory{
-                                                    buf}});
+                                                    transport_buf}});
   CAF_CHECK_EQUAL(mgr->init(), none);
-  mpx->handle_updates();
   run();
-  mgr->resolve("/id/42", self);
+  mgr->resolve(uri, self);
   run();
   self->receive(
     [&](resolve_atom, const std::string&, const strong_actor_ptr& p) {
@@ -456,19 +435,18 @@ CAF_TEST(resolve and proxy communication) {
     after(std::chrono::seconds(0)) >>
       [&] { CAF_FAIL("manager did not respond with a proxy."); });
   run();
-  auto read_res = read(receiver, make_span(*buf));
+  auto read_res = read(recv_sock, make_span(*transport_buf));
   if (!holds_alternative<std::pair<size_t, ip_endpoint>>(read_res))
     CAF_FAIL("read() returned an error: " << sys.render(get<sec>(read_res)));
-  buf->resize(get<std::pair<size_t, ip_endpoint>>(read_res).first);
-  CAF_MESSAGE("receive buffer contains " << buf->size() << " bytes");
+  transport_buf->resize(get<std::pair<size_t, ip_endpoint>>(read_res).first);
+  CAF_MESSAGE("receive buffer contains " << transport_buf->size() << " bytes");
   message msg;
-  binary_deserializer source{sys, *buf};
+  binary_deserializer source{sys, *transport_buf};
   CAF_CHECK_EQUAL(source(msg), none);
   if (msg.match_elements<std::string>())
     CAF_CHECK_EQUAL(msg.get_as<std::string>(0), "hello proxy!");
   else
     CAF_ERROR("expected a string, got: " << to_string(msg));
 }
-*/
 
 CAF_TEST_FIXTURE_SCOPE_END()

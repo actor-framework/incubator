@@ -68,11 +68,11 @@ public:
 
   template <class Parent>
   error handle_data(Parent& parent, span<byte> data, id_type id) {
-    auto worker = find_by_id(id);
+    auto worker = find_worker(id);
     if (!worker) {
       // TODO: where to get id_type from here?
       add_new_worker(parent, node_id{}, id);
-      worker = find_by_id(id);
+      worker = find_worker(id);
     }
     return worker->handle_data(parent, data);
   }
@@ -84,31 +84,31 @@ public:
     if (!receiver)
       return;
     auto nid = receiver->node();
-    auto worker = find_by_node(nid);
+    auto worker = find_worker(nid);
     if (!worker) {
       // TODO: where to get id_type from here?
       add_new_worker(parent, nid, id_type{});
-      worker = find_by_node(nid);
+      worker = find_worker(nid);
     }
     worker->write_message(parent, std::move(msg));
   }
 
   template <class Parent>
   void resolve(Parent& parent, const uri& locator, const actor& listener) {
-    if (auto worker = find_by_node(make_node_id(locator)))
+    if (auto worker = find_worker(make_node_id(locator)))
       worker->resolve(parent, locator.path(), listener);
   }
 
   template <class Parent>
   void new_proxy(Parent& parent, const node_id& nid, actor_id id) {
-    if (auto worker = find_by_node(nid))
+    if (auto worker = find_worker(nid))
       worker->new_proxy(parent, nid, id);
   }
 
   template <class Parent>
   void local_actor_down(Parent& parent, const node_id& nid, actor_id id,
                         error reason) {
-    if (auto worker = find_by_node(nid))
+    if (auto worker = find_worker(nid))
       worker->local_actor_down(parent, nid, id, std::move(reason));
   }
 
@@ -142,27 +142,29 @@ public:
     return none;
   }
 
-private:
-  worker_ptr find_by_node(const node_id& nid) {
-    if (workers_by_node_.empty())
-      return nullptr;
-    auto it = workers_by_node_.find(nid);
-    if (it == workers_by_node_.end()) {
-      CAF_LOG_ERROR("could not find worker by node: " << CAF_ARG(nid));
-      return nullptr;
-    }
-    return it->second;
+  /// Checks wether a given key is already contained in the lookups or not.
+  template <class Key>
+  bool contains(Key key) {
+    return find_worker(key) != nullptr;
   }
 
-  worker_ptr find_by_id(const IdType& id) {
-    if (workers_by_id_.empty())
-      return nullptr;
-    auto it = workers_by_id_.find(id);
-    if (it == workers_by_id_.end()) {
-      CAF_LOG_ERROR("could not find worker by node: " << CAF_ARG(id));
+private:
+  worker_ptr find_worker(const node_id& nid) {
+    return find_worker_impl(workers_by_node_, nid);
+  }
+
+  worker_ptr find_worker(const IdType& id) {
+    return find_worker_impl(workers_by_id_, id);
+  }
+
+  template <class T>
+  worker_ptr find_worker_impl(std::unordered_map<T, worker_ptr> map,
+                              const T& key) {
+    if (map.count(key) == 0) {
+      CAF_LOG_ERROR("could not find worker: " << CAF_ARG(key));
       return nullptr;
     }
-    return it->second;
+    return map.at(key);
   }
 
   // -- worker lookups ---------------------------------------------------------

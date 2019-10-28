@@ -56,11 +56,13 @@ CAF_POP_WARNINGS
 #include "caf/detail/socket_sys_aliases.hpp"
 #include "caf/detail/socket_sys_includes.hpp"
 #include "caf/error.hpp"
+#include "caf/expected.hpp"
 #include "caf/fwd.hpp"
 #include "caf/logger.hpp"
 #include "caf/net/defaults.hpp"
 #include "caf/net/endpoint_manager.hpp"
 #include "caf/net/fwd.hpp"
+#include "caf/net/ip.hpp"
 #include "caf/net/receive_policy.hpp"
 #include "caf/net/transport_worker_dispatcher.hpp"
 #include "caf/net/udp_datagram_socket.hpp"
@@ -435,13 +437,11 @@ public:
       off += plen;
     }
     for (const auto& p : known_conns_) {
-      if (quicly_get_first_timeout(p.second.get())
-          <= quicly_state_.ctx.now->cb(quicly_state_.ctx.now)) {
-        if (detail::send_pending_datagrams(handle_, p.second) != sec::none) {
-          auto id = detail::convert(p.second);
-          known_conns_.erase(id);
-          known_streams_.erase(id);
-        }
+      if (auto err = detail::send_pending_datagrams(handle_, p.second)) {
+        CAF_LOG_ERROR("send_pending failed: " << CAF_ARG(err));
+        auto id = detail::convert(p.second);
+        known_conns_.erase(id);
+        known_streams_.erase(id);
       }
     }
     return true;
@@ -464,7 +464,39 @@ public:
 
   template <class Parent>
   void resolve(Parent&, const uri& locator, const actor& listener) {
-    dispatcher_.resolve(*this, locator, listener);
+    auto nid = make_node_id(locator);
+    if (!dispatcher_.contains(nid)) {
+      auto& authority = locator.authority();
+      auto port = authority.port;
+      ip_address ip;
+      ip_endpoint ep;
+      if (auto hostname = get_if<std::string>(&authority.host)) {
+        auto ips = ip::resolve(*hostname);
+        // TODO: check for correct address family here
+        ip = ips.at(0);
+      } else if (auto ip_ptr = get_if<ip_address>(&authority.host)) {
+        ip = *ip_ptr;
+      } else {
+        CAF_LOG_ERROR("received malformed uri: " << CAF_ARG(locator));
+        return;
+      }
+      ep = ip_endpoint(ip, port);
+      auto conn_res = connect(ep);
+      if (conn_res) {
+        CAF_LOG_ERROR("connect failed: " << CAF_ARG(conn_res));
+        return;
+      }
+      auto connection = *conn_res;
+      auto id = detail::convert(connection);
+      if (auto err = dispatcher_.add_new_worker(*this, nid, id)) {
+        CAF_LOG_ERROR("add_new_worker_failed" << err);
+      }
+      // TODO: shouldn't this be triggered again later on?
+      dispatcher_.resolve(*this, locator, listener);
+      known_conns_.emplace(id, std::move(connection));
+    } else {
+      dispatcher_.resolve(*this, locator, listener);
+    }
   }
 
   template <class Parent>
@@ -629,6 +661,25 @@ private:
     return false;
   }
 
+  expected<detail::quicly_conn_ptr> connect(ip_endpoint ep) {
+    sockaddr_storage sa = {};
+    detail::convert(ep, sa);
+    quicly_conn_t* conn = nullptr;
+    if (quicly_connect(&conn, &quicly_state_.ctx, nullptr,
+                       reinterpret_cast<sockaddr*>(&sa), nullptr,
+                       &quicly_state_.next_cid, quicly_state_.resumption_token,
+                       &quicly_state_.hs_properties,
+                       &quicly_state_.resumed_transport_params))
+      return make_error(sec::runtime_error, "quicly_connect failed");
+    auto connection = detail::make_quicly_conn_ptr(conn);
+    ++quicly_state_.next_cid.master_id;
+    if (auto err = detail::send_pending_datagrams(handle_, connection))
+      return err;
+    return connection;
+  }
+
+  // -- quicly callbacks -------------------------------------------------------
+
   int on_stream_open(struct st_quicly_stream_open_t*,
                      struct st_quicly_stream_t* stream) {
     CAF_LOG_TRACE("new quic stream opened");
@@ -714,7 +765,7 @@ private:
 
   // -- file paths -------------------------------------------------------------
   std::string session_file_path_;
-};
+}; // namespace net
 
 } // namespace net
 } // namespace caf
