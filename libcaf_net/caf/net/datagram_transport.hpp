@@ -109,9 +109,7 @@ public:
     auto max_payload_bufs = get_or(cfg, "middleman.max-payload-buffers",
                                    defaults::middleman::max_payload_buffers);
     payload_bufs_.reserve(max_payload_bufs);
-    if (auto err = dispatcher_.init(*this))
-      return err;
-    return none;
+    return dispatcher_.init(*this);
   }
 
   template <class Parent>

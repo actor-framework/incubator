@@ -58,6 +58,7 @@ CAF_POP_WARNINGS
 #include "caf/error.hpp"
 #include "caf/fwd.hpp"
 #include "caf/logger.hpp"
+#include "caf/net/defaults.hpp"
 #include "caf/net/endpoint_manager.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/receive_policy.hpp"
@@ -211,6 +212,14 @@ public:
 
   template <class Parent>
   error init(Parent& parent) {
+    manager_ = &parent;
+    auto& cfg = system().config();
+    auto max_header_bufs = get_or(cfg, "middleman.max-header-buffers",
+                                  defaults::middleman::max_header_buffers);
+    header_bufs_.reserve(max_header_bufs);
+    auto max_payload_bufs = get_or(cfg, "middleman.max-payload-buffers",
+                                   defaults::middleman::max_payload_buffers);
+    payload_bufs_.reserve(max_payload_bufs);
     // TODO: think of a more general way to initialize these callbacks
     stream_open_.transport = this;
     stream_open_.cb = [](quicly_stream_open_t* self,
@@ -300,7 +309,6 @@ public:
     auto default_encryptor = quicly_new_default_cid_encryptor(
       cid_cipher, reset_token_cipher, hash, iovec);
     quicly_state_.ctx.cid_encryptor = default_encryptor;
-    parent.mask_add(operation::read);
     return dispatcher_.init(*this);
   }
 

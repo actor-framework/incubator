@@ -87,6 +87,7 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     mpx = std::make_shared<multiplexer>();
     if (auto err = mpx->init())
       CAF_FAIL("mpx->init failed: " << sys.render(err));
+    mpx->set_thread_id();
     CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);
     if (auto err = parse("127.0.0.1:0", recv_ep))
       CAF_FAIL("parse returned an error: " << err);
@@ -391,18 +392,20 @@ private:
   std::shared_ptr<std::vector<byte>> buf_;
 };
 
-using transport_type = quic_transport<dummy_application_factory>;
-
 } // namespace
 
 CAF_TEST_FIXTURE_SCOPE(quic_transport_tests, fixture)
 
 CAF_TEST(receive) {
-  transport_type transport{recv_sock, dummy_application_factory{transport_buf}};
-  transport.configure_read(net::receive_policy::exactly(hello_manager.size()));
-  auto mgr = make_endpoint_manager(mpx, sys, std::move(transport));
+  using transport_type = quic_transport<dummy_application_factory>;
+  auto mgr = make_endpoint_manager(mpx, sys,
+                                   transport_type{recv_sock,
+                                                  dummy_application_factory{
+                                                    transport_buf}});
   CAF_CHECK_EQUAL(mgr->init(), none);
-  run();
+  auto mgr_impl = mgr.downcast<endpoint_manager_impl<transport_type>>();
+  auto& transport = mgr_impl->transport();
+  transport.configure_read(net::receive_policy::exactly(hello_manager.size()));
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 2u);
   quicly_test_send(hello_manager);
   auto received_str = string_view(reinterpret_cast<char*>(
