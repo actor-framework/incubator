@@ -26,7 +26,6 @@
 
 #include "caf/byte.hpp"
 #include "caf/detail/ptls_util.hpp"
-#include "caf/detail/quicly_util.hpp"
 #include "caf/make_actor.hpp"
 #include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/endpoint_manager.hpp"
@@ -55,7 +54,7 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     : transport_buf{std::make_shared<std::vector<byte>>()},
       stream_{},
       quicly_state_{{quicly_streambuf_destroy, quicly_streambuf_egress_shift,
-                     quicly_streambuf_egress_emit, detail::on_stop_sending,
+                     quicly_streambuf_egress_emit, quic::on_stop_sending,
                      // on_receive()
                      [](quicly_stream_t* stream, size_t off, const void* src,
                         size_t len) -> int {
@@ -156,10 +155,12 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     uint8_t secret[PTLS_MAX_DIGEST_SIZE];
     quicly_state_.ctx.tls->random_bytes(secret,
                                         ptls_openssl_sha256.digest_size);
-    quicly_state_.address_token_aead.enc = ptls_aead_new(
-      &ptls_openssl_aes128gcm, &ptls_openssl_sha256, 1, secret, "");
-    quicly_state_.address_token_aead.dec = ptls_aead_new(
-      &ptls_openssl_aes128gcm, &ptls_openssl_sha256, 0, secret, "");
+    quicly_state_.address_token.enc = ptls_aead_new(&ptls_openssl_aes128gcm,
+                                                    &ptls_openssl_sha256, 1,
+                                                    secret, "");
+    quicly_state_.address_token.dec = ptls_aead_new(&ptls_openssl_aes128gcm,
+                                                    &ptls_openssl_sha256, 0,
+                                                    secret, "");
     // read certificates from file.
     std::string path_to_certs;
     if (auto path = getenv("QUICLY_CERTS")) {
@@ -194,8 +195,7 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   void quic_roundtrip() {
     run();
     quic_receive();
-    CAF_CHECK_EQUAL(detail::send_pending_datagrams(send_sock, connection_),
-                    none);
+    CAF_CHECK_EQUAL(quic::send_pending_datagrams(send_sock, connection_), none);
   }
 
   void quic_connect() {
@@ -208,10 +208,9 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
                        &quicly_state_.hs_properties,
                        &quicly_state_.resumed_transport_params))
       CAF_FAIL("quicly_connect failed");
-    connection_ = detail::make_quicly_conn_ptr(conn);
+    connection_ = quic::make_conn_ptr(conn);
     ++quicly_state_.next_cid.master_id;
-    CAF_CHECK_EQUAL(detail::send_pending_datagrams(send_sock, connection_),
-                    none);
+    CAF_CHECK_EQUAL(quic::send_pending_datagrams(send_sock, connection_), none);
     // do roundtrips until connected
     int i = 0;
     while (quicly_get_state(connection_.get()) != QUICLY_STATE_CONNECTED) {
@@ -254,8 +253,7 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
 
   void quic_send(string_view msg) {
     quicly_streambuf_egress_write(stream_, msg.data(), msg.length());
-    CAF_CHECK_EQUAL(detail::send_pending_datagrams(send_sock, connection_),
-                    none);
+    CAF_CHECK_EQUAL(quic::send_pending_datagrams(send_sock, connection_), none);
   }
 
   void quicly_test_send(string_view msg) {
@@ -285,11 +283,11 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
 
 private:
   // quicly connection/stream
-  detail::quicly_conn_ptr connection_;
+  quic::conn_ptr connection_;
   quicly_stream_t* stream_;
 
   // quicly connection state
-  detail::quicly_state quicly_state_;
+  quic::state quicly_state_;
 
   // quicly callbacks
   quicly_save_resumption_token_t save_resumption_token_;

@@ -51,6 +51,7 @@ struct socket;
 struct stream_socket;
 struct tcp_accept_socket;
 struct tcp_stream_socket;
+struct udp_datagram_socket;
 
 // -- smart pointers -----------------------------------------------------------
 
