@@ -32,6 +32,7 @@
 #include "caf/net/endpoint_manager.hpp"
 #include "caf/net/make_endpoint_manager.hpp"
 #include "caf/net/multiplexer.hpp"
+#include "caf/net/quic/quic.hpp"
 #include "caf/net/udp_datagram_socket.hpp"
 #include "caf/serializer_impl.hpp"
 #include "caf/span.hpp"
@@ -53,32 +54,34 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   fixture()
     : transport_buf{std::make_shared<std::vector<byte>>()},
       stream_{},
-      quicly_state_{
-        {quicly_streambuf_destroy, quicly_streambuf_egress_shift,
-         quicly_streambuf_egress_emit, detail::on_stop_sending,
-         // on_receive()
-         [](quicly_stream_t* stream, size_t off, const void* src,
-            size_t len) -> int {
-           if (auto ret = quicly_streambuf_ingress_receive(stream, off, src,
-                                                           len))
-             return ret;
-           ptls_iovec_t input;
-           if ((input = quicly_streambuf_ingress_get(stream)).len) {
-             string_view message(reinterpret_cast<char*>(input.base),
-                                 input.len);
-             CAF_MESSAGE("received: " << CAF_ARG(message));
-             quicly_streambuf_ingress_shift(stream, input.len);
-           }
-           return 0;
-         },
-         // on_receive_reset()
-         [](quicly_stream_t* stream, int) -> int {
-           quicly_close(stream->conn,
-                        QUICLY_ERROR_FROM_APPLICATION_ERROR_CODE(0),
-                        "received reset");
-           CAF_FAIL("received stream reset.");
-           return 0;
-         }}},
+      quicly_state_{{quicly_streambuf_destroy, quicly_streambuf_egress_shift,
+                     quicly_streambuf_egress_emit, detail::on_stop_sending,
+                     // on_receive()
+                     [](quicly_stream_t* stream, size_t off, const void* src,
+                        size_t len) -> int {
+                       if (auto ret = quicly_streambuf_ingress_receive(stream,
+                                                                       off, src,
+                                                                       len))
+                         return ret;
+                       ptls_iovec_t input;
+                       if ((input = quicly_streambuf_ingress_get(stream)).len) {
+                         string_view message(reinterpret_cast<char*>(
+                                               input.base),
+                                             input.len);
+                         CAF_MESSAGE("received: " << CAF_ARG(message));
+                         quicly_streambuf_ingress_shift(stream, input.len);
+                       }
+                       return 0;
+                     },
+                     // on_receive_reset()
+                     [](quicly_stream_t* stream, int) -> int {
+                       quicly_close(stream->conn,
+                                    QUICLY_ERROR_FROM_APPLICATION_ERROR_CODE(0),
+                                    "received reset");
+                       CAF_FAIL("received stream reset.");
+                       return 0;
+                     }},
+                    "session.bin"},
       save_resumption_token_{},
       generate_resumption_token_{},
       save_ticket_{},

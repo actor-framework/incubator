@@ -43,6 +43,7 @@ set(LIBCAF_NET_SRCS
   src/ptls_util.cpp
   src/tcp_stream_socket.cpp
   src/udp_datagram_socket.cpp
+  src/quic.cpp
 )
 
 add_custom_target(libcaf_net)

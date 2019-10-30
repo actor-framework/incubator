@@ -41,7 +41,7 @@ namespace detail {
 
 // -- quicly_state constructors ------------------------------------------------
 
-quicly_state::quicly_state(quicly_stream_callbacks_t callbacks)
+quicly_state::quicly_state(quicly_stream_callbacks_t callbacks, std::string  session_file_path)
   : cid_key{},
     next_cid{},
     key_exchanges{},
@@ -52,7 +52,8 @@ quicly_state::quicly_state(quicly_stream_callbacks_t callbacks)
     resumed_transport_params{},
     resumption_token{},
     address_token_aead{},
-    session_info{} {
+    session_info{},
+    session_file_path{std::move(session_file_path)}{
 }
 
 // -- helper functions ---------------------------------------------------------

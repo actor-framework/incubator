@@ -43,6 +43,7 @@
 #include <functional>
 #include <memory>
 #include <sys/param.h>
+#include <string>
 extern "C" {
 #include <quicly.h>
 }
@@ -78,7 +79,7 @@ struct address_token_aead {
 
 /// stores all necessary fields for a quicly connection.
 struct quicly_state {
-  explicit quicly_state(quicly_stream_callbacks_t callbacks);
+  quicly_state(quicly_stream_callbacks_t callbacks, std::string  session_file_path);
   ~quicly_state() = default;
 
   char cid_key[17];
@@ -92,6 +93,7 @@ struct quicly_state {
   ptls_iovec_t resumption_token;
   detail::address_token_aead address_token_aead;
   detail::session_info session_info;
+  std::string session_file_path;
 };
 
 // -- helper functions ---------------------------------------------------------
