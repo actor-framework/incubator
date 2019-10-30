@@ -130,12 +130,44 @@ endif()
 
 find_package(CAF COMPONENTS core io test)
 
-if(NOT CAF_NO_QUIC)
-  message(STATUS "QUICLY_ROOT_DIR: ${QUICLY_ROOT_DIR}")
-  find_package(Quicly REQUIRED)
-  set(PICOTLS_ROOT_DIR "${QUICLY_ROOT_DIR}/deps/picotls")
-  message(STATUS "PICOTLS_ROOT_DIR: ${PICOTLS_ROOT_DIR}")
-  find_package(PicoTLS REQUIRED)
+if(CAF_QUIC)
+  include(ExternalProject)
+
+  message(STATUS "Enable Quic support")
+
+  set(QUICLY_SOURCE_DIR "${CMAKE_BINARY_DIR}/quicly-src")
+  set(QUICLY_BINARY_DIR "${CMAKE_BINARY_DIR}/quicly-build")
+  set(PICOTLS_SOURCE_DIR "${CMAKE_BINARY_DIR}/picotls-src")
+  set(PICOTLS_BINARY_DIR "${CMAKE_BINARY_DIR}/picotls-build")
+
+  message(STATUS "QUICLY_SOURCE_DIR: ${CMAKE_BINARY_DIR}/quicly-src")
+  message(STATUS "QUICLY_BINARY_DIR  ${CMAKE_BINARY_DIR}/quicly-build")
+  message(STATUS "PICOTLS_SOURCE_DIR ${CMAKE_BINARY_DIR}/picotls-src")
+  message(STATUS "PICOTLS_BINARY_DIR ${CMAKE_BINARY_DIR}/picotls-build")
+
+  ExternalProject_Add(quicly
+    GIT_REPOSITORY    https://github.com/h2o/quicly.git
+    INSTALL_COMMAND   ""
+    SOURCE_DIR        ${QUICLY_SOURCE_DIR}
+    BINARY_DIR        ${QUICLY_BINARY_DIR}
+  )
+
+  ExternalProject_Add(picotls
+    GIT_REPOSITORY    https://github.com/h2o/picotls.git
+    GIT_TAG           "791388b72379c6efc5a291aeeb9bd23d4df6aa4f"
+    INSTALL_COMMAND   ""
+    SOURCE_DIR        ${PICOTLS_SOURCE_DIR}
+    BINARY_DIR        ${PICOTLS_BINARY_DIR}
+  )
+
+
+  include_directories("${QUICLY_SOURCE_DIR}/include")
+  include_directories("${PICOTLS_SOURCE_DIR}/include")
+  include_directories("${PICOTLS_SOURCE_DIR}/include/picotls")
+
+  link_directories("${QUICLY_BINARY_DIR}")
+  link_directories("${PICOTLS_BINARY_DIR}")
+
   find_package(OpenSSL REQUIRED)
 endif()
 
@@ -319,7 +351,7 @@ if (DEFINED CMAKE_LD_LIBS)
   list(APPEND ${CMAKE_LD_LIBS})
 endif()
 
-if (NOT CAF_NO_QUIC)
+if (CAF_QUIC)
   list(APPEND CAF_EXTRA_LDFLAGS "-lresolv")
 endif()
 
@@ -353,11 +385,7 @@ endif()
 
 include_directories("${CAF_INCLUDE_DIRS}")
 
-if(NOT CAF_NO_QUIC)
-  include_directories("${QUICLY_INCLUDE_DIRS}")
-  message(STATUS "QUICLY_INCLUDE_DIRS: ${QUICLY_INCLUDE_DIRS}") 
-  include_directories("${PICOTLS_INCLUDE_DIRS}")
-  message(STATUS "PICOTLS_INCLUDE_DIRS: ${PICOTLS_INCLUDE_DIRS}")
+if(CAF_QUIC)
   include_directories("${OPENSSL_INCLUDE_DIR}")
 endif()
 
@@ -400,15 +428,18 @@ if(NOT CAF_NO_UNIT_TESTS)
   add_executable(incubator-test
                  "cmake/incubator-test.cpp"
                  ${CAF_ALL_UNIT_TESTS})
+  if(CAF_QUIC)
+    add_dependencies(incubator-test quicly picotls)
+  endif()
   target_link_libraries(incubator-test
                         ${CAF_EXTRA_LDFLAGS}
                         ${CAF_LIBRARIES}
                         ${PTHREAD_LIBRARIES})
-  if(NOT CAF_NO_QUIC)
-    message(STATUS "linking against quic")
-    target_link_libraries(incubator-test
-                          ${QUICLY_LIBRARIES}
-                          ${PICOTLS_LIBRARIES}
+  if(CAF_QUIC)
+    target_link_libraries(incubator-test libpicotls-core.a 
+                          libpicotls-minicrypto.a 
+                          libpicotls-openssl.a 
+                          libquicly.a
                           ${OPENSSL_LIBRARIES})
   endif()
   add_custom_target(all_unit_tests)

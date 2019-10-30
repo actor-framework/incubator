@@ -132,8 +132,8 @@ while [ $# -ne 0 ]; do
         --with-caf=*)
             append_cache_entry CAF_ROOT_DIR PATH "$optarg"
             ;;
-        --with-quic=*)
-            append_cache_entry QUICLY_ROOT_DIR PATH "$optarg"
+        --with-quic)
+            append_cache_entry CAF_QUIC BOOL yes
             ;;
         --sysroot=*)
             append_cache_entry CAF_OSX_SYSROOT PATH "$optarg"
@@ -168,9 +168,6 @@ while [ $# -ne 0 ]; do
             ;;
         --no-openssl)
             append_cache_entry CAF_NO_OPENSSL BOOL yes
-            ;;
-        --no-quic)
-            append_cache_entry CAF_NO_QUIC BOOL yes
             ;;
         --build-static)
             append_cache_entry CAF_BUILD_STATIC BOOL yes

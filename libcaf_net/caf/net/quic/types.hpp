@@ -33,10 +33,10 @@ CAF_PUSH_WARNINGS
 #  pragma clang diagnostic ignored "-Wsign-compare"
 #endif
 extern "C" {
-#include <picotls/openssl.h>
-#include <quicly.h>
-#include <quicly/defaults.h>
-#include <quicly/streambuf.h>
+#include "picotls/openssl.h"
+#include "quicly.h"
+#include "quicly/defaults.h"
+#include "quicly/streambuf.h"
 }
 CAF_POP_WARNINGS
 

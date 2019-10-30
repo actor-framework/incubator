@@ -82,6 +82,22 @@ config = [
                 'CAF_BUILD_STATIC_ONLY:BOOL=yes',
             ],
         ],
+        Linux: [
+            debug: defaultDebugBuildFlags + [
+                'CAF_QUIC:BOOL=yes',
+            ],
+            release: defaultReleaseBuildFlags + [
+                'CAF_QUIC:BOOL=yes',
+            ],
+        ],
+        MacOs: [
+            debug: defaultDebugBuildFlags + [
+                'CAF_QUIC:BOOL=yes',
+            ],
+            release: defaultReleaseBuildFlags + [
+                'CAF_QUIC:BOOL=yes',
+            ],
+        ]
     ],
     // Configures what binary the coverage report uses and what paths to exclude.
     coverage: [

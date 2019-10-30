@@ -417,7 +417,7 @@ CAF_TEST(receive) {
   CAF_CHECK_EQUAL(received_str, hello_manager);
 }
 
-CAF_TEST(resolve and proxy communication) {
+/*CAF_TEST(resolve and proxy communication) {
   using transport_type = quic_transport<dummy_application_factory>;
   auto uri = unbox(make_uri("test:/id/42"));
   auto mgr = make_endpoint_manager(mpx, sys,
@@ -448,6 +448,6 @@ CAF_TEST(resolve and proxy communication) {
     CAF_CHECK_EQUAL(msg.get_as<std::string>(0), "hello proxy!");
   else
     CAF_ERROR("expected a string, got: " << to_string(msg));
-}
+}*/
 
 CAF_TEST_FIXTURE_SCOPE_END()
