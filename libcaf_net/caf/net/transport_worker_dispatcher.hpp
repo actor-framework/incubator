@@ -28,6 +28,7 @@
 #include "caf/net/fwd.hpp"
 #include "caf/net/packet_writer_decorator.hpp"
 #include "caf/net/transport_worker.hpp"
+#include "caf/send.hpp"
 #include "caf/span.hpp"
 #include "caf/unit.hpp"
 
@@ -94,31 +95,25 @@ public:
   }
 
   template <class Parent>
-  error resolve(Parent& parent, const uri& locator, const actor& listener) {
+  void resolve(Parent& parent, const uri& locator, const actor& listener) {
     auto worker = find_worker(make_node_id(locator));
     if (worker == nullptr)
-      return make_error(sec::runtime_error, "could not find worker");
+      anon_send(listener,
+                make_error(sec::runtime_error, "could not resolve node"));
     worker->resolve(parent, locator.path(), listener);
-    return none;
   }
 
   template <class Parent>
-  error new_proxy(Parent& parent, const node_id& nid, actor_id id) {
-    auto worker = find_worker(nid);
-    if (worker == nullptr)
-      return make_error(sec::runtime_error, "could not find worker");
-    worker->new_proxy(parent, nid, id);
-    return none;
+  void new_proxy(Parent& parent, const node_id& nid, actor_id id) {
+    if (auto worker = find_worker(nid))
+      worker->new_proxy(parent, nid, id);
   }
 
   template <class Parent>
-  error local_actor_down(Parent& parent, const node_id& nid, actor_id id,
-                         error reason) {
-    auto worker = find_worker(nid);
-    if (worker == nullptr)
-      return make_error(sec::runtime_error, "could not find worker");
-    worker->local_actor_down(parent, nid, id, std::move(reason));
-    return none;
+  void local_actor_down(Parent& parent, const node_id& nid, actor_id id,
+                        error reason) {
+    if (auto worker = find_worker(nid))
+      worker->local_actor_down(parent, nid, id, std::move(reason));
   }
 
   template <class... Ts>
