@@ -67,6 +67,10 @@ if (NOT CAF_BUILD_STATIC_ONLY)
     LIBRARY DESTINATION lib
   )
   add_dependencies(libcaf_net_shared libcaf_net)
+  if(CAF_QUIC)
+    message(STATUS "WITH_QUICLY!!!")
+    add_dependencies(libcaf_net_shared quicly)
+  endif()
 endif ()
 
 # build static library only if --build-static or --build-static-only was set
@@ -81,6 +85,10 @@ if (CAF_BUILD_STATIC_ONLY OR CAF_BUILD_STATIC)
   set_target_properties(libcaf_net_static PROPERTIES OUTPUT_NAME caf_net_static)
   install(TARGETS libcaf_net_static ARCHIVE DESTINATION lib)
   add_dependencies(libcaf_net_static libcaf_net)
+  if(CAF_QUIC)
+    message(STATUS "WITH_QUICLY!!!")
+    add_dependencies(libcaf_net_static quicly)
+  endif()
 endif ()
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/caf"
