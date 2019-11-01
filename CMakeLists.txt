@@ -140,10 +140,10 @@ if(CAF_QUIC)
   set(PICOTLS_SOURCE_DIR "${CMAKE_BINARY_DIR}/picotls-src")
   set(PICOTLS_BINARY_DIR "${CMAKE_BINARY_DIR}/picotls-build")
 
-  message(STATUS "QUICLY_SOURCE_DIR: ${CMAKE_BINARY_DIR}/quicly-src")
-  message(STATUS "QUICLY_BINARY_DIR  ${CMAKE_BINARY_DIR}/quicly-build")
-  message(STATUS "PICOTLS_SOURCE_DIR ${CMAKE_BINARY_DIR}/picotls-src")
-  message(STATUS "PICOTLS_BINARY_DIR ${CMAKE_BINARY_DIR}/picotls-build")
+  message(STATUS "QUICLY_SOURCE_DIR: ${QUICLY_SOURCE_DIR}")
+  message(STATUS "QUICLY_BINARY_DIR  ${QUICLY_BINARY_DIR}")
+  message(STATUS "PICOTLS_SOURCE_DIR ${PICOTLS_SOURCE_DIR}")
+  message(STATUS "PICOTLS_BINARY_DIR ${PICOTLS_BINARY_DIR}")
 
   ExternalProject_Add(quicly
     GIT_REPOSITORY    https://github.com/h2o/quicly.git
@@ -169,6 +169,7 @@ if(CAF_QUIC)
   link_directories("${PICOTLS_BINARY_DIR}")
 
   find_package(OpenSSL REQUIRED)
+  message(STATUS "OPENSSL_LIBRARIES: ${OPENSSL_LIBRARIES}")
 endif()
 
 # -- compiler setup ------------------------------------------------------------
@@ -436,10 +437,10 @@ if(NOT CAF_NO_UNIT_TESTS)
                         ${CAF_LIBRARIES}
                         ${PTHREAD_LIBRARIES})
   if(CAF_QUIC)
-    target_link_libraries(incubator-test libpicotls-core.a 
-                          libpicotls-minicrypto.a 
-                          libpicotls-openssl.a 
-                          libquicly.a
+    target_link_libraries(incubator-test ${PICOTLS_BINARY_DIR}/libpicotls-core.a 
+                          ${PICOTLS_BINARY_DIR}/libpicotls-minicrypto.a 
+                          ${PICOTLS_BINARY_DIR}/libpicotls-openssl.a 
+                          ${QUICLY_BINARY_DIR}/libquicly.a
                           ${OPENSSL_LIBRARIES})
   endif()
   add_custom_target(all_unit_tests)

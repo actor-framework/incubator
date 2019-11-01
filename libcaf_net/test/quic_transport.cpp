@@ -32,6 +32,7 @@
 #include "caf/net/make_endpoint_manager.hpp"
 #include "caf/net/multiplexer.hpp"
 #include "caf/net/quic/quic.hpp"
+#include "caf/net/quic/types.hpp"
 #include "caf/net/udp_datagram_socket.hpp"
 #include "caf/serializer_impl.hpp"
 #include "caf/span.hpp"
@@ -42,12 +43,6 @@ using namespace caf::net;
 namespace {
 
 constexpr string_view hello_manager = "hello manager!";
-
-struct fixture;
-
-struct stream_open : public quicly_stream_open_t {
-  fixture* state;
-};
 
 struct fixture : test_coordinator_fixture<>, host_fixture {
   fixture()
@@ -103,11 +98,11 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     CAF_MESSAGE("sending data to: " << to_string(recv_ep));
     if (auto err = nonblocking(recv_sock, true))
       CAF_LOG_ERROR("nonblocking returned an error: " << err);
-    stream_open_.state = this;
+    stream_open_.transport = this;
     stream_open_.cb = [](quicly_stream_open_t* self,
                          quicly_stream_t* new_stream) -> int {
-      auto tmp = static_cast<stream_open*>(self);
-      return tmp->state->on_stream_open(self, new_stream);
+      auto tmp = static_cast<quic::stream_open<fixture>*>(self);
+      return tmp->transport->on_stream_open(self, new_stream);
     };
     save_resumption_token_.cb = [](quicly_save_resumption_token_t*,
                                    quicly_conn_t*,
@@ -293,7 +288,7 @@ private:
   quicly_save_resumption_token_t save_resumption_token_;
   quicly_generate_resumption_token_t generate_resumption_token_;
   ptls_save_ticket_t save_ticket_;
-  stream_open stream_open_;
+  quic::stream_open<fixture> stream_open_;
   quicly_closed_by_peer_t closed_by_peer_;
 }; // namespace
 
