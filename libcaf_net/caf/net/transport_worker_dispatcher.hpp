@@ -19,6 +19,7 @@
 #pragma once
 
 #include <caf/logger.hpp>
+#include <caf/sec.hpp>
 #include <unordered_map>
 
 #include "caf/byte.hpp"
@@ -27,13 +28,14 @@
 #include "caf/net/fwd.hpp"
 #include "caf/net/packet_writer_decorator.hpp"
 #include "caf/net/transport_worker.hpp"
+#include "caf/send.hpp"
 #include "caf/span.hpp"
 #include "caf/unit.hpp"
 
 namespace caf {
 namespace net {
 
-/// implements a dispatcher that dispatches between transport and workers.
+/// Implements a dispatcher that dispatches between transport and workers.
 template <class Transport, class IdType>
 class transport_worker_dispatcher {
 public:
@@ -68,13 +70,13 @@ public:
 
   template <class Parent>
   error handle_data(Parent& parent, span<byte> data, id_type id) {
-    auto worker = find_worker(id);
-    if (!worker) {
-      // TODO: where to get id_type from here?
-      add_new_worker(parent, node_id{}, id);
-      worker = find_worker(id);
-    }
-    return worker->handle_data(parent, data);
+    if (auto worker = find_worker(id))
+      return worker->handle_data(parent, data);
+    auto worker = add_new_worker(parent, node_id{}, id);
+    if (worker)
+      return (*worker)->handle_data(parent, data);
+    else
+      return std::move(worker.error());
   }
 
   template <class Parent>
@@ -84,19 +86,21 @@ public:
     if (!receiver)
       return;
     auto nid = receiver->node();
-    auto worker = find_worker(nid);
-    if (!worker) {
-      // TODO: where to get id_type from here?
-      add_new_worker(parent, nid, id_type{});
-      worker = find_worker(nid);
+    if (auto worker = find_worker(nid)) {
+      worker->write_message(parent, std::move(msg));
+      return;
     }
-    worker->write_message(parent, std::move(msg));
+    if (auto worker = add_new_worker(parent, nid, id_type{}))
+      (*worker)->write_message(parent, std::move(msg));
   }
 
   template <class Parent>
   void resolve(Parent& parent, const uri& locator, const actor& listener) {
-    if (auto worker = find_worker(make_node_id(locator)))
-      worker->resolve(parent, locator.path(), listener);
+    auto worker = find_worker(make_node_id(locator));
+    if (worker == nullptr)
+      anon_send(listener,
+                make_error(sec::runtime_error, "could not resolve node"));
+    worker->resolve(parent, locator.path(), listener);
   }
 
   template <class Parent>
@@ -132,14 +136,15 @@ public:
   }
 
   template <class Parent>
-  error add_new_worker(Parent& parent, node_id node, id_type id) {
+  expected<worker_ptr> add_new_worker(Parent& parent, node_id node,
+                                      id_type id) {
     auto application = factory_.make();
     auto worker = std::make_shared<worker_type>(std::move(application), id);
     if (auto err = worker->init(parent))
       return err;
     workers_by_id_.emplace(std::move(id), worker);
-    workers_by_node_.emplace(std::move(node), std::move(worker));
-    return none;
+    workers_by_node_.emplace(std::move(node), worker);
+    return worker;
   }
 
   /// Checks wether a given key is already contained in the lookups or not.
@@ -153,21 +158,22 @@ private:
     return find_worker_impl(workers_by_node_, nid);
   }
 
-  worker_ptr find_worker(const IdType& id) {
+  worker_ptr find_worker(const id_type& id) {
     return find_worker_impl(workers_by_id_, id);
   }
 
-  template <class T>
-  worker_ptr find_worker_impl(std::unordered_map<T, worker_ptr> map,
-                              const T& key) {
+  template <class Key>
+  worker_ptr find_worker_impl(const std::unordered_map<Key, worker_ptr>& map,
+                              const Key& key) {
     if (map.count(key) == 0) {
-      CAF_LOG_ERROR("could not find worker: " << CAF_ARG(key));
+      CAF_LOG_DEBUG("could not find worker: " << CAF_ARG(key));
       return nullptr;
     }
     return map.at(key);
   }
 
-  // -- worker lookups ---------------------------------------------------------
+  // -- worker lookups
+  // ---------------------------------------------------------
 
   std::unordered_map<id_type, worker_ptr> workers_by_id_;
   std::unordered_map<node_id, worker_ptr> workers_by_node_;
@@ -175,7 +181,7 @@ private:
 
   factory_type factory_;
   transport_type* transport_;
-};
+}; // namespace net
 
 } // namespace net
 } // namespace caf
