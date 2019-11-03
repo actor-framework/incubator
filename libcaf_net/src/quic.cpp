@@ -73,7 +73,7 @@ error make_server_context(state& state, callbacks callbacks) {
     path_to_certs = path;
   } else {
     // try to load default certs
-    path_to_certs = "/home/jakob/code/quicly/t/assets/";
+    path_to_certs = "/home/boss/code/quicly/t/assets/";
   }
   auto certificate_chain_path = (path_to_certs + std::string("server.crt"));
   auto private_key_path = (path_to_certs + std::string("server.key"));
@@ -155,25 +155,27 @@ variant<size_t, sec> send_datagram(net::udp_datagram_socket handle,
 }
 
 error send_pending_datagrams(net::udp_datagram_socket handle, conn_ptr conn) {
-  quicly_datagram_t* packets[16];
-  size_t num_packets, i;
-  int ret;
+  const size_t max_num_packets = 16;
+  int ret = 0;
+  std::vector<quicly_datagram_t*> packets(max_num_packets);
 
   do {
-    num_packets = sizeof(packets) / sizeof(packets[0]);
-    if ((ret = quicly_send(conn.get(), packets, &num_packets)) == 0) {
-      for (i = 0; i != num_packets; ++i) {
-        auto res = send_datagram(handle, packets[i]);
+    packets.resize(max_num_packets);
+    auto num_packets = packets.size();
+    if ((ret = quicly_send(conn.get(), packets.data(), &num_packets)) == 0) {
+      packets.resize(num_packets);
+      for (auto packet : packets) {
+        auto res = send_datagram(handle, packet);
         auto pa = quicly_get_context(conn.get())->packet_allocator;
-        pa->free_packet(pa, packets[i]);
+        pa->free_packet(pa, packet);
         if (auto err = get_if<sec>(&res)) {
-          return make_error(*err, "send_quicly_datagram_failed");
+          return make_error(*err, "send_datagram_failed");
         }
       }
     } else {
       return make_error(sec::runtime_error, "quicly_send failed");
     }
-  } while (ret == 0 && num_packets == sizeof(packets) / sizeof(packets[0]));
+  } while (ret == 0 && packets.size() == max_num_packets);
   return sec::none;
 }
 

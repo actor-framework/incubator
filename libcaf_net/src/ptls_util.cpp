@@ -280,7 +280,7 @@ int normalize_txt(uint8_t* p, size_t len) {
   return 1;
 }
 
-ptls_iovec_t resolve_esni_keys(std::string server_name) {
+ptls_iovec_t resolve_esni_keys(const std::string& server_name) {
   char esni_name[256], *base64;
   uint8_t answer[1024];
   ns_msg msg;

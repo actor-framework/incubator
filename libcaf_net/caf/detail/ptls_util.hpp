@@ -43,9 +43,23 @@
 #include <string>
 #include <sys/param.h>
 #include <sys/socket.h>
+
+#include "caf/config.hpp"
+
+CAF_PUSH_WARNINGS
+#ifdef CAF_GCC
+#  pragma GCC diagnostic ignored "-Wunused-parameter"
+#  pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#  pragma GCC diagnostic ignored "-Wsign-compare"
+#elif defined(CAF_CLANG)
+#  pragma clang diagnostic ignored "-Wunused-parameter"
+#  pragma clang diagnostic ignored "-Wmissing-field-initializers"
+#  pragma clang diagnostic ignored "-Wsign-compare"
+#endif
 extern "C" {
 #include <picotls.h>
 }
+CAF_POP_WARNINGS
 
 namespace caf {
 namespace detail {

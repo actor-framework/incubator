@@ -89,14 +89,14 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     if (auto err = parse("127.0.0.1:0", recv_ep))
       CAF_FAIL("parse returned an error: " << err);
     auto send_pair = unbox(make_udp_datagram_socket(recv_ep));
-    send_sock = send_pair.first;
-    if (auto err = nonblocking(send_sock, true))
+    test_sock = send_pair.first;
+    if (auto err = nonblocking(test_sock, true))
       CAF_LOG_ERROR("nonblocking returned an error: " << err);
     auto receive_pair = unbox(make_udp_datagram_socket(recv_ep));
-    recv_sock = receive_pair.first;
+    transport_sock = receive_pair.first;
     recv_ep.port(ntohs(receive_pair.second));
     CAF_MESSAGE("sending data to: " << to_string(recv_ep));
-    if (auto err = nonblocking(recv_sock, true))
+    if (auto err = nonblocking(transport_sock, true))
       CAF_LOG_ERROR("nonblocking returned an error: " << err);
     stream_open_.transport = this;
     stream_open_.cb = [](quicly_stream_open_t* self,
@@ -115,108 +115,37 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     };
     closed_by_peer_.cb = [](quicly_closed_by_peer_t*, quicly_conn_t*, int,
                             uint64_t, const char*, size_t) {
-      CAF_FAIL("peer closed connection");
       // nop
     };
   };
 
   ~fixture() {
-    close(send_sock);
-    close(recv_sock);
+    close(test_sock);
+    close(transport_sock);
   }
 
   bool handle_io_event() override {
     return mpx->poll_once(false);
   }
 
-  void quic_setup() {
-    quicly_state_.tlsctx.random_bytes = ptls_openssl_random_bytes;
-    quicly_state_.tlsctx.get_time = &ptls_get_time;
-    quicly_state_.tlsctx.key_exchanges = quicly_state_.key_exchanges;
-    quicly_state_.tlsctx.cipher_suites = ptls_openssl_cipher_suites;
-    quicly_state_.tlsctx.require_dhe_on_psk = 1;
-    quicly_state_.tlsctx.save_ticket = &save_ticket_;
-    // initialize quicly_context
-    quicly_state_.ctx = quicly_spec_context;
-    quicly_state_.ctx.tls = &quicly_state_.tlsctx;
-    quicly_state_.ctx.stream_open = &stream_open_;
-    quicly_state_.ctx.closed_by_peer = &closed_by_peer_;
-    quicly_state_.ctx.save_resumption_token = &save_resumption_token_;
-    quicly_state_.ctx.generate_resumption_token = &generate_resumption_token_;
-    // initialize session_context
-    detail::setup_session_cache(quicly_state_.ctx.tls);
-    quicly_amend_ptls_context(quicly_state_.ctx.tls);
-    // generate cypher context for en-/decryption
-    uint8_t secret[PTLS_MAX_DIGEST_SIZE];
-    quicly_state_.ctx.tls->random_bytes(secret,
-                                        ptls_openssl_sha256.digest_size);
-    quicly_state_.address_token.enc = ptls_aead_new(&ptls_openssl_aes128gcm,
-                                                    &ptls_openssl_sha256, 1,
-                                                    secret, "");
-    quicly_state_.address_token.dec = ptls_aead_new(&ptls_openssl_aes128gcm,
-                                                    &ptls_openssl_sha256, 0,
-                                                    secret, "");
-    // read certificates from file.
-    std::string path_to_certs;
-    if (auto path = getenv("QUICLY_CERTS")) {
-      path_to_certs = path;
-    } else {
-      // try to load default certs
-      path_to_certs = "/home/jakob/code/quicly/t/assets/";
-    }
-    auto certificate_chain_path = (path_to_certs + std::string("server.crt"));
-    auto private_key_path = (path_to_certs + std::string("server.key"));
-    if (detail::load_certificate_chain(quicly_state_.ctx.tls,
-                                       certificate_chain_path))
-      CAF_FAIL("failed to load certificate chain: "
-               << CAF_ARG(certificate_chain_path));
-    if (detail::load_private_key(quicly_state_.ctx.tls, private_key_path))
-      CAF_FAIL("failed to load private keys: " << CAF_ARG(private_key_path));
-    CAF_ASSERT(quicly_state_.ctx.tls->certificates.count != 0
-               || quicly_state_.ctx.tls->sign_certificate != nullptr);
-    quicly_state_.key_exchanges[0] = &ptls_openssl_secp256r1;
-    quicly_state_.tlsctx.random_bytes(quicly_state_.cid_key,
-                                      sizeof(quicly_state_.cid_key) - 1);
-    auto iovec = ptls_iovec_init(quicly_state_.cid_key,
-                                 sizeof(quicly_state_.cid_key) - 1);
-    auto cid_cipher = &ptls_openssl_bfecb;
-    auto reset_token_cipher = &ptls_openssl_aes128ecb;
-    auto hash = &ptls_openssl_sha256;
-    auto default_encryptor = quicly_new_default_cid_encryptor(
-      cid_cipher, reset_token_cipher, hash, iovec);
-    quicly_state_.ctx.cid_encryptor = default_encryptor;
-  }
-
-  void quic_roundtrip() {
-    run();
-    quic_receive();
-    CAF_CHECK_EQUAL(quic::send_pending_datagrams(send_sock, connection_), none);
-  }
-
-  void quic_connect() {
-    sockaddr_storage sa = {};
-    detail::convert(recv_ep, sa);
-    quicly_conn_t* conn = nullptr;
-    if (quicly_connect(&conn, &quicly_state_.ctx, "localhost",
-                       reinterpret_cast<sockaddr*>(&sa), nullptr,
-                       &quicly_state_.next_cid, quicly_state_.resumption_token,
-                       &quicly_state_.hs_properties,
-                       &quicly_state_.resumed_transport_params))
-      CAF_FAIL("quicly_connect failed");
-    connection_ = quic::make_conn_ptr(conn);
-    ++quicly_state_.next_cid.master_id;
-    CAF_CHECK_EQUAL(quic::send_pending_datagrams(send_sock, connection_), none);
-    // do roundtrips until connected
-    int i = 0;
-    while (quicly_get_state(connection_.get()) != QUICLY_STATE_CONNECTED) {
-      if (++i > 5)
-        CAF_FAIL("connection process took too many roundtrips");
-      quic_roundtrip();
-    }
-    CAF_MESSAGE("connected after " << CAF_ARG(i) << " rounds");
-    if (quicly_open_stream(connection_.get(), &stream_, 0)) {
-      CAF_FAIL("quicly_open_stream failed");
-    }
+  expected<ip_endpoint> read_from_socket(udp_datagram_socket sock,
+                                         std::vector<byte>& buf) {
+    uint8_t receive_attempts = 0;
+    variant<std::pair<size_t, ip_endpoint>, sec> read_ret;
+    ip_endpoint ep;
+    do {
+      read_ret = read(sock, make_span(buf));
+      if (auto read_res = get_if<std::pair<size_t, ip_endpoint>>(&read_ret)) {
+        buf.resize(read_res->first);
+        ep = read_res->second;
+      } else if (get<sec>(read_ret) != sec::unavailable_or_would_block) {
+        return make_error(get<sec>(read_ret), "read failed");
+      }
+      if (++receive_attempts > 100)
+        return make_error(sec::runtime_error,
+                          "too many unavailable_or_would_blocks");
+    } while (read_ret.index() != 0);
+    return ep;
   }
 
   /// this function receives data and passes it to the quic stack.
@@ -224,14 +153,12 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   void quic_receive() {
     sockaddr_storage sa = {};
     std::vector<byte> receive_buf(4096);
-    auto read_res = read(send_sock, make_span(receive_buf));
-    if (auto err = get_if<sec>(&read_res))
-      CAF_FAIL("read returned an error: " << err);
-    auto read_pair = get<std::pair<size_t, ip_endpoint>>(read_res);
-    auto received_bytes = read_pair.first;
-    auto ep = read_pair.second;
-    detail::convert(ep, sa);
+    if (auto ret = read_from_socket(test_sock, receive_buf))
+      detail::convert(*ret, sa);
+    else
+      CAF_FAIL("could not read from socket " << ret);
     size_t off = 0;
+    auto received_bytes = receive_buf.size();
     while (off < received_bytes) {
       quicly_decoded_packet_t packet;
       auto buf = reinterpret_cast<uint8_t*>(receive_buf.data());
@@ -246,9 +173,51 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     }
   }
 
+  void quic_setup() {
+    quic::callbacks cbs{};
+    cbs.save_ticket = &save_ticket_;
+    cbs.stream_open = &stream_open_;
+    cbs.closed_by_peer = &closed_by_peer_;
+    cbs.save_resumption_token = &save_resumption_token_;
+    cbs.generate_resumption_token = &generate_resumption_token_;
+    CAF_CHECK_EQUAL(quic::make_server_context(quicly_state_, cbs), none);
+  }
+
+  void quic_roundtrip() {
+    run();
+    quic_receive();
+    CAF_CHECK_EQUAL(quic::send_pending_datagrams(test_sock, connection_), none);
+  }
+
+  void quic_connect() {
+    sockaddr_storage sa = {};
+    detail::convert(recv_ep, sa);
+    quicly_conn_t* conn = nullptr;
+    if (quicly_connect(&conn, &quicly_state_.ctx, "localhost",
+                       reinterpret_cast<sockaddr*>(&sa), nullptr,
+                       &quicly_state_.next_cid, quicly_state_.resumption_token,
+                       &quicly_state_.hs_properties,
+                       &quicly_state_.resumed_transport_params))
+      CAF_FAIL("quicly_connect failed");
+    connection_ = quic::make_conn_ptr(conn);
+    ++quicly_state_.next_cid.master_id;
+    CAF_CHECK_EQUAL(quic::send_pending_datagrams(test_sock, connection_), none);
+    // do roundtrips until connected
+    int i = 0;
+    while (quicly_get_state(connection_.get()) != QUICLY_STATE_CONNECTED) {
+      if (++i > 5)
+        CAF_FAIL("connection process took too many roundtrips");
+      quic_roundtrip();
+    }
+    CAF_MESSAGE("connected after " << CAF_ARG(i) << " rounds");
+    if (quicly_open_stream(connection_.get(), &stream_, 0)) {
+      CAF_FAIL("quicly_open_stream failed");
+    }
+  }
+
   void quic_send(string_view msg) {
     quicly_streambuf_egress_write(stream_, msg.data(), msg.length());
-    CAF_CHECK_EQUAL(quic::send_pending_datagrams(send_sock, connection_), none);
+    CAF_CHECK_EQUAL(quic::send_pending_datagrams(test_sock, connection_), none);
   }
 
   void quicly_test_send(string_view msg) {
@@ -273,8 +242,8 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   multiplexer_ptr mpx;
   std::shared_ptr<std::vector<byte>> transport_buf;
   ip_endpoint recv_ep;
-  udp_datagram_socket send_sock;
-  udp_datagram_socket recv_sock;
+  udp_datagram_socket test_sock;
+  udp_datagram_socket transport_sock;
 
 private:
   // quicly connection/stream
@@ -395,7 +364,7 @@ CAF_TEST_FIXTURE_SCOPE(quic_transport_tests, fixture)
 CAF_TEST(receive) {
   using transport_type = quic_transport<dummy_application_factory>;
   auto mgr = make_endpoint_manager(mpx, sys,
-                                   transport_type{recv_sock,
+                                   transport_type{transport_sock,
                                                   dummy_application_factory{
                                                     transport_buf}});
   CAF_CHECK_EQUAL(mgr->init(), none);
@@ -412,11 +381,11 @@ CAF_TEST(receive) {
   CAF_CHECK_EQUAL(received_str, hello_manager);
 }
 
-/*CAF_TEST(resolve and proxy communication) {
+CAF_TEST(resolve and proxy communication) {
   using transport_type = quic_transport<dummy_application_factory>;
   auto uri = unbox(make_uri("test:/id/42"));
   auto mgr = make_endpoint_manager(mpx, sys,
-                                   transport_type{send_sock,
+                                   transport_type{transport_sock,
                                                   dummy_application_factory{
                                                     transport_buf}});
   CAF_CHECK_EQUAL(mgr->init(), none);
@@ -431,7 +400,7 @@ CAF_TEST(receive) {
     after(std::chrono::seconds(0)) >>
       [&] { CAF_FAIL("manager did not respond with a proxy."); });
   run();
-  auto read_res = read(recv_sock, make_span(*transport_buf));
+  auto read_res = read(transport_sock, make_span(*transport_buf));
   if (!holds_alternative<std::pair<size_t, ip_endpoint>>(read_res))
     CAF_FAIL("read() returned an error: " << sys.render(get<sec>(read_res)));
   transport_buf->resize(get<std::pair<size_t, ip_endpoint>>(read_res).first);
@@ -443,6 +412,6 @@ CAF_TEST(receive) {
     CAF_CHECK_EQUAL(msg.get_as<std::string>(0), "hello proxy!");
   else
     CAF_ERROR("expected a string, got: " << to_string(msg));
-}*/
+}
 
 CAF_TEST_FIXTURE_SCOPE_END()

@@ -230,24 +230,9 @@ public:
                                        read_pair.first - off);
       if (plen == SIZE_MAX)
         break;
-      if (QUICLY_PACKET_IS_LONG_HEADER(packet.octets.base[0])) {
-        if (packet.version != QUICLY_PROTOCOL_VERSION) {
-          auto rp = quicly_send_version_negotiation(&quicly_state_.ctx,
-                                                    reinterpret_cast<sockaddr*>(
-                                                      &sa),
-                                                    packet.cid.src, nullptr,
-                                                    packet.cid.dest.encrypted);
-          CAF_ASSERT(rp != nullptr);
-          auto send_res = quic::send_datagram(handle_, rp);
-          if (auto err = get_if<sec>(&send_res))
-            CAF_LOG_ERROR("send_quicly_datagram failed" << CAF_ARG(*err));
-          break;
-        }
-        // there is no way to send response to these v1 packets
-        if (packet.cid.dest.encrypted.len > QUICLY_MAX_CID_LEN_V1
-            || packet.cid.src.len > QUICLY_MAX_CID_LEN_V1)
-          break;
-      }
+      if (QUICLY_PACKET_IS_LONG_HEADER(packet.octets.base[0]))
+        if (!version_negotiation(packet, reinterpret_cast<sockaddr*>(&sa)))
+          continue;
       auto conn_it = std::
         find_if(known_conns_.begin(), known_conns_.end(),
                 [&](const std::pair<id_type, quic::conn_ptr>& p) {
@@ -256,85 +241,111 @@ public:
                                                &packet);
                 });
       if (conn_it != known_conns_.end()) {
-        // already accepted connection
-        auto& conn = conn_it->second;
-        quicly_receive(conn.get(), nullptr, reinterpret_cast<sockaddr*>(&sa),
-                       &packet);
-        for (auto& data : *read_buf_)
-          dispatcher_.handle_data(*this, make_span(data.received), data.id);
-        read_buf_->clear();
-        quic::send_pending_datagrams(handle_, conn);
+        handle_data(conn_it->second, packet, reinterpret_cast<sockaddr*>(&sa));
       } else if (QUICLY_PACKET_IS_LONG_HEADER(packet.octets.base[0])) {
-        // new connection
-        quicly_address_token_plaintext_t* token = nullptr;
-        quicly_address_token_plaintext_t token_buf;
-        if (packet.token.len != 0
-            && quicly_decrypt_address_token(const_cast<ptls_aead_context_t*>(
-                                              quicly_state_.address_token.dec),
-                                            &token_buf, packet.token.base,
-                                            packet.token.len, 0)
-                 == 0
-            && quic::validate_token(reinterpret_cast<sockaddr*>(&sa),
-                                    packet.cid.src, packet.cid.dest.encrypted,
-                                    &token_buf, &quicly_state_.ctx))
-          token = &token_buf;
-
-        quicly_conn_t* conn = nullptr;
-        int accept_res = quicly_accept(&conn, &quicly_state_.ctx, nullptr,
-                                       reinterpret_cast<sockaddr*>(&sa),
-                                       &packet, token, &quicly_state_.next_cid,
-                                       nullptr);
-        if (accept_res == 0 && conn) {
-          CAF_LOG_TRACE("accepted new quic connection");
-          auto id = quic::convert(conn);
-          auto conn_ptr = quic::make_conn_ptr(conn);
-          ++quicly_state_.next_cid.master_id;
-          // TODO: node_id is missing here
-          if (auto err = dispatcher_.add_new_worker(*this, node_id{}, id)) {
-            CAF_LOG_ERROR("add_new_worker returned an error: " << CAF_ARG(err));
-            return false;
-          }
-          quicly_stream_t* stream = nullptr;
-          if (quicly_open_stream(conn, &stream, 0)) {
-            CAF_LOG_ERROR("quicly_open_stream failed");
-            return false;
-          }
-          known_streams_.emplace(id, stream);
-          known_conns_.emplace(id, conn_ptr);
-          quic::send_pending_datagrams(handle_, conn_ptr);
-        } else {
-          CAF_LOG_ERROR("could not accept new connection");
-          return false;
-        }
+        if (!handle_incoming_connection(packet,
+                                        reinterpret_cast<sockaddr*>(&sa)))
+          continue;
       } else {
-        /* short header packet; potentially a dead connection. No need to check
-         * the length of the incoming packet, because loop is prevented by
-         * authenticating the CID (by checking node_id and thread_id). If the
-         * peer is also sending a reset, then the next CID is highly likely to
-         * contain a non-authenticating CID, ... */
-        if (packet.cid.dest.plaintext.node_id == 0
-            && packet.cid.dest.plaintext.thread_id == 0) {
-          auto dgram = quicly_send_stateless_reset(&quicly_state_.ctx,
-                                                   reinterpret_cast<sockaddr*>(
-                                                     &sa),
-                                                   nullptr,
-                                                   packet.cid.dest.encrypted
-                                                     .base);
-          auto send_res = quic::send_datagram(handle_, dgram);
-          if (auto err = get_if<sec>(&send_res)) {
-            CAF_LOG_ERROR("send_quicly_datagram failed" << CAF_ARG(*err));
-            return false;
-          }
-        }
+        if (stateless_reset(packet, reinterpret_cast<sockaddr*>(&sa)))
+          continue;
       }
       off += plen;
     }
+    // send pending ACKS, data etc...
     for (const auto& p : known_conns_) {
-      if (auto err = quic::send_pending_datagrams(handle_, p.second)) {
+      if (auto err = quic::send_pending_datagrams(handle_, p.second))
         CAF_LOG_ERROR("send_pending failed: " << CAF_ARG(err));
-        auto id = quic::convert(p.second);
-        known_conns_.erase(id);
-        known_streams_.erase(id);
+    }
+    return true;
+  }
+
+  bool version_negotiation(quicly_decoded_packet_t& packet, sockaddr* sa) {
+    if (packet.version != QUICLY_PROTOCOL_VERSION) {
+      auto rp = quicly_send_version_negotiation(&quicly_state_.ctx, sa,
+                                                packet.cid.src, nullptr,
+                                                packet.cid.dest.encrypted);
+      CAF_ASSERT(rp != nullptr);
+      auto send_res = quic::send_datagram(handle_, rp);
+      if (auto err = get_if<sec>(&send_res))
+        CAF_LOG_ERROR("send_quicly_datagram failed" << CAF_ARG(*err));
+      return false;
+    }
+    // there is no way to send response to these v1 packets
+    if (packet.cid.dest.encrypted.len > QUICLY_MAX_CID_LEN_V1
+        || packet.cid.src.len > QUICLY_MAX_CID_LEN_V1)
+      return false;
+    return true;
+  }
+
+  void handle_data(quic::conn_ptr& conn, quicly_decoded_packet_t& packet,
+                   sockaddr* sa) {
+    quicly_receive(conn.get(), nullptr, sa, &packet);
+    for (auto& data : *read_buf_)
+      dispatcher_.handle_data(*this, make_span(data.received), data.id);
+    read_buf_->clear();
+  }
+
+  bool handle_incoming_connection(quicly_decoded_packet_t& packet,
+                                  sockaddr* sa) {
+    // accept new connection
+    quicly_address_token_plaintext_t* token = nullptr;
+    quicly_address_token_plaintext_t token_buf;
+    if (packet.token.len != 0
+        && quicly_decrypt_address_token(const_cast<ptls_aead_context_t*>(
+                                          quicly_state_.address_token.dec),
+                                        &token_buf, packet.token.base,
+                                        packet.token.len, 0)
+             == 0
+        && quic::validate_token(sa, packet.cid.src, packet.cid.dest.encrypted,
+                                &token_buf, &quicly_state_.ctx))
+      token = &token_buf;
+
+    quicly_conn_t* conn = nullptr;
+    int accept_res = quicly_accept(&conn, &quicly_state_.ctx, nullptr, sa,
+                                   &packet, token, &quicly_state_.next_cid,
+                                   nullptr);
+    if (accept_res == 0 && conn) {
+      CAF_LOG_TRACE("accepted new quic connection");
+      auto id = quic::convert(conn);
+      auto conn_ptr = quic::make_conn_ptr(conn);
+      ++quicly_state_.next_cid.master_id;
+      // TODO: node_id is missing here
+      auto worker = dispatcher_.add_new_worker(*this, node_id{}, id);
+      if (!worker) {
+        CAF_LOG_ERROR("add_new_worker returned an error: " << CAF_ARG(worker));
+        return false;
+      }
+      quicly_stream_t* stream = nullptr;
+      if (quicly_open_stream(conn, &stream, 0)) {
+        CAF_LOG_ERROR("quicly_open_stream failed");
+        return false;
+      }
+      known_streams_.emplace(id, stream);
+      known_conns_.emplace(id, conn_ptr);
+    } else {
+      CAF_LOG_ERROR("could not accept new connection");
+      return false;
+    }
+    return true;
+  }
+
+  bool stateless_reset(quicly_decoded_packet_t& packet, sockaddr* sa) {
+    /* short header packet; potentially a dead connection. No need to check
+     * the length of the incoming packet, because loop is prevented by
+     * authenticating the CID (by checking node_id and thread_id). If the
+     * peer is also sending a reset, then the next CID is highly likely to
+     * contain a non-authenticating CID, ... */
+    if (packet.cid.dest.plaintext.node_id == 0
+        && packet.cid.dest.plaintext.thread_id == 0) {
+      auto dgram = quicly_send_stateless_reset(&quicly_state_.ctx,
+
+                                               sa, nullptr,
+                                               packet.cid.dest.encrypted.base);
+      auto send_res = quic::send_datagram(handle_, dgram);
+      if (auto err = get_if<sec>(&send_res)) {
+        CAF_LOG_ERROR("send_quicly_datagram failed: " << CAF_ARG(*err));
+        return false;
       }
     }
     return true;
@@ -375,8 +386,11 @@ public:
       }
       ep = ip_endpoint(ip, port);
       auto conn_res = connect(ep);
-      if (conn_res) {
+      if (!conn_res) {
+        std::cout << "connect failed: " << to_string(conn_res.error())
+                  << std::endl;
         CAF_LOG_ERROR("connect failed: " << CAF_ARG(conn_res));
+        anon_send(listener, conn_res.error());
         return;
       }
       auto connection = *conn_res;
@@ -558,7 +572,7 @@ private:
     sockaddr_storage sa = {};
     detail::convert(ep, sa);
     quicly_conn_t* conn = nullptr;
-    if (quicly_connect(&conn, &quicly_state_.ctx, nullptr,
+    if (quicly_connect(&conn, &quicly_state_.ctx, "localhost",
                        reinterpret_cast<sockaddr*>(&sa), nullptr,
                        &quicly_state_.next_cid, quicly_state_.resumption_token,
                        &quicly_state_.hs_properties,
