@@ -48,6 +48,26 @@ namespace quic {
 
 // -- callback types -----------------------------------------------------------
 
+template <class Fun>
+struct init_helper;
+
+template <class R, class BasePtr, class... Ts>
+struct init_helper<R (*)(BasePtr, Ts...)> {
+  template <class Data, class Transport>
+  static void init(Data& x, Transport* self) {
+    x.transport = self;
+    x.cb = [](BasePtr ptr, Ts... xs) -> R {
+      auto dptr = static_cast<Data*>(ptr);
+      return dptr->transport->handle(ptr, xs...);
+    };
+  }
+};
+
+template <class Data, class Transport>
+void init(Data& x, Transport* self) {
+  init_helper<decltype(x.cb)>::init(x, self);
+}
+
 /// Holds the received data to pass it from the callback to the transport.
 struct received_data {
   received_data(size_t id, span<byte> data) : id(id) {
@@ -71,12 +91,13 @@ struct generate_resumption_token : quicly_generate_resumption_token_t {
 };
 
 template <class Transport>
-struct save_session_ticket : ptls_save_ticket_t {
+struct save_ticket : ptls_save_ticket_t {
   Transport* transport;
 };
 
 template <class Transport>
 struct stream_open : public quicly_stream_open_t {
+  using base_type = quicly_stream_open_t;
   Transport* transport;
 };
 
@@ -101,14 +122,16 @@ struct callbacks {
   quicly_generate_resumption_token_t* generate_resumption_token;
 };
 
-// -- pointer aliases ----------------------------------------------------------
+// -- pointer aliases
+// ----------------------------------------------------------
 
 // TODO: quicly_free as deleter??
 using conn_ptr = std::shared_ptr<quicly_conn_t>;
 
 using stream_ptr = std::unique_ptr<quicly_stream_t>;
 
-// -- needed struct definitions ------------------------------------------------
+// -- needed struct definitions
+// ------------------------------------------------
 
 /// stores informations about a quic session.
 struct session_info {
@@ -122,7 +145,8 @@ struct address_token_aead {
   ptls_aead_context_t* dec;
 };
 
-// -- useful struct definitions ------------------------------------------------
+// -- useful struct definitions
+// ------------------------------------------------
 
 /// stores all necessary fields for a quicly connection.
 struct state {

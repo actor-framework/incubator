@@ -152,6 +152,10 @@ public:
 
   // -- public member functions ------------------------------------------------
 
+  int handle(quic::stream_open<quic_transport>*, quicly_stream_t*) {
+    return 0;
+  }
+
   template <class Parent>
   error init(Parent& parent) {
     manager_ = &parent;
@@ -162,41 +166,12 @@ public:
     auto max_payload_bufs = get_or(cfg, "middleman.max-payload-buffers",
                                    defaults::middleman::max_payload_buffers);
     payload_bufs_.reserve(max_payload_bufs);
-    // TODO: think of a more general way to initialize these callbacks
-    stream_open_.transport = this;
-    stream_open_.cb = [](quicly_stream_open_t* self,
-                         quicly_stream_t* stream) -> int {
-      auto tmp = static_cast<quic::stream_open<transport_type>*>(self);
-      return tmp->transport->on_stream_open(self, stream);
-    };
-    closed_by_peer_.transport = this;
-    closed_by_peer_.cb = [](quicly_closed_by_peer_t* self, quicly_conn_t* conn,
-                            int, uint64_t, const char*, size_t) {
-      auto tmp = static_cast<quic::closed_by_peer<transport_type>*>(self);
-      tmp->transport->on_closed_by_peer(conn);
-    };
-    save_resumption_token_.transport = this;
-    save_resumption_token_.cb = [](quicly_save_resumption_token_t* self,
-                                   quicly_conn_t* conn,
-                                   ptls_iovec_t token) -> int {
-      auto tmp = static_cast<quic::save_resumption_token<transport_type>*>(
-        self);
-      return tmp->transport->on_save_resumption_token(conn, token);
-    };
-    generate_resumption_token_.transport = this;
-    generate_resumption_token_.cb =
-      [](quicly_generate_resumption_token_t* self, quicly_conn_t*,
-         ptls_buffer_t* buf, quicly_address_token_plaintext_t* token) -> int {
-      auto tmp = static_cast<quic::generate_resumption_token<transport_type>*>(
-        self);
-      return tmp->transport->on_generate_resumption_token(buf, token);
-    };
-    save_session_ticket_.transport = this;
-    save_session_ticket_.cb = [](ptls_save_ticket_t* self, ptls_t* tls,
-                                 ptls_iovec_t src) -> int {
-      auto tmp = static_cast<quic::save_session_ticket<transport_type>*>(self);
-      return tmp->transport->on_save_session_ticket(tls, src);
-    };
+    using quic::init;
+    init(stream_open_, this);
+    init(closed_by_peer_, this);
+    init(save_resumption_token_, this);
+    init(generate_resumption_token_, this);
+    init(save_session_ticket_, this);
     quic::callbacks cbs{};
     cbs.save_ticket = &save_session_ticket_;
     cbs.stream_open = &stream_open_;
@@ -476,6 +451,56 @@ public:
     packet_queue_.emplace_back(ep, buffers);
   }
 
+  // -- quicly callbacks -------------------------------------------------------
+
+  int handle(quicly_stream_open_t*, st_quicly_stream_t* stream) {
+    CAF_LOG_TRACE("new quic stream opened");
+    if (auto ret = quicly_streambuf_create(stream, sizeof(quic::streambuf)))
+      return ret;
+    stream->callbacks = &quicly_state_.stream_callbacks;
+    reinterpret_cast<quic::streambuf*>(stream->data)->buf = read_buf_;
+    return 0;
+  }
+
+  void handle(quicly_closed_by_peer_t*, quicly_conn_t* conn, int, uint64_t,
+              const char*, size_t) {
+    auto id = quic::convert(conn);
+    known_conns_.erase(quic::convert(conn));
+    known_streams_.erase(id);
+    // TODO: delete worker that handles this connection.
+  }
+
+  int handle(quicly_save_resumption_token_t*, quicly_conn_t* conn,
+             ptls_iovec_t token) {
+    free(quicly_state_.session.address_token.base);
+    quicly_state_.session.address_token = ptls_iovec_init(malloc(token.len),
+                                                          token.len);
+    memcpy(quicly_state_.session.address_token.base, token.base, token.len);
+    return quic::save_session(quicly_get_peer_transport_parameters(conn),
+                              quicly_state_.session_file_path,
+                              quicly_state_.session);
+  }
+
+  int handle(quicly_generate_resumption_token_t*, quicly_conn_t*,
+             ptls_buffer_t* buf, quicly_address_token_plaintext_t* token) {
+    return quicly_encrypt_address_token(quicly_state_.tlsctx.random_bytes,
+                                        const_cast<ptls_aead_context_t*>(
+                                          quicly_state_.address_token.enc),
+                                        buf, buf->off, token);
+  }
+
+  int handle(ptls_save_ticket_t*, ptls_t* tls, ptls_iovec_t src) {
+    free(quicly_state_.session.tls_ticket.base);
+    quicly_state_.session.tls_ticket = ptls_iovec_init(malloc(src.len),
+                                                       src.len);
+    memcpy(quicly_state_.session.tls_ticket.base, src.base, src.len);
+
+    auto conn = reinterpret_cast<quicly_conn_t*>(*ptls_get_data_ptr(tls));
+    return quic::save_session(quicly_get_peer_transport_parameters(conn),
+                              quicly_state_.session_file_path,
+                              quicly_state_.session);
+  }
+
   // -- buffer management ------------------------------------------------------
 
   buffer_type next_header_buffer() {
@@ -585,55 +610,6 @@ private:
     return connection;
   }
 
-  // -- quicly callbacks -------------------------------------------------------
-
-  int on_stream_open(struct st_quicly_stream_open_t*,
-                     struct st_quicly_stream_t* stream) {
-    CAF_LOG_TRACE("new quic stream opened");
-    if (auto ret = quicly_streambuf_create(stream, sizeof(quic::streambuf)))
-      return ret;
-    stream->callbacks = &quicly_state_.stream_callbacks;
-    reinterpret_cast<quic::streambuf*>(stream->data)->buf = read_buf_;
-    return 0;
-  }
-
-  void on_closed_by_peer(quicly_conn_t* conn) {
-    auto id = quic::convert(conn);
-    known_conns_.erase(quic::convert(conn));
-    known_streams_.erase(id);
-    // TODO: delete worker that handles this connection.
-  }
-
-  int on_save_resumption_token(quicly_conn_t* conn, ptls_iovec_t token) {
-    free(quicly_state_.session.address_token.base);
-    quicly_state_.session.address_token = ptls_iovec_init(malloc(token.len),
-                                                          token.len);
-    memcpy(quicly_state_.session.address_token.base, token.base, token.len);
-    return quic::save_session(quicly_get_peer_transport_parameters(conn),
-                              quicly_state_.session_file_path,
-                              quicly_state_.session);
-  }
-
-  int on_generate_resumption_token(ptls_buffer_t* buf,
-                                   quicly_address_token_plaintext_t* token) {
-    return quicly_encrypt_address_token(quicly_state_.tlsctx.random_bytes,
-                                        const_cast<ptls_aead_context_t*>(
-                                          quicly_state_.address_token.enc),
-                                        buf, buf->off, token);
-  }
-
-  int on_save_session_ticket(ptls_t* tls, ptls_iovec_t src) {
-    free(quicly_state_.session.tls_ticket.base);
-    quicly_state_.session.tls_ticket = ptls_iovec_init(malloc(src.len),
-                                                       src.len);
-    memcpy(quicly_state_.session.tls_ticket.base, src.base, src.len);
-
-    auto conn = reinterpret_cast<quicly_conn_t*>(*ptls_get_data_ptr(tls));
-    return quic::save_session(quicly_get_peer_transport_parameters(conn),
-                              quicly_state_.session_file_path,
-                              quicly_state_.session);
-  }
-
   // -- transport state --------------------------------------------------------
 
   dispatcher_type dispatcher_;
@@ -664,7 +640,7 @@ private:
   // callbacks
   quic::save_resumption_token<transport_type> save_resumption_token_;
   quic::generate_resumption_token<transport_type> generate_resumption_token_;
-  quic::save_session_ticket<transport_type> save_session_ticket_;
+  quic::save_ticket<transport_type> save_session_ticket_;
   quic::stream_open<transport_type> stream_open_;
   quic::closed_by_peer<transport_type> closed_by_peer_;
 }; // namespace net

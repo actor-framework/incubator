@@ -73,7 +73,7 @@ error make_server_context(state& state, callbacks callbacks) {
     path_to_certs = path;
   } else {
     // try to load default certs
-    path_to_certs = "/home/boss/code/quicly/t/assets/";
+    path_to_certs = "/home/jakob/code/incubator/server-certs/";
   }
   auto certificate_chain_path = (path_to_certs + std::string("server.crt"));
   auto private_key_path = (path_to_certs + std::string("server.key"));
