@@ -18,12 +18,16 @@
 
 #pragma once
 
-#include "caf/net/endpoint_manager_queue.hpp"
+#include "caf/byte.hpp"
+#include "caf/ip_endpoint.hpp"
+#include "caf/net/endpoint_manager.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/packet_writer_decorator.hpp"
+#include "caf/span.hpp"
 #include "caf/unit.hpp"
 
-namespace caf::net {
+namespace caf {
+namespace net {
 
 /// Implements a worker for transport protocols.
 template <class Application, class IdType>
@@ -37,8 +41,7 @@ public:
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  explicit transport_worker(application_type application,
-                            id_type id = id_type{})
+  transport_worker(application_type application, id_type id = id_type{})
     : application_(std::move(application)), id_(std::move(id)) {
     // nop
   }
@@ -116,4 +119,5 @@ template <class Application, class IdType = unit_t>
 using transport_worker_ptr = std::shared_ptr<
   transport_worker<Application, IdType>>;
 
-} // namespace caf::net
+} // namespace net
+} // namespace caf
