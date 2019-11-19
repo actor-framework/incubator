@@ -26,8 +26,7 @@
 #include "caf/stateful_actor.hpp"
 #include "caf/unit.hpp"
 
-namespace caf {
-namespace bb {
+namespace caf::bb {
 
 /// @relates container_source
 template <class Container>
@@ -98,5 +97,4 @@ behavior container_source(container_source_type<Container>* self, Container xs,
 
 /// Convenience function for spawning container sources.
 
-} // namespace bb
 } // namespace caf
