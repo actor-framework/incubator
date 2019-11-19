@@ -97,4 +97,4 @@ behavior container_source(container_source_type<Container>* self, Container xs,
 
 /// Convenience function for spawning container sources.
 
-} // namespace caf
+} // namespace caf::bb

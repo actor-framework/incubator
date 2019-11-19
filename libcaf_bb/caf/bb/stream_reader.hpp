@@ -98,4 +98,4 @@ void stream_reader(stream_source_type<InputStream>* self,
   unit(src.ptr()->add_outbound_path(sinks)...);
 }
 
-} // namespace caf
+} // namespace caf::bb

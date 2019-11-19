@@ -71,4 +71,4 @@ public:
   }
 };
 
-} // namespace caf
+} // namespace caf::policy
