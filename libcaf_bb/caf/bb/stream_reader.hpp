@@ -27,8 +27,7 @@
 #include "caf/string_algorithms.hpp"
 #include "caf/unit.hpp"
 
-namespace caf {
-namespace bb {
+namespace caf::bb {
 
 /// @relates stream_reader
 template <class InputStream>
@@ -99,5 +98,4 @@ void stream_reader(stream_source_type<InputStream>* self,
   unit(src.ptr()->add_outbound_path(sinks)...);
 }
 
-} // namespace bb
-} // namespace caf
+} // namespace caf::bb

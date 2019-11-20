@@ -104,10 +104,10 @@ CAF_TEST(stream_to_sink) {
   std::vector<value_type> test_container{1,    2, 3,  4, 5,  6,  7, 78,
                                          1254, 1, 20, 4, 56, 78, 95};
   auto sink = sys.spawn(stream_reader_sink);
-  auto src
-    = sys.spawn(bb::stream_reader<policy::tokenized_integer_reader<value_type>,
-                                  stream_type, actor>,
-                std::move(ptr_test_stream), sink);
+  auto src = sys.spawn(bb::stream_reader<
+                         policy::tokenized_integer_reader<value_type>,
+                         stream_type, actor>,
+                       std::move(ptr_test_stream), sink);
   auto mon = sys.spawn(stream_monitor);
   self->send(mon, join_atom::value, src);
   run();
@@ -125,10 +125,10 @@ CAF_TEST(stream_to_sinks) {
   auto snk1 = sys.spawn(stream_reader_sink);
   auto snk2 = sys.spawn(stream_reader_sink);
   auto snk3 = sys.spawn(stream_reader_sink);
-  auto src
-    = sys.spawn(bb::stream_reader<policy::tokenized_integer_reader<value_type>,
-                                  stream_type, actor, actor, actor>,
-                std::move(ptr_test_stream), snk1, snk2, snk3);
+  auto src = sys.spawn(bb::stream_reader<
+                         policy::tokenized_integer_reader<value_type>,
+                         stream_type, actor, actor, actor>,
+                       std::move(ptr_test_stream), snk1, snk2, snk3);
   auto mon = sys.spawn(stream_monitor);
   self->send(mon, join_atom::value, src);
   run();
@@ -146,10 +146,10 @@ CAF_TEST(error_stream_to_sink) {
   std::unique_ptr<stream_type> ptr_test_stream{
     new stream_type(test_stringvalues)};
   auto sink = sys.spawn(stream_reader_sink);
-  auto src
-    = sys.spawn(bb::stream_reader<policy::tokenized_integer_reader<value_type>,
-                                  stream_type, actor>,
-                std::move(ptr_test_stream), sink);
+  auto src = sys.spawn(bb::stream_reader<
+                         policy::tokenized_integer_reader<value_type>,
+                         stream_type, actor>,
+                       std::move(ptr_test_stream), sink);
   auto mon = sys.spawn(stream_monitor);
   self->send(mon, join_atom::value, src);
   run();
