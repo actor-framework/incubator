@@ -63,10 +63,36 @@ void endpoint_manager::resolve(uri locator, actor listener) {
 void endpoint_manager::enqueue(mailbox_element_ptr msg,
                                strong_actor_ptr receiver,
                                std::vector<byte> payload) {
-  using message_type = endpoint_manager_queue::message;
-  auto ptr = new message_type(std::move(msg), std::move(receiver),
-                              std::move(payload));
-  enqueue(ptr);
+  auto worker = hub_.pop();
+  if (worker != nullptr) {
+    CAF_LOG_DEBUG(
+      "launch serializing worker for deserializing an actor_message");
+    worker->launch(std::move(msg), receiver->get()->ctrl(), this);
+  } else {
+    CAF_LOG_DEBUG(
+      "out of serializing workers, continue deserializing an actor_message");
+    // If no worker is available then we have no other choice than to take
+    // the performance hit and serialize in this thread.
+    struct handler : public outgoing_message_handler<serializing_worker> {
+      handler(hub_type& hub, actor_system& sys,
+              mailbox_element_ptr mailbox_elem, actor_control_block* ctrl,
+              endpoint_manager* manager)
+        : hub_(&hub),
+          system_(&sys),
+          mailbox_elem_(std::move(mailbox_elem)),
+          ctrl_(ctrl),
+          manager_(manager) {
+        // nop
+      }
+      hub_type* hub_;
+      actor_system* system_;
+      mailbox_element_ptr mailbox_elem_;
+      actor_control_block* ctrl_;
+      endpoint_manager* manager_;
+    };
+    handler f{hub_, system(), std::move(msg), receiver->get()->ctrl(), this};
+    f.handle_outgoing_message(nullptr);
+  }
 }
 
 bool endpoint_manager::enqueue(endpoint_manager_queue::element* ptr) {

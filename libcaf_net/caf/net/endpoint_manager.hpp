@@ -26,12 +26,14 @@
 #include "caf/actor_clock.hpp"
 #include "caf/byte.hpp"
 #include "caf/detail/net_export.hpp"
+#include "caf/detail/worker_hub.hpp"
 #include "caf/fwd.hpp"
 #include "caf/intrusive/drr_queue.hpp"
 #include "caf/intrusive/fifo_inbox.hpp"
 #include "caf/intrusive/singly_linked.hpp"
 #include "caf/mailbox_element.hpp"
 #include "caf/net/endpoint_manager_queue.hpp"
+#include "caf/net/serializing_worker.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/variant.hpp"
 
@@ -40,9 +42,13 @@ namespace caf::net {
 /// Manages a communication endpoint.
 class CAF_NET_EXPORT endpoint_manager : public socket_manager {
 public:
+  friend serializing_worker;
+
   // -- member types -----------------------------------------------------------
 
   using super = socket_manager;
+
+  using hub_type = detail::worker_hub<serializing_worker>;
 
   /// Represents either an error or a serialized payload.
   using maybe_buffer = expected<std::vector<byte>>;
@@ -100,6 +106,8 @@ protected:
 
   /// Stores a proxy for interacting with the actor clock.
   actor timeout_proxy_;
+
+  detail::worker_hub<serializing_worker> hub_;
 };
 
 using endpoint_manager_ptr = intrusive_ptr<endpoint_manager>;
