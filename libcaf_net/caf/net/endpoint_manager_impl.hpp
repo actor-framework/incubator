@@ -24,6 +24,7 @@
 #include "caf/atom.hpp"
 #include "caf/detail/overload.hpp"
 #include "caf/net/endpoint_manager.hpp"
+#include "defaults.hpp"
 
 namespace caf::net {
 
@@ -75,8 +76,8 @@ public:
   // -- interface functions ----------------------------------------------------
 
   error init() override {
-    auto workers = get_or(system().config(), "middleman.workers",
-                          defaults::middleman::workers);
+    auto workers = get_or(system().config(), "middleman.serializing_workers",
+                          defaults::middleman::serializing_workers);
     for (size_t i = 0; i < workers; ++i)
       hub_.add_new_worker(system(), serialize_fun());
     this->register_reading();

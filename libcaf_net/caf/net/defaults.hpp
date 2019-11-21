@@ -24,6 +24,8 @@
 
 namespace caf::defaults::middleman {
 
+extern const size_t serializing_workers;
+
 /// Maximum number of cached buffers for sending payloads.
 extern const size_t max_payload_buffers;
 
