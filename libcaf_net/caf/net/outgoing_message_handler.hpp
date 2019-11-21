@@ -30,10 +30,10 @@ public:
     auto& content = dref.mailbox_elem_->content();
     if (auto payload = dref.sf_(*dref.system_, content))
       dref.manager_->enqueue(std::move(dref.mailbox_elem_),
-                             std::move(dref.receiver_), std::move(payload));
+                             std::move(dref.receiver_), std::move(*payload));
     else
       CAF_LOG_ERROR("unable to serialize payload: "
-                    << dref.system_.render(payload.error()));
+                    << dref.system_->render(payload.error()));
   }
 };
 

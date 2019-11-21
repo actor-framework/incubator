@@ -75,10 +75,10 @@ public:
   // -- interface functions ----------------------------------------------------
 
   error init() override {
-    auto workers = get_or(system()->config(), "middleman.workers",
+    auto workers = get_or(system().config(), "middleman.workers",
                           defaults::middleman::workers);
     for (size_t i = 0; i < workers; ++i)
-      hub_.add_new_worker(hub_, system(), serialize_fun());
+      hub_.add_new_worker(system(), serialize_fun());
     this->register_reading();
     return transport_.init(*this);
   }

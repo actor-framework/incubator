@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "caf/actor_system.hpp"
+#include "caf/byte.hpp"
 #include "caf/config.hpp"
 #include "caf/detail/abstract_worker.hpp"
 #include "caf/detail/worker_hub.hpp"
@@ -31,13 +33,19 @@
 #include "caf/net/fwd.hpp"
 #include "caf/net/outgoing_message_handler.hpp"
 #include "caf/node_id.hpp"
+#include "caf/proxy_registry.hpp"
 #include "caf/resumable.hpp"
+#include "caf/scheduler/abstract_coordinator.hpp"
 
 namespace caf::net {
 
+// The template is needed here to avoid cyclic inclusion between this and
+// endpoint_manager.
 /// Asynchronously serializes outgoing messages.
-class serializing_worker : public detail::abstract_worker,
-                           public outgoing_message_handler<serializing_worker> {
+template <class Manager>
+class serializing_worker
+  : public detail::abstract_worker,
+    public outgoing_message_handler<serializing_worker<Manager>> {
 public:
   // -- friends ----------------------------------------------------------------
 
@@ -61,18 +69,31 @@ public:
   // -- constructors, destructors, and assignment operators --------------------
 
   /// Only the ::worker_hub has access to the construtor.
-  serializing_worker(hub_type& hub, actor_system& sys, serialize_fun_type sf);
+  serializing_worker(hub_type& hub, actor_system& sys, serialize_fun_type sf)
+    : hub_(&hub), system_(&sys), manager_(nullptr), sf_(sf) {
+    // nop
+  }
 
   ~serializing_worker() override = default;
 
   // -- management -------------------------------------------------------------
 
   void launch(mailbox_element_ptr mailbox_elem, strong_actor_ptr ctrl,
-              endpoint_manager* manager);
+              endpoint_manager* manager) {
+    mailbox_elem_ = std::move(mailbox_elem);
+    receiver_ = std::move(ctrl);
+    manager_ = manager;
+    ref();
+    system_->scheduler().enqueue(this);
+  }
 
   // -- implementation of resumable --------------------------------------------
 
-  resume_result resume(execution_unit* ctx, size_t) override;
+  resumable::resume_result resume(execution_unit* ctx, size_t) override {
+    this->handle_outgoing_message(ctx);
+    hub_->push(this);
+    return resumable::awaiting_message;
+  }
 
 private:
   // -- constants and assertions -----------------------------------------------
@@ -100,7 +121,7 @@ private:
   strong_actor_ptr receiver_;
 
   /// Points to the endpoint_manager that should receive the serialized message.
-  endpoint_manager* manager_;
+  Manager* manager_;
 
   /// Serialization function.
   serialize_fun_type sf_;

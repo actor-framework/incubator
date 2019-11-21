@@ -42,13 +42,15 @@ namespace caf::net {
 /// Manages a communication endpoint.
 class CAF_NET_EXPORT endpoint_manager : public socket_manager {
 public:
-  friend serializing_worker;
+  friend serializing_worker<endpoint_manager>;
 
   // -- member types -----------------------------------------------------------
 
   using super = socket_manager;
 
-  using hub_type = detail::worker_hub<serializing_worker>;
+  using worker_type = serializing_worker<endpoint_manager>;
+
+  using hub_type = detail::worker_hub<worker_type>;
 
   /// Represents either an error or a serialized payload.
   using maybe_buffer = expected<std::vector<byte>>;
@@ -109,7 +111,7 @@ protected:
   /// Stores a proxy for interacting with the actor clock.
   actor timeout_proxy_;
 
-  detail::worker_hub<serializing_worker> hub_;
+  hub_type hub_;
 };
 
 using endpoint_manager_ptr = intrusive_ptr<endpoint_manager>;

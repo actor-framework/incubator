@@ -68,7 +68,7 @@ void endpoint_manager::enqueue(mailbox_element_ptr msg,
       "out of serializing workers, continue deserializing an actor_message");
     // If no worker is available then we have no other choice than to take
     // the performance hit and serialize in this thread.
-    struct handler : public outgoing_message_handler<serializing_worker> {
+    struct handler : public outgoing_message_handler<worker_type> {
       handler(hub_type& hub, actor_system& sys,
               mailbox_element_ptr mailbox_elem, actor_control_block* ctrl,
               endpoint_manager* manager,

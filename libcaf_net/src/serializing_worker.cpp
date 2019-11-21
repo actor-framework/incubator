@@ -27,7 +27,7 @@
 namespace caf::net {
 
 // -- constructors, destructors, and assignment operators ----------------------
-
+/*
 serializing_worker::serializing_worker(hub_type& hub, actor_system& sys,
                                        serialize_fun_type sf)
   : hub_(&hub), system_(&sys), manager_(nullptr), sf_(sf) {
@@ -54,5 +54,5 @@ resumable::resume_result serializing_worker::resume(execution_unit* ctx,
   hub_->push(this);
   return resumable::awaiting_message;
 }
-
+*/
 } // namespace caf::net
