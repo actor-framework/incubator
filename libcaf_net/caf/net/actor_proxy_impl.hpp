@@ -30,7 +30,7 @@ public:
 
   actor_proxy_impl(actor_config& cfg, endpoint_manager_ptr dst);
 
-  ~actor_proxy_impl() override;
+  ~actor_proxy_impl() override = default;
 
   void enqueue(mailbox_element_ptr what, execution_unit* context) override;
 

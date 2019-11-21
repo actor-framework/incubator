@@ -30,15 +30,11 @@ actor_proxy_impl::actor_proxy_impl(actor_config& cfg, endpoint_manager_ptr dst)
   dst_->enqueue_event(node(), id());
 }
 
-actor_proxy_impl::~actor_proxy_impl() {
-  // nop
-}
-
 void actor_proxy_impl::enqueue(mailbox_element_ptr what, execution_unit*) {
   CAF_PUSH_AID(0);
   CAF_ASSERT(what != nullptr);
   CAF_LOG_SEND_EVENT(what);
-  dst_->enqueue(std::move(what), ctrl(), {});
+  dst_->enqueue(std::move(what), ctrl());
 }
 
 void actor_proxy_impl::kill_proxy(execution_unit* ctx, error rsn) {

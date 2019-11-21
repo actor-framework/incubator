@@ -39,6 +39,10 @@ namespace caf::net {
 class serializing_worker : public detail::abstract_worker,
                            public outgoing_message_handler<serializing_worker> {
 public:
+  // -- friends ----------------------------------------------------------------
+
+  friend outgoing_message_handler<serializing_worker>;
+
   // -- member types -----------------------------------------------------------
 
   using super = detail::abstract_worker;
@@ -49,16 +53,21 @@ public:
 
   using hub_type = detail::worker_hub<serializing_worker>;
 
+  using maybe_buffer = expected<std::vector<byte>>;
+
+  using serialize_fun_type = maybe_buffer (*)(actor_system&,
+                                              const type_erased_tuple&);
+
   // -- constructors, destructors, and assignment operators --------------------
 
   /// Only the ::worker_hub has access to the construtor.
-  serializing_worker(hub_type& hub, actor_system& sys);
+  serializing_worker(hub_type& hub, actor_system& sys, serialize_fun_type sf);
 
   ~serializing_worker() override = default;
 
   // -- management -------------------------------------------------------------
 
-  void launch(mailbox_element_ptr mailbox_elem, actor_control_block* ctrl,
+  void launch(mailbox_element_ptr mailbox_elem, strong_actor_ptr ctrl,
               endpoint_manager* manager);
 
   // -- implementation of resumable --------------------------------------------
@@ -88,10 +97,13 @@ private:
   mailbox_element_ptr mailbox_elem_;
 
   /// Points to the `actor_control_block` of the receiver.
-  actor_control_block* ctrl_;
+  strong_actor_ptr receiver_;
 
   /// Points to the endpoint_manager that should receive the serialized message.
   endpoint_manager* manager_;
+
+  /// Serialization function.
+  serialize_fun_type sf_;
 };
 
 } // namespace caf::net

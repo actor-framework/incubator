@@ -32,10 +32,6 @@ endpoint_manager::endpoint_manager(socket handle, const multiplexer_ptr& parent,
   queue_.try_block();
 }
 
-endpoint_manager::~endpoint_manager() {
-  // nop
-}
-
 endpoint_manager_queue::message_ptr endpoint_manager::next_message() {
   if (queue_.blocked())
     return nullptr;
@@ -51,7 +47,7 @@ endpoint_manager_queue::message_ptr endpoint_manager::next_message() {
   return result;
 }
 
-void endpoint_manager::resolve(uri locator, actor listener) {
+void endpoint_manager::resolve(uri locator, const actor& listener) {
   using intrusive::inbox_result;
   using event_type = endpoint_manager_queue::event;
   auto ptr = new event_type(std::move(locator), listener);
@@ -61,8 +57,7 @@ void endpoint_manager::resolve(uri locator, actor listener) {
 }
 
 void endpoint_manager::enqueue(mailbox_element_ptr msg,
-                               strong_actor_ptr receiver,
-                               std::vector<byte> payload) {
+                               actor_control_block* receiver) {
   auto worker = hub_.pop();
   if (worker != nullptr) {
     CAF_LOG_DEBUG(
@@ -76,12 +71,14 @@ void endpoint_manager::enqueue(mailbox_element_ptr msg,
     struct handler : public outgoing_message_handler<serializing_worker> {
       handler(hub_type& hub, actor_system& sys,
               mailbox_element_ptr mailbox_elem, actor_control_block* ctrl,
-              endpoint_manager* manager)
+              endpoint_manager* manager,
+              endpoint_manager::serialize_fun_type sf)
         : hub_(&hub),
           system_(&sys),
           mailbox_elem_(std::move(mailbox_elem)),
           ctrl_(ctrl),
-          manager_(manager) {
+          manager_(manager),
+          sf_(sf) {
         // nop
       }
       hub_type* hub_;
@@ -89,10 +86,21 @@ void endpoint_manager::enqueue(mailbox_element_ptr msg,
       mailbox_element_ptr mailbox_elem_;
       actor_control_block* ctrl_;
       endpoint_manager* manager_;
+      endpoint_manager::serialize_fun_type sf_;
     };
-    handler f{hub_, system(), std::move(msg), receiver->get()->ctrl(), this};
+    handler f{hub_, system(),       std::move(msg), receiver->get()->ctrl(),
+              this, serialize_fun()};
     f.handle_outgoing_message(nullptr);
   }
+}
+
+void endpoint_manager::enqueue(mailbox_element_ptr elem,
+                               strong_actor_ptr receiver,
+                               std::vector<byte> payload) {
+  using message_type = endpoint_manager_queue::message;
+  auto msg = new message_type(std::move(elem), std::move(receiver),
+                              std::move(payload));
+  enqueue(msg);
 }
 
 bool endpoint_manager::enqueue(endpoint_manager_queue::element* ptr) {

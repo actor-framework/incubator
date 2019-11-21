@@ -62,7 +62,7 @@ public:
   endpoint_manager(socket handle, const multiplexer_ptr& parent,
                    actor_system& sys);
 
-  ~endpoint_manager() override;
+  ~endpoint_manager() override = default;
 
   // -- properties -------------------------------------------------------------
 
@@ -74,12 +74,14 @@ public:
 
   // -- event management -------------------------------------------------------
 
+  void enqueue(mailbox_element_ptr elem, strong_actor_ptr receiver,
+               std::vector<byte> payload);
+
   /// Resolves a path to a remote actor.
-  void resolve(uri locator, actor listener);
+  void resolve(uri locator, const actor& listener);
 
   /// Enqueues a message to the endpoint.
-  void enqueue(mailbox_element_ptr msg, strong_actor_ptr receiver,
-               std::vector<byte> payload);
+  void enqueue(mailbox_element_ptr msg, actor_control_block* receiver);
 
   /// Enqueues an event to the endpoint.
   template <class... Ts>

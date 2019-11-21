@@ -18,21 +18,6 @@
 
 #pragma once
 
-#include <vector>
-
-#include "caf/actor_control_block.hpp"
-#include "caf/actor_proxy.hpp"
-#include "caf/binary_deserializer.hpp"
-#include "caf/config.hpp"
-#include "caf/detail/scope_guard.hpp"
-#include "caf/detail/sync_request_bouncer.hpp"
-#include "caf/execution_unit.hpp"
-#include "caf/logger.hpp"
-#include "caf/message.hpp"
-#include "caf/message_id.hpp"
-#include "caf/net/basp/header.hpp"
-#include "caf/node_id.hpp"
-
 namespace caf::net {
 
 // TODO: Find better name for this. The whole thing is cloning the
@@ -41,16 +26,14 @@ template <class Subtype>
 class outgoing_message_handler {
 public:
   void handle_outgoing_message(execution_unit*) {
-    using message_type = endpoint_manager_queue::message;
-    auto& elem = this->mailbox_elem_;
-    auto content = this->mailbox_elem_->content();
-    if (auto payload = sf_(system, content))
-      this->manager_.enqueue(new message_type(std::move(elem),
-                                              std::move(receiver),
-                                              std::move(payload)));
+    auto& dref = static_cast<Subtype&>(*this);
+    auto& content = dref.mailbox_elem_->content();
+    if (auto payload = dref.sf_(*dref.system_, content))
+      dref.manager_->enqueue(std::move(dref.mailbox_elem_),
+                             std::move(dref.receiver_), std::move(payload));
     else
       CAF_LOG_ERROR("unable to serialize payload: "
-                    << this->system().render(payload.error()));
+                    << dref.system_.render(payload.error()));
   }
 };
 
