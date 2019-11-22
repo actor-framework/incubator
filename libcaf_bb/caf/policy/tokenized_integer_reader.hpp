@@ -30,8 +30,7 @@
 #include "caf/string_algorithms.hpp"
 #include "caf/unit.hpp"
 
-namespace caf {
-namespace policy {
+namespace caf::policy {
 
 /// Parses whitespace-separated integers from input strings to 'ValueType' and
 /// pushes generated integers to a downstream.
@@ -72,5 +71,4 @@ public:
   }
 };
 
-} // namespace policy
-} // namespace caf
+} // namespace caf::policy

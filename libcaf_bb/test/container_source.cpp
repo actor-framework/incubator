@@ -102,9 +102,9 @@ CAF_TEST(stream_to_sinks) {
   auto snk1 = sys.spawn(container_sink);
   auto snk2 = sys.spawn(container_sink);
   auto snk3 = sys.spawn(container_sink);
-  auto src
-    = sys.spawn(bb::container_source<container_type, actor, actor, actor>,
-                test_container, snk1, snk2, snk3);
+  auto src = sys
+               .spawn(bb::container_source<container_type, actor, actor, actor>,
+                      test_container, snk1, snk2, snk3);
   auto mon = sys.spawn(container_monitor);
   self->send(mon, join_atom::value, src);
   run();
