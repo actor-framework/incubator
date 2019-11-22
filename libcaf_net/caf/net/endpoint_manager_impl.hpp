@@ -78,6 +78,7 @@ public:
   error init() override {
     auto workers = get_or(system().config(), "middleman.serializing_workers",
                           defaults::middleman::serializing_workers);
+    CAF_LOG_DEBUG("using " << CAF_ARG(workers) << " for serializing");
     for (size_t i = 0; i < workers; ++i)
       hub_.add_new_worker(system(), serialize_fun());
     this->register_reading();

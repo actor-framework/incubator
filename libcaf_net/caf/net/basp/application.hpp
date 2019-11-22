@@ -80,6 +80,7 @@ public:
       manager_ = &parent.manager();
     auto workers = get_or(system_->config(), "middleman.workers",
                           defaults::middleman::workers);
+    CAF_LOG_DEBUG("using " << CAF_ARG(workers) << " for deserializing");
     for (size_t i = 0; i < workers; ++i)
       hub_->add_new_worker(*queue_, proxies_);
     // Write handshake.

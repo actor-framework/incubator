@@ -60,12 +60,11 @@ void endpoint_manager::enqueue(mailbox_element_ptr msg,
                                actor_control_block* receiver) {
   auto worker = hub_.pop();
   if (worker != nullptr) {
-    CAF_LOG_DEBUG(
-      "launch serializing worker for deserializing an actor_message");
+    CAF_LOG_DEBUG("launch serializing worker for serializing an actor_message");
     worker->launch(std::move(msg), receiver->get()->ctrl(), this);
   } else {
     CAF_LOG_DEBUG(
-      "out of serializing workers, continue deserializing an actor_message");
+      "out of serializing workers, continue serializing an actor_message");
     // If no worker is available then we have no other choice than to take
     // the performance hit and serialize in this thread.
     struct handler : public outgoing_message_handler<handler> {
