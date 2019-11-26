@@ -21,10 +21,12 @@
 #include "caf/abstract_actor.hpp"
 #include "caf/actor_cast.hpp"
 #include "caf/actor_system.hpp"
+#include "caf/actor_system_config.hpp"
 #include "caf/atom.hpp"
+#include "caf/defaults.hpp"
 #include "caf/detail/overload.hpp"
+#include "caf/net/defaults.hpp"
 #include "caf/net/endpoint_manager.hpp"
-#include "defaults.hpp"
 
 namespace caf::net {
 
