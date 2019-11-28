@@ -78,11 +78,12 @@ public:
   // -- interface functions ----------------------------------------------------
 
   error init() override {
+    this->message_queue_.init(this);
     auto workers = get_or(system().config(), "middleman.serializing_workers",
                           defaults::middleman::serializing_workers);
     CAF_LOG_DEBUG("using " << CAF_ARG(workers) << " for serializing");
     for (size_t i = 0; i < workers; ++i)
-      hub_.add_new_worker(system(), serialize_fun());
+      hub_.add_new_worker(system(), this->message_queue_, serialize_fun());
     this->register_reading();
     return transport_.init(*this);
   }

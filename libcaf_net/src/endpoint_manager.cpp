@@ -61,45 +61,36 @@ void endpoint_manager::enqueue(mailbox_element_ptr msg,
   auto worker = hub_.pop();
   if (worker != nullptr) {
     CAF_LOG_DEBUG("launch serializing worker for serializing an actor_message");
-    worker->launch(std::move(msg), receiver->get()->ctrl(), this);
+    worker->launch(std::move(msg), receiver->get()->ctrl());
   } else {
     CAF_LOG_DEBUG(
       "out of serializing workers, continue serializing an actor_message");
     // If no worker is available then we have no other choice than to take
     // the performance hit and serialize in this thread.
     struct handler : public outgoing_message_handler<handler> {
-      handler(hub_type& hub, actor_system& sys,
+      handler(outgoing_message_queue& queue, hub_type& hub, actor_system& sys,
               mailbox_element_ptr mailbox_elem, strong_actor_ptr receiver,
-              endpoint_manager* manager,
               endpoint_manager::serialize_fun_type sf)
-        : hub_(&hub),
+        : queue_(&queue),
+          hub_(&hub),
           system_(&sys),
           mailbox_elem_(std::move(mailbox_elem)),
           receiver_(std::move(receiver)),
-          manager_(manager),
           sf_(sf) {
-        // nop
+        msg_id_ = queue_->new_id();
       }
+      outgoing_message_queue* queue_;
       hub_type* hub_;
       actor_system* system_;
       mailbox_element_ptr mailbox_elem_;
       strong_actor_ptr receiver_;
-      endpoint_manager* manager_;
       serialize_fun_type sf_;
+      uint64_t msg_id_;
     };
-    handler f{hub_, system(),       std::move(msg), receiver->get()->ctrl(),
-              this, serialize_fun()};
-    f.handle_outgoing_message(nullptr);
+    handler f{message_queue_,          hub_,           system(), std::move(msg),
+              receiver->get()->ctrl(), serialize_fun()};
+    f.handle_outgoing_message();
   }
-}
-
-void endpoint_manager::enqueue(mailbox_element_ptr elem,
-                               strong_actor_ptr receiver,
-                               std::vector<byte> payload) {
-  using message_type = endpoint_manager_queue::message;
-  auto msg = new message_type(std::move(elem), std::move(receiver),
-                              std::move(payload));
-  enqueue(msg);
 }
 
 bool endpoint_manager::enqueue(endpoint_manager_queue::element* ptr) {

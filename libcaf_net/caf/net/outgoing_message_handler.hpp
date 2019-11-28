@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include "caf/net/endpoint_manager_queue.hpp"
+
 namespace caf::net {
 
 // TODO: Find better name for this. The whole thing is cloning the
@@ -25,12 +27,16 @@ namespace caf::net {
 template <class Subtype>
 class outgoing_message_handler {
 public:
-  void handle_outgoing_message(execution_unit*) {
+  void handle_outgoing_message() {
     auto& dref = static_cast<Subtype&>(*this);
     auto& content = dref.mailbox_elem_->content();
     if (auto payload = dref.sf_(*dref.system_, content))
-      dref.manager_->enqueue(std::move(dref.mailbox_elem_),
-                             std::move(dref.receiver_), std::move(*payload));
+      dref.queue_
+        ->push(dref.msg_id_,
+               new endpoint_manager_queue::message{std::move(
+                                                     dref.mailbox_elem_),
+                                                   std::move(dref.receiver_),
+                                                   std::move(*payload)});
     else
       CAF_LOG_ERROR("unable to serialize payload: "
                     << dref.system_->render(payload.error()));

@@ -45,6 +45,7 @@ set(CAF_NET_SOURCES
   src/message_queue.cpp
   src/worker.cpp
   src/serializing_worker.cpp
+  src/outgoing_message_queue.cpp
 )
 
 # -- list cpp files for caf-net-test ------------------------------------------

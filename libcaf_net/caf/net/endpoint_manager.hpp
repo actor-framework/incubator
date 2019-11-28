@@ -33,6 +33,7 @@
 #include "caf/intrusive/singly_linked.hpp"
 #include "caf/mailbox_element.hpp"
 #include "caf/net/endpoint_manager_queue.hpp"
+#include "caf/net/outgoing_message_queue.hpp"
 #include "caf/net/serializing_worker.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/variant.hpp"
@@ -42,15 +43,13 @@ namespace caf::net {
 /// Manages a communication endpoint.
 class CAF_NET_EXPORT endpoint_manager : public socket_manager {
 public:
-  friend serializing_worker<endpoint_manager>;
+  friend serializing_worker;
 
   // -- member types -----------------------------------------------------------
 
   using super = socket_manager;
 
-  using worker_type = serializing_worker<endpoint_manager>;
-
-  using hub_type = detail::worker_hub<worker_type>;
+  using hub_type = detail::worker_hub<serializing_worker>;
 
   /// Represents either an error or a serialized payload.
   using maybe_buffer = expected<std::vector<byte>>;
@@ -76,14 +75,13 @@ public:
 
   // -- event management -------------------------------------------------------
 
-  void enqueue(mailbox_element_ptr elem, strong_actor_ptr receiver,
-               std::vector<byte> payload);
-
   /// Resolves a path to a remote actor.
   void resolve(uri locator, const actor& listener);
 
-  /// Enqueues a message to the endpoint.
   void enqueue(mailbox_element_ptr msg, actor_control_block* receiver);
+
+  /// Enqueues a message to the endpoint.
+  bool enqueue(endpoint_manager_queue::element* ptr);
 
   /// Enqueues an event to the endpoint.
   template <class... Ts>
@@ -100,8 +98,6 @@ public:
   virtual serialize_fun_type serialize_fun() const noexcept = 0;
 
 protected:
-  bool enqueue(endpoint_manager_queue::element* ptr);
-
   /// Points to the hosting actor system.
   actor_system& sys_;
 
@@ -112,6 +108,8 @@ protected:
   actor timeout_proxy_;
 
   hub_type hub_;
+
+  outgoing_message_queue message_queue_;
 };
 
 using endpoint_manager_ptr = intrusive_ptr<endpoint_manager>;
