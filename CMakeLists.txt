@@ -162,6 +162,28 @@ endif()
 
 find_package(CAF COMPONENTS core io test)
 
+# -- fetch CAF version ---------------------------------------------------------
+
+# read content of config.hpp
+file(READ "${CAF_INCLUDE_DIR_CORE}/caf/config.hpp" CONFIG_HPP)
+# get line containing the version
+string(REGEX MATCH "#define CAF_VERSION [0-9]+" VERSION_LINE "${CONFIG_HPP}")
+# extract version number from line
+string(REGEX MATCH "[0-9]+" VERSION_INT "${VERSION_LINE}")
+# calculate major, minor, and patch version
+math(EXPR CAF_VERSION_MAJOR "${VERSION_INT} / 10000")
+math(EXPR CAF_VERSION_MINOR "( ${VERSION_INT} / 100) % 100")
+math(EXPR CAF_VERSION_PATCH "${VERSION_INT} % 100")
+# create full version string
+set(CAF_VERSION
+    "${CAF_VERSION_MAJOR}.${CAF_VERSION_MINOR}.${CAF_VERSION_PATCH}")
+# set the library version for our shared library targets
+if(CMAKE_HOST_SYSTEM_NAME MATCHES "OpenBSD")
+  set(CAF_LIB_VERSION "${CAF_VERSION_MAJOR}.${CAF_VERSION_MINOR}")
+else()
+  set(CAF_LIB_VERSION "${CAF_VERSION}")
+endif()
+
 # -- compiler setup ------------------------------------------------------------
 
 # Enable a ton of warnings if --more-clang-warnings is used.
