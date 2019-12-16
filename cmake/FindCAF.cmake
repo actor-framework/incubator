@@ -61,6 +61,7 @@ foreach (comp ${CAF_FIND_COMPONENTS})
                 NAMES
                   caf/detail/build_config.hpp
                 HINTS
+                  ${CAF_ROOT_DIR}
                   ${header_hints}
                   /usr/include
                   /usr/local/include
@@ -71,7 +72,7 @@ foreach (comp ${CAF_FIND_COMPONENTS})
         message(WARNING "Found all.hpp for CAF core, but not build_config.hpp")
         set(CAF_${comp}_FOUND false)
       else()
-        list(APPEND CAF_INCLUDE_DIR_${UPPERCOMP} "${caf_build_header_path}")
+        list(APPEND CAF_INCLUDE_DIRS "${caf_build_header_path}")
       endif()
     endif()
     list(APPEND CAF_INCLUDE_DIRS "${CAF_INCLUDE_DIR_${UPPERCOMP}}")
