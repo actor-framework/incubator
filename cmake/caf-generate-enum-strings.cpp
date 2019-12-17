@@ -99,20 +99,22 @@ int main(int argc, char** argv) {
     cerr << "unable to open output file: " << argv[1] << '\n';
     return EXIT_FAILURE;
   }
+  std::string namespace_str;
+  for (size_t i = 0; i < namespaces.size() - 1; ++i)
+    namespace_str += namespaces[i] + "::";
+  namespace_str += namespaces[namespaces.size() - 1];
   // Print file header.
   out << "#include \"" << namespaces[0];
   for (size_t i = 1; i < namespaces.size(); ++i)
     out << '/' << namespaces[i];
   out << '/' << enum_name << ".hpp\"\n\n"
       << "#include <string>\n\n"
-      << "namespace " << namespaces[0] << " {\n";
-  for (size_t i = 1; i < namespaces.size(); ++i)
-    out << "namespace " << namespaces[i] << " {\n";
+      << "namespace ";
+  out << namespace_str << " {\n";
   out << "\nstd::string to_string(" << enum_name << " x) {\n"
-      << "  switch(x) {\n"
+      << "  switch (x) {\n"
       << "    default:\n"
       << "      return \"???\";\n";
-
   // Read until hitting the closing '}'.
   std::string case_label_prefix;
   if (is_enum_class)
@@ -136,6 +138,5 @@ int main(int argc, char** argv) {
   // Done. Print file footer and exit.
   out << "  };\n"
       << "}\n\n";
-  for (auto i = namespaces.rbegin(); i != namespaces.rend(); ++i)
-    out << "} // namespace " << *i << '\n';
+  out << "} // namespace " << namespace_str << '\n';
 }
