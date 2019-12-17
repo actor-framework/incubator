@@ -373,6 +373,12 @@ add_custom_target(uninstall
                   COMMAND "${CMAKE_COMMAND}" -P
                   "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake")
 
+# -- set include paths for all subprojects -------------------------------------
+
+include_directories("${CMAKE_BINARY_DIR}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/libcaf_net"
+                    "${CAF_INCLUDE_DIRS}")
+
 ################################################################################
 #                                 add targets                                  #
 ################################################################################
