@@ -1,54 +1,88 @@
-cmake_minimum_required(VERSION 2.8.12)
-project(caf_bb C CXX)
+# -- get header files for creating "proper" XCode projects ---------------------
 
-# get header files; only needed by CMake generators,
-# e.g., for creating proper Xcode projects
-file(GLOB_RECURSE LIBCAF_BB_HDRS "caf/*.hpp")
+file(GLOB_RECURSE CAF_BB_HEADERS "caf/*.hpp")
+
+# -- list cpp files for caf::bb ------------------------------------------------
+
+set(CAF_BB_SOURCES
+  # nop
+)
+
+# -- list cpp files for caf-bb-test --------------------------------------------
+
+set(CAF_BB_TEST_SOURCES
+  test/container_source.cpp
+  test/stream_reader.cpp
+  test/tokenized_integer_reader.cpp
+)
+
+# -- add library target --------------------------------------------------------
 
 # --> Uncomment this block when adding the first .cpp file
+# 
+# add_library(libcaf_bb_obj OBJECT ${CAF_BB_SOURCES} ${CAF_BB_HEADERS})
+# 
+# add_library(libcaf_bb $<TARGET_OBJECTS:libcaf_bb_obj>)
+# 
+# add_library(caf::bb ALIAS libcaf_bb)
+# 
+# if(BUILD_SHARED_LIBS AND NOT WIN32)
+#   target_compile_options(libcaf_bb PRIVATE -fPIC)
+#   target_compile_options(libcaf_bb_obj PRIVATE -fPIC)
+# endif()
+# 
+# target_link_libraries(libcaf_bb PUBLIC ${CAF_EXTRA_LDFLAGS} ${CAF_LIBRARIES})
+# 
+# generate_export_header(libcaf_bb
+#                        EXPORT_MACRO_NAME CAF_BB_EXPORT
+#                        EXPORT_FILE_NAME "${CMAKE_BINARY_DIR}/caf/detail/bb_export.hpp"
+#                        STATIC_DEFINE CAF_STATIC_BUILD)
+# 
+# target_compile_definitions(libcaf_bb_obj PRIVATE libcaf_bb_EXPORTS)
+# 
+# set_target_properties(libcaf_bb PROPERTIES
+#                       EXPORT_NAME bb
+#                       SOVERSION ${CAF_VERSION}
+#                       VERSION ${CAF_LIB_VERSION}
+#                       OUTPUT_NAME caf_bb)
 #
-# # list cpp files excluding platform-dependent files
-# set(LIBCAF_BB_SRCS
-# )
+# -- install library and header files ------------------------------------------
 #
-# add_custom_target(libcaf_bb)
+# install(FILES "${CMAKE_BINARY_DIR}/caf/detail/bb_export.hpp"
+#         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/caf/detail")
 #
-# # build shared library if not compiling static only
-# if (NOT CAF_BUILD_STATIC_ONLY)
-#   add_library(libcaf_bb_shared SHARED ${LIBCAF_BB_SRCS} ${LIBCAF_BB_HDRS})
-#   target_link_libraries(libcaf_bb_shared ${CAF_EXTRA_LDFLAGS})
-#   target_include_directories(libcaf_bb_shared PUBLIC
-#     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
-#     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-#     $<INSTALL_INTERFACE:include>
-#   )
-#   set_target_properties(libcaf_bb_shared
-#     PROPERTIES
-#     SOVERSION ${CAF_VERSION}
-#     VERSION ${CAF_VERSION}
-#     OUTPUT_NAME caf_bb
-#   )
-#   install(TARGETS libcaf_bb_shared
-#     RUNTIME DESTINATION bin
-#     LIBRARY DESTINATION lib
-#   )
-#   add_dependencies(libcaf_bb_shared libcaf_bb)
-# endif ()
-#
-# # build static library only if --build-static or --build-static-only was set
-# if (CAF_BUILD_STATIC_ONLY OR CAF_BUILD_STATIC)
-#   add_library(libcaf_bb_static STATIC ${LIBCAF_BB_HDRS} ${LIBCAF_BB_SRCS})
-#   target_link_libraries(libcaf_bb_static ${CAF_EXTRA_LDFLAGS})
-#   target_include_directories(libcaf_bb_static PUBLIC
-#     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
-#     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-#     $<INSTALL_INTERFACE:include>
-#   )
-#   set_target_properties(libcaf_bb_static PROPERTIES OUTPUT_NAME caf_bb_static)
-#   install(TARGETS libcaf_bb_static ARCHIVE DESTINATION lib)
-#   add_dependencies(libcaf_bb_static libcaf_bb)
-# endif ()
+# install(TARGETS libcaf_bb
+#         EXPORT CAFTargets
+#         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT bb
+#         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT bb
+#         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT bb)
 
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/caf"
-        DESTINATION include
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        COMPONENT bb
         FILES_MATCHING PATTERN "*.hpp")
+
+# -- build unit tests ----------------------------------------------------------
+
+if(NOT CAF_NO_UNIT_TESTS) 
+  message(STATUS "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_executable(caf-bb-test
+                 "${PROJECT_SOURCE_DIR}/cmake/incubator-test.cpp"
+                 "${CAF_INCLUDE_DIR_TEST}/caf/test/unit_test.hpp"
+                 "${CAF_INCLUDE_DIR_TEST}/caf/test/unit_test_impl.hpp"
+                 ${CAF_BB_TEST_SOURCES})
+# --> Remove this when adding the first cpp 
+  target_include_directories(caf-bb-test PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+#                  $<TARGET_OBJECTS:libcaf_bb_obj>)
+#   target_compile_definitions(caf-bb-test PRIVATE libcaf_bb_EXPORTS)
+  target_link_libraries(caf-bb-test ${CAF_EXTRA_LDFLAGS} ${CAF_LIBRARIES})
+  add_test_suites(caf-bb-test
+                  "${CMAKE_CURRENT_SOURCE_DIR}"
+                  ${CAF_BB_TEST_SOURCES})
+endif()
+
+# -- add this library to the global CAF_LIBRARIES ------------------------------
+
+list(APPEND CAF_LIBRARIES libcaf_bb)
+
+set(CAF_LIBRARIES ${CAF_LIBRARIES} PARENT_SCOPE)
