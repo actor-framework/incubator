@@ -2,7 +2,7 @@
 #
 # Use this module as follows:
 #
-#     find_package(CAF [COMPONENTS <core|io|opencl|...>*] [REQUIRED])
+#     find_package(CAF [COMPONENTS <core|io|openssl|...>*] [REQUIRED])
 #
 # Variables used by this module (they can change the default behaviour and need
 # to be set before calling find_package):
@@ -146,13 +146,6 @@ if (CAF_openssl_FOUND AND NOT TARGET caf::openssl)
     set_property(TARGET caf::openssl APPEND PROPERTY
       INTERFACE_LINK_LIBRARIES "OpenSSL::SSL")
   endif ()
-endif ()
-if (CAF_opencl_FOUND AND NOT TARGET caf::opencl)
-  add_library(caf::opencl UNKNOWN IMPORTED)
-  set_target_properties(caf::opencl PROPERTIES
-    IMPORTED_LOCATION "${CAF_LIBRARY_OPENCL}"
-    INTERFACE_INCLUDE_DIRECTORIES "${CAF_INCLUDE_DIR_OPENCL}"
-    INTERFACE_LINK_LIBRARIES "caf::core")
 endif ()
 if (CAF_test_FOUND AND NOT TARGET caf::test)
   add_library(caf::test INTERFACE IMPORTED)

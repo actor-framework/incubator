@@ -160,9 +160,6 @@ while [ $# -ne 0 ]; do
         --no-unit-tests)
             append_cache_entry CAF_NO_UNIT_TESTS BOOL yes
             ;;
-        --no-opencl)
-            append_cache_entry CAF_NO_OPENCL BOOL yes
-            ;;
         --no-openssl)
             append_cache_entry CAF_NO_OPENSSL BOOL yes
             ;;
