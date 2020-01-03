@@ -9,7 +9,7 @@ defaultReleaseBuildFlags = [
 
 // Default CMake flags for debug builds.
 defaultDebugBuildFlags = defaultReleaseBuildFlags + [
-    'CAF_ENABLE_ADDRESS_SANITIZER:BOOL=yes',
+    'CAF_SANITIZERS:STRING=address,undefined',
     'CAF_LOG_LEVEL:STRING=TRACE',
 ]
 
@@ -61,6 +61,7 @@ config = [
             builds: ['debug'],
             tools: ['gcc-8'],
             extraSteps: ['coverageReport'],
+            extraFlags: ['BUILD_SHARED_LIBS:BOOL=OFF'],
         ]],
         ['fedora-28', [
             builds: ['release'],
@@ -94,19 +95,13 @@ config = [
     ],
     // CMake flags by OS and build type to override defaults for individual builds.
     buildFlags: [
-        Windows: [
-            debug: defaultDebugBuildFlags + [
-                'CAF_BUILD_STATIC_ONLY:BOOL=yes',
-            ],
-            release: defaultReleaseBuildFlags + [
-                'CAF_BUILD_STATIC_ONLY:BOOL=yes',
-            ],
-        ],
+      nop: [],
     ],
     // Configures what binary the coverage report uses and what paths to exclude.
     coverage: [
-        binary: 'build/incubator-test',
+        binary: 'build/libcaf_net/caf-net-test',
         relativeExcludePaths: [
+          'libcaf_net/test'
         ],
     ],
 ]
