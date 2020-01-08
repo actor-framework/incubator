@@ -22,7 +22,9 @@ set(CAF_BB_TEST_SOURCES
 # 
 # add_library(libcaf_bb_obj OBJECT ${CAF_BB_SOURCES} ${CAF_BB_HEADERS})
 # 
-# add_library(libcaf_bb $<TARGET_OBJECTS:libcaf_bb_obj>)
+# add_library(libcaf_bb
+#             "${PROJECT_SOURCE_DIR}/cmake/dummy.cpp"
+#             $<TARGET_OBJECTS:libcaf_bb_obj>)
 # 
 # add_library(caf::bb ALIAS libcaf_bb)
 # 
