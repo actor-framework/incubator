@@ -211,17 +211,6 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL "${CMAKE_CURRENT_BINARY_DIR}")
                         "initialize the build configuration.")
 endif()
 
-if(NOT XCODE)
-  # set binary output path if not defined by user
-  if(NOT EXECUTABLE_OUTPUT_PATH)
-    set(EXECUTABLE_OUTPUT_PATH "${CMAKE_CURRENT_BINARY_DIR}/bin")
-  endif()
-  # set library output path if not defined by user
-  if(NOT LIBRARY_OUTPUT_PATH)
-    set(LIBRARY_OUTPUT_PATH "${CMAKE_CURRENT_BINARY_DIR}/lib")
-  endif()
-endif()
-
 # -- get dependencies ----------------------------------------------------------
 
 find_package(CAF COMPONENTS core io test)
