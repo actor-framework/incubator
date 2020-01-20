@@ -158,8 +158,8 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
       application_results{std::make_shared<application_result>()},
       transport(transport_results),
       worker{dummy_application{application_results}} {
-    mpx = std::make_shared<multiplexer>(sys);
-    if (auto err = mpx->init())
+    mpx = std::make_shared<multiplexer>();
+    if (auto err = mpx->init(sys))
       CAF_FAIL("mpx->init failed: " << sys.render(err));
     if (auto err = parse("[::1]:12345", ep))
       CAF_FAIL("parse returned an error: " << err);

@@ -121,7 +121,7 @@ private:
 using dummy_manager_ptr = intrusive_ptr<dummy_manager>;
 
 struct fixture : test_coordinator_fixture<>, host_fixture {
-  fixture() : manager_count(0), mpx(std::make_shared<multiplexer>(sys)) {
+  fixture() : manager_count(0), mpx(std::make_shared<multiplexer>()) {
     mpx->set_thread_id();
   }
 
@@ -150,7 +150,7 @@ CAF_TEST(default construction) {
 
 CAF_TEST(init) {
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 0u);
-  CAF_REQUIRE_EQUAL(mpx->init(), none);
+  CAF_REQUIRE_EQUAL(mpx->init(sys), none);
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);
   mpx->close_pipe();
   exhaust();
@@ -160,7 +160,7 @@ CAF_TEST(init) {
 }
 
 CAF_TEST(send and receive) {
-  CAF_REQUIRE_EQUAL(mpx->init(), none);
+  CAF_REQUIRE_EQUAL(mpx->init(sys), none);
   auto sockets = unbox(make_stream_socket_pair());
   auto alice = make_counted<dummy_manager>(manager_count, sockets.first, mpx);
   auto bob = make_counted<dummy_manager>(manager_count, sockets.second, mpx);

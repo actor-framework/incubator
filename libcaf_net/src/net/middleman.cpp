@@ -30,7 +30,7 @@
 namespace caf::net {
 
 middleman::middleman(actor_system& sys) : sys_(sys) {
-  mpx_ = std::make_shared<multiplexer>(sys_);
+  mpx_ = std::make_shared<multiplexer>();
 }
 
 middleman::~middleman() {
@@ -63,7 +63,7 @@ void middleman::stop() {
 }
 
 void middleman::init(actor_system_config& cfg) {
-  if (auto err = mpx_->init()) {
+  if (auto err = mpx_->init(sys_)) {
     CAF_LOG_ERROR("mgr->init() failed: " << system().render(err));
     CAF_RAISE_ERROR("mpx->init() failed");
   }

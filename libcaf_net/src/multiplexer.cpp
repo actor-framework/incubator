@@ -78,7 +78,7 @@ short to_bitmask(operation op) {
 
 } // namespace
 
-multiplexer::multiplexer(actor_system& sys) : sys_(sys), shutting_down_(false) {
+multiplexer::multiplexer() : shutting_down_(false) {
   // nop
 }
 
@@ -86,17 +86,17 @@ multiplexer::~multiplexer() {
   // nop
 }
 
-error multiplexer::init() {
+error multiplexer::init(actor_system& sys) {
   auto pipe_handles = make_pipe();
   if (!pipe_handles)
     return std::move(pipe_handles.error());
   add(make_counted<pollset_updater>(pipe_handles->first, shared_from_this()));
   write_handle_ = pipe_handles->second;
-  auto workers = get_or(sys_.config(), "middleman.serializing_workers",
+  auto workers = get_or(sys.config(), "middleman.serializing_workers",
                         defaults::middleman::serializing_workers);
   CAF_LOG_DEBUG("using " << CAF_ARG(workers) << " for serializing");
   for (size_t i = 0; i < workers; ++i)
-    serializing_worker_hub_.add_new_worker(sys_);
+    serializing_worker_hub_.add_new_worker(sys);
   return none;
 }
 

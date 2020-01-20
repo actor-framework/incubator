@@ -49,8 +49,8 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   using buffer_ptr = std::shared_ptr<buffer_type>;
 
   fixture() : recv_buf(1024), shared_buf{std::make_shared<buffer_type>()} {
-    mpx = std::make_shared<multiplexer>(sys);
-    if (auto err = mpx->init())
+    mpx = std::make_shared<multiplexer>();
+    if (auto err = mpx->init(sys))
       CAF_FAIL("mpx->init failed: " << sys.render(err));
     mpx->set_thread_id();
     CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);

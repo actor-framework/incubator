@@ -44,9 +44,9 @@ string_view hello_test{"hello test!"};
 
 struct fixture : test_coordinator_fixture<>, host_fixture {
   fixture() {
-    mpx = std::make_shared<multiplexer>(sys);
+    mpx = std::make_shared<multiplexer>();
     mpx->set_thread_id();
-    if (auto err = mpx->init())
+    if (auto err = mpx->init(sys))
       CAF_FAIL("mpx->init failed: " << sys.render(err));
     if (mpx->num_socket_managers() != 1)
       CAF_FAIL("mpx->num_socket_managers() != 1");

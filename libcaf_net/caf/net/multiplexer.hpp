@@ -52,11 +52,11 @@ public:
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  multiplexer(actor_system& cfg);
+  multiplexer();
 
   ~multiplexer();
 
-  error init();
+  error init(actor_system& sys);
 
   // -- properties -------------------------------------------------------------
 
@@ -116,9 +116,6 @@ protected:
   void write_to_pipe(uint8_t opcode, const socket_manager_ptr& mgr);
 
   // -- member variables -------------------------------------------------------
-
-  ///
-  actor_system& sys_;
 
   /// Bookkeeping data for managed sockets.
   pollfd_list pollset_;
