@@ -125,8 +125,8 @@ public:
     // nop
   }
 
-  static expected<buffer_type> serialize(actor_system& sys,
-                                         const type_erased_tuple& x);
+  static error serialize(actor_system& sys, const type_erased_tuple& x,
+                         buffer_type& buf);
 
   // -- utility functions ------------------------------------------------------
 

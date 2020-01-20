@@ -42,8 +42,6 @@ public:
 
   using application_type = typename Factory::application_type;
 
-  using hub_type = detail::worker_hub<serializing_worker>;
-
   // -- constructors, destructors, and assignment operators --------------------
 
   explicit doorman(net::tcp_accept_socket acceptor, factory_type factory)
@@ -61,7 +59,6 @@ public:
 
   template <class Parent>
   error init(Parent& parent) {
-    // TODO: is initializing application factory nessecary?
     if (auto err = factory_.init(parent))
       return err;
     return none;
@@ -124,6 +121,11 @@ public:
 
   void handle_error(sec err) {
     CAF_LOG_ERROR("doorman encounterd error: " << err);
+  }
+
+  std::vector<byte> next_payload_buffer() {
+    CAF_LOG_ERROR("doorman called for next_payload_buffer");
+    return {};
   }
 
 private:

@@ -219,14 +219,22 @@ private:
   }
 
 protected:
+  /// Next Layer of this stack.
   next_layer_type next_layer_;
+
+  /// The socket handle of this transport.
   handle_type handle_;
 
+  /// Buffer cache containing header buffers.
   buffer_cache_type header_bufs_;
+
+  /// Buffer cache containing payload buffers.
   buffer_cache_type payload_bufs_;
 
+  /// Read buffer of this transport.
   buffer_type read_buf_;
 
+  /// Points to the endpoint_manager of this transport.
   endpoint_manager* manager_;
 
   size_t max_consecutive_reads_;

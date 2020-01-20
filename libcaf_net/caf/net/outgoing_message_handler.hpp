@@ -22,24 +22,22 @@
 
 namespace caf::net {
 
-// TODO: Find better name for this. The whole thing is cloning the
-// remote_message_handler design - Maybe find a better name for that too?
 template <class Subtype>
 class outgoing_message_handler {
 public:
   void handle_outgoing_message() {
     auto& dref = static_cast<Subtype&>(*this);
     auto& content = dref.mailbox_elem_->content();
-    if (auto payload = dref.sf_(*dref.system_, content))
+    if (auto err = dref.sf_(*dref.system_, content, dref.buf_))
+      CAF_LOG_ERROR(
+        "unable to serialize payload: " << dref.system_->render(err));
+    else
       dref.queue_
         ->push(dref.msg_id_,
                new endpoint_manager_queue::message{std::move(
                                                      dref.mailbox_elem_),
                                                    std::move(dref.receiver_),
-                                                   std::move(*payload)});
-    else
-      CAF_LOG_ERROR("unable to serialize payload: "
-                    << dref.system_->render(payload.error()));
+                                                   std::move(dref.buf_)});
   }
 };
 

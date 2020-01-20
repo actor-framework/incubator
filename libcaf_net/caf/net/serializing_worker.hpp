@@ -40,8 +40,6 @@
 
 namespace caf::net {
 
-// The template is needed here to avoid cyclic inclusion between this and
-// endpoint_manager.
 /// Asynchronously serializes outgoing messages.
 class serializing_worker : public detail::abstract_worker,
                            public outgoing_message_handler<serializing_worker> {
@@ -60,10 +58,8 @@ public:
 
   using hub_type = detail::worker_hub<serializing_worker>;
 
-  using maybe_buffer = expected<std::vector<byte>>;
-
-  using serialize_fun_type = maybe_buffer (*)(actor_system&,
-                                              const type_erased_tuple&);
+  using serialize_fun_type = error (*)(actor_system&, const type_erased_tuple&,
+                                       std::vector<byte>&);
 
   // -- constructors, destructors, and assignment operators --------------------
 
@@ -75,7 +71,8 @@ public:
   // -- management -------------------------------------------------------------
 
   void launch(mailbox_element_ptr mailbox_elem, strong_actor_ptr ctrl,
-              outgoing_message_queue& queue, serialize_fun_type sf);
+              outgoing_message_queue& queue, serialize_fun_type sf,
+              std::vector<byte> buf);
 
   // -- implementation of resumable --------------------------------------------
 
@@ -109,10 +106,14 @@ private:
   /// Points to the `actor_control_block` of the receiver.
   strong_actor_ptr receiver_;
 
+  /// Message queue for serialized messages.
   outgoing_message_queue* queue_;
 
   /// Serialization function.
   serialize_fun_type sf_;
+
+  /// Reused buffer for the serialized message.
+  std::vector<byte> buf_;
 };
 
 } // namespace caf::net

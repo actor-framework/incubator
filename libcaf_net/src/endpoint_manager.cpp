@@ -62,7 +62,7 @@ void endpoint_manager::enqueue(mailbox_element_ptr msg,
   if (worker != nullptr) {
     CAF_LOG_DEBUG("launch serializing worker for serializing an actor_message");
     worker->launch(std::move(msg), receiver->get()->ctrl(), message_queue_,
-                   serialize_fun());
+                   serialize_fun(), next_payload_buffer());
   } else {
     CAF_LOG_DEBUG(
       "out of serializing workers, continue serializing an actor_message");
@@ -71,13 +71,14 @@ void endpoint_manager::enqueue(mailbox_element_ptr msg,
     struct handler : public outgoing_message_handler<handler> {
       handler(outgoing_message_queue& queue, hub_type& hub, actor_system& sys,
               mailbox_element_ptr mailbox_elem, strong_actor_ptr receiver,
-              endpoint_manager::serialize_fun_type sf)
+              endpoint_manager::serialize_fun_type sf, std::vector<byte> buf)
         : queue_(&queue),
           hub_(&hub),
           system_(&sys),
           mailbox_elem_(std::move(mailbox_elem)),
           receiver_(std::move(receiver)),
-          sf_(sf) {
+          sf_(sf),
+          buf_(std::move(buf)) {
         msg_id_ = queue_->new_id();
       }
       outgoing_message_queue* queue_;
@@ -87,9 +88,15 @@ void endpoint_manager::enqueue(mailbox_element_ptr msg,
       strong_actor_ptr receiver_;
       serialize_fun_type sf_;
       uint64_t msg_id_;
+      std::vector<byte> buf_;
     };
-    handler f{message_queue_,          hub_,           system(), std::move(msg),
-              receiver->get()->ctrl(), serialize_fun()};
+    handler f{message_queue_,
+              hub_,
+              system(),
+              std::move(msg),
+              receiver->get()->ctrl(),
+              serialize_fun(),
+              next_payload_buffer()};
     f.handle_outgoing_message();
   }
 }

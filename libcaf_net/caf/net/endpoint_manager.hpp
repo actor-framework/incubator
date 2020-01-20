@@ -51,12 +51,9 @@ public:
 
   using hub_type = detail::worker_hub<serializing_worker>;
 
-  /// Represents either an error or a serialized payload.
-  using maybe_buffer = expected<std::vector<byte>>;
-
   /// A function type for serializing message payloads.
-  using serialize_fun_type = maybe_buffer (*)(actor_system&,
-                                              const type_erased_tuple&);
+  using serialize_fun_type = error (*)(actor_system&, const type_erased_tuple&,
+                                       std::vector<byte>&);
 
   // -- constructors, destructors, and assignment operators --------------------
 
@@ -97,6 +94,8 @@ public:
   /// @returns the protocol-specific function for serializing payloads.
   virtual serialize_fun_type serialize_fun() const noexcept = 0;
 
+  virtual std::vector<byte> next_payload_buffer() = 0;
+
 protected:
   /// Points to the hosting actor system.
   actor_system& sys_;
@@ -107,8 +106,10 @@ protected:
   /// Stores a proxy for interacting with the actor clock.
   actor timeout_proxy_;
 
+  /// Points to the serializing_worker hub.
   hub_type& hub_;
 
+  /// The message_queue that orders serialized messages.
   outgoing_message_queue message_queue_;
 };
 

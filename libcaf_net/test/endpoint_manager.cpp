@@ -61,13 +61,12 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
 
 class dummy_application {
 public:
-  static expected<std::vector<byte>> serialize(actor_system& sys,
-                                               const type_erased_tuple& x) {
-    std::vector<byte> result;
-    binary_serializer sink{sys, result};
+  static error serialize(actor_system& sys, const type_erased_tuple& x,
+                         std::vector<byte>& buf) {
+    binary_serializer sink{sys, buf};
     if (auto err = message::save(sink, x))
       return err.value();
-    return result;
+    return none;
   }
 };
 
@@ -76,7 +75,7 @@ public:
   using application_type = dummy_application;
 
   dummy_transport(stream_socket handle, std::shared_ptr<std::vector<byte>> data)
-    : handle_(handle), data_(data), read_buf_(1024) {
+    : handle_(handle), data_(std::move(data)), read_buf_(1024) {
     // nop
   }
 
@@ -112,13 +111,13 @@ public:
     auto res = write(handle_, buf_);
     if (auto num_bytes = get_if<size_t>(&res)) {
       buf_.erase(buf_.begin(), buf_.begin() + *num_bytes);
-      return buf_.size() > 0;
+      return !buf_.empty();
     }
     return get<sec>(res) == sec::unavailable_or_would_block;
   }
 
-  void handle_error(sec) {
-    // nop
+  void handle_error(sec code) {
+    CAF_FAIL("handle error called with: " << CAF_ARG(code));
   }
 
   template <class Manager>
@@ -147,6 +146,10 @@ public:
   template <class Parent>
   void local_actor_down(Parent&, const node_id&, actor_id, error) {
     // nop
+  }
+
+  std::vector<byte> next_payload_buffer() {
+    return {};
   }
 
 private:

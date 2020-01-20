@@ -128,6 +128,10 @@ public:
     return application_type::serialize;
   }
 
+  std::vector<byte> next_payload_buffer() {
+    return transport().next_payload_buffer();
+  }
+
 private:
   transport_type transport_;
 

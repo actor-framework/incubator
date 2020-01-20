@@ -112,13 +112,12 @@ public:
     parent.write_packet(header_buf, ptr->payload);
   }
 
-  static expected<std::vector<byte>> serialize(actor_system& sys,
-                                               const type_erased_tuple& x) {
-    std::vector<byte> result;
-    binary_serializer sink{sys, result};
+  static error serialize(actor_system& sys, const type_erased_tuple& x,
+                         std::vector<byte>& buf) {
+    binary_serializer sink{sys, buf};
     if (auto err = message::save(sink, x))
       return err.value();
-    return result;
+    return none;
   }
 
 private:

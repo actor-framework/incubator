@@ -60,13 +60,12 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
 
 class dummy_application {
 public:
-  static expected<std::vector<byte>> serialize(actor_system& sys,
-                                               const type_erased_tuple& x) {
-    std::vector<byte> result;
-    binary_serializer sink{sys, result};
+  static error serialize(actor_system& sys, const type_erased_tuple& x,
+                         std::vector<byte>& buf) {
+    binary_serializer sink{sys, buf};
     if (auto err = message::save(sink, x))
       return err.value();
-    return result;
+    return none;
   }
 
   template <class Parent>
@@ -116,9 +115,9 @@ class dummy_application_factory {
 public:
   using application_type = dummy_application;
 
-  static expected<std::vector<byte>> serialize(actor_system& sys,
-                                               const type_erased_tuple& x) {
-    return dummy_application::serialize(sys, x);
+  static error serialize(actor_system& sys, const type_erased_tuple& x,
+                         std::vector<byte>& buf) {
+    return dummy_application::serialize(sys, x, buf);
   }
 
   template <class Parent>

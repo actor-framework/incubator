@@ -18,16 +18,9 @@
 
 #include "caf/net/defaults.hpp"
 
-#include <algorithm>
-#include <thread>
-
-using std::min;
-using std::thread;
-
 namespace caf::defaults::middleman {
 
-const size_t serializing_workers = min(3u, thread::hardware_concurrency() / 4u)
-                                   + 1;
+const size_t serializing_workers = 0;
 
 const size_t max_payload_buffers = 100;
 
