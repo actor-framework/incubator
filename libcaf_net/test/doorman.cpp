@@ -41,7 +41,7 @@ namespace {
 
 struct fixture : test_coordinator_fixture<>, host_fixture {
   fixture() {
-    mpx = std::make_shared<multiplexer>();
+    mpx = std::make_shared<multiplexer>(sys);
     if (auto err = mpx->init())
       CAF_FAIL("mpx->init failed: " << sys.render(err));
     mpx->set_thread_id();
@@ -56,8 +56,6 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
 
   multiplexer_ptr mpx;
   uri::authority_type auth;
-  // Don't add workers, this test should stay deterministic
-  detail::worker_hub<serializing_worker> hub;
 };
 
 class dummy_application {
@@ -145,8 +143,7 @@ CAF_TEST(doorman accept) {
   auto mgr = make_endpoint_manager(
     mpx, sys,
     doorman<dummy_application_factory>{acceptor_guard.release(),
-                                       dummy_application_factory{}, hub},
-    hub);
+                                       dummy_application_factory{}});
   CAF_CHECK_EQUAL(mgr->init(), none);
   auto before = mpx->num_socket_managers();
   CAF_CHECK_EQUAL(before, 2u);

@@ -44,7 +44,7 @@ string_view hello_test{"hello test!"};
 
 struct fixture : test_coordinator_fixture<>, host_fixture {
   fixture() {
-    mpx = std::make_shared<multiplexer>();
+    mpx = std::make_shared<multiplexer>(sys);
     mpx->set_thread_id();
     if (auto err = mpx->init())
       CAF_FAIL("mpx->init failed: " << sys.render(err));
@@ -57,9 +57,6 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   }
 
   multiplexer_ptr mpx;
-
-  // Don't add workers, this test should stay deterministic
-  detail::worker_hub<serializing_worker> hub;
 };
 
 class dummy_application {
@@ -175,7 +172,7 @@ CAF_TEST(send and receive) {
                   sec::unavailable_or_would_block);
   auto guard = detail::make_scope_guard([&] { close(sockets.second); });
   auto mgr = make_endpoint_manager(mpx, sys,
-                                   dummy_transport{sockets.first, buf}, hub);
+                                   dummy_transport{sockets.first, buf});
   CAF_CHECK_EQUAL(mgr->mask(), operation::none);
   CAF_CHECK_EQUAL(mgr->init(), none);
   CAF_CHECK_EQUAL(mgr->mask(), operation::read_write);
@@ -199,7 +196,7 @@ CAF_TEST(resolve and proxy communication) {
   nonblocking(sockets.second, true);
   auto guard = detail::make_scope_guard([&] { close(sockets.second); });
   auto mgr = make_endpoint_manager(mpx, sys,
-                                   dummy_transport{sockets.first, buf}, hub);
+                                   dummy_transport{sockets.first, buf});
   CAF_CHECK_EQUAL(mgr->init(), none);
   CAF_CHECK_EQUAL(mgr->mask(), operation::read_write);
   run();

@@ -47,7 +47,7 @@ using buffer_type = std::vector<byte>;
 
 struct fixture : test_coordinator_fixture<>, host_fixture {
   fixture() {
-    mpx = std::make_shared<multiplexer>();
+    mpx = std::make_shared<multiplexer>(sys);
     if (auto err = mpx->init())
       CAF_FAIL("mpx->init failed: " << sys.render(err));
     mpx->set_thread_id();
@@ -58,9 +58,6 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   }
 
   multiplexer_ptr mpx;
-
-  // Don't add workers, this test should stay deterministic
-  detail::worker_hub<serializing_worker> hub;
 };
 
 struct string_application_header {
@@ -224,14 +221,12 @@ CAF_TEST(receive) {
   CAF_MESSAGE("adding both endpoint managers");
   auto mgr1 = make_endpoint_manager(mpx, sys,
                                     transport_type{sockets.first,
-                                                   application_type{sys, buf}},
-                                    hub);
+                                                   application_type{sys, buf}});
   CAF_CHECK_EQUAL(mgr1->init(), none);
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 2u);
   auto mgr2 = make_endpoint_manager(mpx, sys,
                                     transport_type{sockets.second,
-                                                   application_type{sys, buf}},
-                                    hub);
+                                                   application_type{sys, buf}});
   CAF_CHECK_EQUAL(mgr2->init(), none);
   CAF_CHECK_EQUAL(mpx->num_socket_managers(), 3u);
   CAF_MESSAGE("resolve actor-proxy");

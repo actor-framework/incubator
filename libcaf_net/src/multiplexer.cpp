@@ -20,11 +20,13 @@
 
 #include <algorithm>
 
+#include "caf/actor_system_config.hpp"
 #include "caf/byte.hpp"
 #include "caf/config.hpp"
 #include "caf/error.hpp"
 #include "caf/expected.hpp"
 #include "caf/logger.hpp"
+#include "caf/net/defaults.hpp"
 #include "caf/net/operation.hpp"
 #include "caf/net/pollset_updater.hpp"
 #include "caf/net/socket_manager.hpp"
@@ -76,7 +78,7 @@ short to_bitmask(operation op) {
 
 } // namespace
 
-multiplexer::multiplexer() : shutting_down_(false) {
+multiplexer::multiplexer(actor_system& sys) : sys_(sys), shutting_down_(false) {
   // nop
 }
 
@@ -90,6 +92,11 @@ error multiplexer::init() {
     return std::move(pipe_handles.error());
   add(make_counted<pollset_updater>(pipe_handles->first, shared_from_this()));
   write_handle_ = pipe_handles->second;
+  auto workers = get_or(sys_.config(), "middleman.serializing_workers",
+                        defaults::middleman::serializing_workers);
+  CAF_LOG_DEBUG("using " << CAF_ARG(workers) << " for serializing");
+  for (size_t i = 0; i < workers; ++i)
+    serializing_worker_hub_.add_new_worker(sys_);
   return none;
 }
 
@@ -102,6 +109,11 @@ ptrdiff_t multiplexer::index_of(const socket_manager_ptr& mgr) {
   auto last = managers_.end();
   auto i = std::find(first, last, mgr);
   return i == last ? -1 : std::distance(first, i);
+}
+
+multiplexer::serializing_worker_hub_type&
+multiplexer::serializing_worker_hub() noexcept {
+  return serializing_worker_hub_;
 }
 
 void multiplexer::register_reading(const socket_manager_ptr& mgr) {

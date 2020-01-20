@@ -49,7 +49,7 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   using buffer_ptr = std::shared_ptr<buffer_type>;
 
   fixture() : recv_buf(1024), shared_buf{std::make_shared<buffer_type>()} {
-    mpx = std::make_shared<multiplexer>();
+    mpx = std::make_shared<multiplexer>(sys);
     if (auto err = mpx->init())
       CAF_FAIL("mpx->init failed: " << sys.render(err));
     mpx->set_thread_id();
@@ -70,8 +70,6 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   socket_guard<stream_socket> send_socket_guard;
   socket_guard<stream_socket> recv_socket_guard;
   buffer_ptr shared_buf;
-  // Don't add workers, this test should stay deterministic
-  detail::worker_hub<serializing_worker> hub;
 };
 
 class dummy_application {
@@ -161,8 +159,7 @@ CAF_TEST(receive) {
   auto mgr = make_endpoint_manager(mpx, sys,
                                    transport_type{recv_socket_guard.release(),
                                                   dummy_application{
-                                                    shared_buf}},
-                                   hub);
+                                                    shared_buf}});
   CAF_CHECK_EQUAL(mgr->init(), none);
   auto mgr_impl = mgr.downcast<endpoint_manager_impl<transport_type>>();
   CAF_CHECK(mgr_impl != nullptr);
@@ -184,8 +181,7 @@ CAF_TEST(resolve and proxy communication) {
   auto mgr = make_endpoint_manager(mpx, sys,
                                    transport_type{send_socket_guard.release(),
                                                   dummy_application{
-                                                    shared_buf}},
-                                   hub);
+                                                    shared_buf}});
   CAF_CHECK_EQUAL(mgr->init(), none);
   run();
   mgr->resolve(unbox(make_uri("test:/id/42")), self);

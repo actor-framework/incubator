@@ -41,11 +41,6 @@ test::~test() {
 }
 
 error test::init() {
-  auto workers = get_or(mm_.system().config(), "middleman.serializing_workers",
-                        defaults::middleman::serializing_workers);
-  CAF_LOG_DEBUG("using " << CAF_ARG(workers) << " for serializing");
-  for (size_t i = 0; i < workers; ++i)
-    hub_.add_new_worker(mm_.system());
   return none;
 }
 
@@ -86,8 +81,7 @@ test::peer_entry& test::emplace(const node_id& peer_id, stream_socket first,
   auto mpx = mm_.mpx();
   basp::application app{proxies_};
   auto mgr = make_endpoint_manager(mpx, mm_.system(),
-                                   transport_type{second, std::move(app)},
-                                   hub_);
+                                   transport_type{second, std::move(app)});
   if (auto err = mgr->init()) {
     CAF_LOG_ERROR("mgr->init() failed: " << mm_.system().render(err));
     CAF_RAISE_ERROR("mgr->init() failed");

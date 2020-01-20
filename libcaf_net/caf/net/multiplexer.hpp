@@ -22,9 +22,12 @@
 #include <mutex>
 #include <thread>
 
+#include "caf/detail/worker_hub.hpp"
+#include "caf/net/basp/worker.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/operation.hpp"
 #include "caf/net/pipe_socket.hpp"
+#include "caf/net/serializing_worker.hpp"
 #include "caf/net/socket.hpp"
 #include "caf/ref_counted.hpp"
 
@@ -45,9 +48,11 @@ public:
 
   using manager_list = std::vector<socket_manager_ptr>;
 
+  using serializing_worker_hub_type = detail::worker_hub<serializing_worker>;
+
   // -- constructors, destructors, and assignment operators --------------------
 
-  multiplexer();
+  multiplexer(actor_system& cfg);
 
   ~multiplexer();
 
@@ -60,6 +65,8 @@ public:
 
   /// Returns the index of `mgr` in the pollset or `-1`.
   ptrdiff_t index_of(const socket_manager_ptr& mgr);
+
+  serializing_worker_hub_type& serializing_worker_hub() noexcept;
 
   // -- thread-safe signaling --------------------------------------------------
 
@@ -110,6 +117,9 @@ protected:
 
   // -- member variables -------------------------------------------------------
 
+  ///
+  actor_system& sys_;
+
   /// Bookkeeping data for managed sockets.
   pollfd_list pollset_;
 
@@ -129,6 +139,9 @@ protected:
 
   /// Signals shutdown has been requested.
   bool shutting_down_;
+
+  /// Global serializing worker hub.
+  serializing_worker_hub_type serializing_worker_hub_;
 };
 
 /// @relates multiplexer

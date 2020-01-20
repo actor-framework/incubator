@@ -46,9 +46,8 @@ public:
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  explicit doorman(net::tcp_accept_socket acceptor, factory_type factory,
-                   hub_type& hub)
-    : acceptor_(acceptor), factory_(std::move(factory)), hub_(hub) {
+  explicit doorman(net::tcp_accept_socket acceptor, factory_type factory)
+    : acceptor_(acceptor), factory_(std::move(factory)) {
     // nop
   }
 
@@ -82,8 +81,8 @@ public:
     }
     auto child = make_endpoint_manager(mpx, parent.system(),
                                        stream_transport<
-                                         application_type>{*x, factory_.make()},
-                                       hub_);
+                                         application_type>{*x,
+                                                           factory_.make()});
     if (auto err = child->init())
       return false;
     return true;
@@ -131,8 +130,6 @@ private:
   net::tcp_accept_socket acceptor_;
 
   factory_type factory_;
-
-  hub_type& hub_;
 };
 
 } // namespace caf::net

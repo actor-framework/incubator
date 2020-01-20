@@ -120,8 +120,8 @@ private:
 
 using dummy_manager_ptr = intrusive_ptr<dummy_manager>;
 
-struct fixture : host_fixture {
-  fixture() : manager_count(0), mpx(std::make_shared<multiplexer>()) {
+struct fixture : test_coordinator_fixture<>, host_fixture {
+  fixture() : manager_count(0), mpx(std::make_shared<multiplexer>(sys)) {
     mpx->set_thread_id();
   }
 

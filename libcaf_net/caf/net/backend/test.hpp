@@ -74,8 +74,6 @@ private:
   std::map<node_id, peer_entry> peers_;
 
   proxy_registry proxies_;
-
-  detail::worker_hub<serializing_worker> hub_;
 };
 
 } // namespace caf::net::backend
