@@ -61,7 +61,7 @@ public:
   // -- constructors, destructors, and assignment operators --------------------
 
   endpoint_manager(socket handle, const multiplexer_ptr& parent,
-                   actor_system& sys);
+                   actor_system& sys, hub_type& hub);
 
   ~endpoint_manager() override = default;
 
@@ -107,7 +107,7 @@ protected:
   /// Stores a proxy for interacting with the actor clock.
   actor timeout_proxy_;
 
-  hub_type hub_;
+  hub_type& hub_;
 
   outgoing_message_queue message_queue_;
 };

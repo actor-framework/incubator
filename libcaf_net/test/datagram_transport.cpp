@@ -101,6 +101,8 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   ip_endpoint ep;
   udp_datagram_socket send_socket;
   udp_datagram_socket recv_socket;
+  // Don't add workers, this test should stay deterministic
+  detail::worker_hub<serializing_worker> hub;
 };
 
 class dummy_application {
@@ -208,7 +210,8 @@ CAF_TEST(receive) {
   auto mgr = make_endpoint_manager(mpx, sys,
                                    transport_type{recv_socket,
                                                   dummy_application_factory{
-                                                    shared_buf}});
+                                                    shared_buf}},
+                                   hub);
   CAF_CHECK_EQUAL(mgr->init(), none);
   auto mgr_impl = mgr.downcast<endpoint_manager_impl<transport_type>>();
   CAF_CHECK(mgr_impl != nullptr);
@@ -231,7 +234,8 @@ CAF_TEST(resolve and proxy communication) {
   auto mgr = make_endpoint_manager(mpx, sys,
                                    transport_type{send_socket,
                                                   dummy_application_factory{
-                                                    shared_buf}});
+                                                    shared_buf}},
+                                   hub);
   CAF_CHECK_EQUAL(mgr->init(), none);
   auto mgr_impl = mgr.downcast<endpoint_manager_impl<transport_type>>();
   CAF_CHECK(mgr_impl != nullptr);

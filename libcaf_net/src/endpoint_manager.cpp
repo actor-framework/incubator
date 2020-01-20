@@ -27,8 +27,8 @@
 namespace caf::net {
 
 endpoint_manager::endpoint_manager(socket handle, const multiplexer_ptr& parent,
-                                   actor_system& sys)
-  : super(handle, parent), sys_(sys), queue_(unit, unit, unit) {
+                                   actor_system& sys, hub_type& hub)
+  : super(handle, parent), sys_(sys), queue_(unit, unit, unit), hub_(hub) {
   queue_.try_block();
 }
 
@@ -61,7 +61,8 @@ void endpoint_manager::enqueue(mailbox_element_ptr msg,
   auto worker = hub_.pop();
   if (worker != nullptr) {
     CAF_LOG_DEBUG("launch serializing worker for serializing an actor_message");
-    worker->launch(std::move(msg), receiver->get()->ctrl());
+    worker->launch(std::move(msg), receiver->get()->ctrl(), message_queue_,
+                   serialize_fun());
   } else {
     CAF_LOG_DEBUG(
       "out of serializing workers, continue serializing an actor_message");

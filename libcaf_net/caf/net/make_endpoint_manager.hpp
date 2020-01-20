@@ -19,17 +19,20 @@
 #pragma once
 
 #include "caf/detail/net_export.hpp"
+#include "caf/detail/worker_hub.hpp"
 #include "caf/make_counted.hpp"
 #include "caf/net/endpoint_manager.hpp"
 #include "caf/net/endpoint_manager_impl.hpp"
+#include "caf/net/serializing_worker.hpp"
 
 namespace caf::net {
 
 template <class Transport>
 endpoint_manager_ptr CAF_NET_EXPORT make_endpoint_manager(
-  const multiplexer_ptr& mpx, actor_system& sys, Transport trans) {
+  const multiplexer_ptr& mpx, actor_system& sys, Transport trans,
+  detail::worker_hub<serializing_worker>& hub) {
   using impl = endpoint_manager_impl<Transport>;
-  return make_counted<impl>(mpx, sys, std::move(trans));
+  return make_counted<impl>(mpx, sys, std::move(trans), hub);
 }
 
 } // namespace caf::net

@@ -44,8 +44,8 @@ public:
   // -- constructors, destructors, and assignment operators --------------------
 
   endpoint_manager_impl(const multiplexer_ptr& parent, actor_system& sys,
-                        Transport trans)
-    : super(trans.handle(), parent, sys), transport_(std::move(trans)) {
+                        Transport trans, hub_type& hub)
+    : super(trans.handle(), parent, sys, hub), transport_(std::move(trans)) {
     // nop
   }
 
@@ -79,11 +79,6 @@ public:
 
   error init() override {
     this->message_queue_.init(this);
-    auto workers = get_or(system().config(), "middleman.serializing_workers",
-                          defaults::middleman::serializing_workers);
-    CAF_LOG_DEBUG("using " << CAF_ARG(workers) << " for serializing");
-    for (size_t i = 0; i < workers; ++i)
-      hub_.add_new_worker(system(), this->message_queue_, serialize_fun());
     this->register_reading();
     return transport_.init(*this);
   }

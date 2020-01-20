@@ -70,6 +70,8 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   socket_guard<stream_socket> send_socket_guard;
   socket_guard<stream_socket> recv_socket_guard;
   buffer_ptr shared_buf;
+  // Don't add workers, this test should stay deterministic
+  detail::worker_hub<serializing_worker> hub;
 };
 
 class dummy_application {
@@ -159,7 +161,8 @@ CAF_TEST(receive) {
   auto mgr = make_endpoint_manager(mpx, sys,
                                    transport_type{recv_socket_guard.release(),
                                                   dummy_application{
-                                                    shared_buf}});
+                                                    shared_buf}},
+                                   hub);
   CAF_CHECK_EQUAL(mgr->init(), none);
   auto mgr_impl = mgr.downcast<endpoint_manager_impl<transport_type>>();
   CAF_CHECK(mgr_impl != nullptr);
@@ -181,7 +184,8 @@ CAF_TEST(resolve and proxy communication) {
   auto mgr = make_endpoint_manager(mpx, sys,
                                    transport_type{send_socket_guard.release(),
                                                   dummy_application{
-                                                    shared_buf}});
+                                                    shared_buf}},
+                                   hub);
   CAF_CHECK_EQUAL(mgr->init(), none);
   run();
   mgr->resolve(unbox(make_uri("test:/id/42")), self);

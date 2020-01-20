@@ -68,14 +68,14 @@ public:
   // -- constructors, destructors, and assignment operators --------------------
 
   /// Only the ::worker_hub has access to the construtor.
-  serializing_worker(hub_type& hub, actor_system& sys,
-                     outgoing_message_queue& queue, serialize_fun_type sf);
+  serializing_worker(hub_type& hub, actor_system& sys);
 
   ~serializing_worker() override = default;
 
   // -- management -------------------------------------------------------------
 
-  void launch(mailbox_element_ptr mailbox_elem, strong_actor_ptr ctrl);
+  void launch(mailbox_element_ptr mailbox_elem, strong_actor_ptr ctrl,
+              outgoing_message_queue& queue, serialize_fun_type sf);
 
   // -- implementation of resumable --------------------------------------------
 

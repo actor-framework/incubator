@@ -42,10 +42,13 @@ public:
 
   using application_type = typename Factory::application_type;
 
+  using hub_type = detail::worker_hub<serializing_worker>;
+
   // -- constructors, destructors, and assignment operators --------------------
 
-  explicit doorman(net::tcp_accept_socket acceptor, factory_type factory)
-    : acceptor_(acceptor), factory_(std::move(factory)) {
+  explicit doorman(net::tcp_accept_socket acceptor, factory_type factory,
+                   hub_type& hub)
+    : acceptor_(acceptor), factory_(std::move(factory)), hub_(hub) {
     // nop
   }
 
@@ -79,8 +82,8 @@ public:
     }
     auto child = make_endpoint_manager(mpx, parent.system(),
                                        stream_transport<
-                                         application_type>{*x,
-                                                           factory_.make()});
+                                         application_type>{*x, factory_.make()},
+                                       hub_);
     if (auto err = child->init())
       return false;
     return true;
@@ -128,6 +131,8 @@ private:
   net::tcp_accept_socket acceptor_;
 
   factory_type factory_;
+
+  hub_type& hub_;
 };
 
 } // namespace caf::net

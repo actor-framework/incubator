@@ -26,20 +26,22 @@ namespace caf::net {
 
 // -- constructors, destructors, and assignment operators ----------------------
 
-serializing_worker::serializing_worker(hub_type& hub, actor_system& sys,
-                                       outgoing_message_queue& queue,
-                                       serialize_fun_type sf)
-  : msg_id_(0), hub_(&hub), system_(&sys), queue_(&queue), sf_(sf) {
+serializing_worker::serializing_worker(hub_type& hub, actor_system& sys)
+  : msg_id_(0), hub_(&hub), system_(&sys) {
   // nop
 }
 
 // -- management ---------------------------------------------------------------
 
 void serializing_worker::launch(mailbox_element_ptr mailbox_elem,
-                                strong_actor_ptr ctrl) {
+                                strong_actor_ptr ctrl,
+                                outgoing_message_queue& queue,
+                                serialize_fun_type sf) {
+  queue_ = &queue;
   msg_id_ = queue_->new_id();
   mailbox_elem_ = std::move(mailbox_elem);
   receiver_ = std::move(ctrl);
+  sf_ = sf;
   ref();
   system_->scheduler().enqueue(this);
 }
