@@ -28,8 +28,8 @@ namespace caf::net::basp {
 
 // -- constructors, destructors, and assignment operators ----------------------
 
-worker::worker(hub_type& hub, message_queue& queue, proxy_registry& proxies)
-  : hub_(&hub), queue_(&queue), proxies_(&proxies), system_(&proxies.system()) {
+worker::worker(hub_type& hub, actor_system& sys)
+  : hub_(&hub), queue_(nullptr), proxies_(nullptr), system_(&sys) {
   CAF_IGNORE_UNUSED(pad_);
 }
 
@@ -40,7 +40,10 @@ worker::~worker() {
 // -- management ---------------------------------------------------------------
 
 void worker::launch(const node_id& last_hop, const basp::header& hdr,
-                    span<const byte> payload) {
+                    span<const byte> payload, message_queue& queue,
+                    proxy_registry& proxies) {
+  queue_ = &queue;
+  proxies_ = &proxies;
   msg_id_ = queue_->new_id();
   last_hop_ = last_hop;
   memcpy(&hdr_, &hdr, sizeof(basp::header));

@@ -55,14 +55,15 @@ public:
   // -- constructors, destructors, and assignment operators --------------------
 
   /// Only the ::worker_hub has access to the construtor.
-  worker(hub_type& hub, message_queue& queue, proxy_registry& proxies);
+  worker(hub_type& hub, actor_system& sys);
 
   ~worker() override;
 
   // -- management -------------------------------------------------------------
 
   void launch(const node_id& last_hop, const basp::header& hdr,
-              span<const byte> payload);
+              span<const byte> payload, message_queue& queue,
+              proxy_registry& proxies);
 
   // -- implementation of resumable --------------------------------------------
 

@@ -79,7 +79,7 @@ test::peer_entry& test::emplace(const node_id& peer_id, stream_socket first,
   using transport_type = stream_transport<basp::application>;
   nonblocking(second, true);
   auto mpx = mm_.mpx();
-  basp::application app{proxies_};
+  basp::application app{proxies_, mpx->basp_worker_hub()};
   auto mgr = make_endpoint_manager(mpx, mm_.system(),
                                    transport_type{second, std::move(app)});
   if (auto err = mgr->init()) {

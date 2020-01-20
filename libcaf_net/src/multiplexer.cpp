@@ -23,6 +23,7 @@
 #include "caf/actor_system_config.hpp"
 #include "caf/byte.hpp"
 #include "caf/config.hpp"
+#include "caf/defaults.hpp"
 #include "caf/error.hpp"
 #include "caf/expected.hpp"
 #include "caf/logger.hpp"
@@ -97,6 +98,11 @@ error multiplexer::init(actor_system& sys) {
   CAF_LOG_DEBUG("using " << CAF_ARG(workers) << " for serializing");
   for (size_t i = 0; i < workers; ++i)
     serializing_worker_hub_.add_new_worker(sys);
+  workers = get_or(sys.config(), "middleman.workers",
+                   defaults::middleman::workers);
+  CAF_LOG_DEBUG("using " << CAF_ARG(workers) << " for deserializing");
+  for (size_t i = 0; i < workers; ++i)
+    basp_worker_hub_.add_new_worker(sys);
   return none;
 }
 
@@ -114,6 +120,10 @@ ptrdiff_t multiplexer::index_of(const socket_manager_ptr& mgr) {
 multiplexer::serializing_worker_hub_type&
 multiplexer::serializing_worker_hub() noexcept {
   return serializing_worker_hub_;
+}
+
+multiplexer::basp_worker_hub_type& multiplexer::basp_worker_hub() noexcept {
+  return basp_worker_hub_;
 }
 
 void multiplexer::register_reading(const socket_manager_ptr& mgr) {

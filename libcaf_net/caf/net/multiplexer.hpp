@@ -50,6 +50,8 @@ public:
 
   using serializing_worker_hub_type = detail::worker_hub<serializing_worker>;
 
+  using basp_worker_hub_type = detail::worker_hub<basp::worker>;
+
   // -- constructors, destructors, and assignment operators --------------------
 
   multiplexer();
@@ -66,7 +68,11 @@ public:
   /// Returns the index of `mgr` in the pollset or `-1`.
   ptrdiff_t index_of(const socket_manager_ptr& mgr);
 
+  /// Returns a reference to the `serializing_worker_hub`.
   serializing_worker_hub_type& serializing_worker_hub() noexcept;
+
+  /// Returns a reference to the `basp_worker_hub`.
+  basp_worker_hub_type& basp_worker_hub() noexcept;
 
   // -- thread-safe signaling --------------------------------------------------
 
@@ -139,6 +145,9 @@ protected:
 
   /// Global serializing worker hub.
   serializing_worker_hub_type serializing_worker_hub_;
+
+  /// Global basp worker hub.
+  basp_worker_hub_type basp_worker_hub_;
 };
 
 /// @relates multiplexer

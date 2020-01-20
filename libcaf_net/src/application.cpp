@@ -42,8 +42,11 @@
 
 namespace caf::net::basp {
 
-application::application(proxy_registry& proxies)
-  : proxies_(proxies), queue_{new message_queue}, hub_{new hub_type} {
+application::application(proxy_registry& proxies,
+                         basp_worker_hub_type& basp_worker_hub)
+  : proxies_(proxies),
+    queue_{new message_queue},
+    basp_worker_hub_{basp_worker_hub} {
   // nop
 }
 
@@ -244,10 +247,10 @@ error application::handle_handshake(packet_writer&, header hdr,
 
 error application::handle_actor_message(packet_writer&, header hdr,
                                         byte_span payload) {
-  auto worker = hub_->pop();
+  auto worker = basp_worker_hub_.pop();
   if (worker != nullptr) {
     CAF_LOG_DEBUG("launch BASP worker for deserializing an actor_message");
-    worker->launch(node_id{}, hdr, payload);
+    worker->launch(node_id{}, hdr, payload, *queue_, proxies_);
   } else {
     CAF_LOG_DEBUG(
       "out of BASP workers, continue deserializing an actor_message");

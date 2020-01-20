@@ -31,14 +31,12 @@
 #include "caf/byte.hpp"
 #include "caf/callback.hpp"
 #include "caf/defaults.hpp"
-#include "caf/detail/worker_hub.hpp"
 #include "caf/error.hpp"
 #include "caf/net/basp/connection_state.hpp"
 #include "caf/net/basp/constants.hpp"
 #include "caf/net/basp/header.hpp"
 #include "caf/net/basp/message_queue.hpp"
 #include "caf/net/basp/message_type.hpp"
-#include "caf/net/basp/worker.hpp"
 #include "caf/net/endpoint_manager.hpp"
 #include "caf/net/packet_writer.hpp"
 #include "caf/net/receive_policy.hpp"
@@ -47,6 +45,7 @@
 #include "caf/response_promise.hpp"
 #include "caf/scoped_execution_unit.hpp"
 #include "caf/unit.hpp"
+#include "worker.hpp"
 
 namespace caf::net::basp {
 
@@ -59,13 +58,13 @@ public:
 
   using byte_span = span<const byte>;
 
-  using hub_type = detail::worker_hub<worker>;
-
   struct test_tag {};
+
+  using basp_worker_hub_type = detail::worker_hub<worker>;
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  explicit application(proxy_registry& proxies);
+  application(proxy_registry& proxies, basp_worker_hub_type& basp_worker_hub);
 
   // -- interface functions ----------------------------------------------------
 
@@ -78,11 +77,6 @@ public:
     // Allow unit tests to run the application without endpoint manager.
     if constexpr (!std::is_base_of<test_tag, Parent>::value)
       manager_ = &parent.manager();
-    auto workers = get_or(system_->config(), "middleman.workers",
-                          defaults::middleman::workers);
-    CAF_LOG_DEBUG("using " << CAF_ARG(workers) << " for deserializing");
-    for (size_t i = 0; i < workers; ++i)
-      hub_->add_new_worker(*queue_, proxies_);
     // Write handshake.
     auto hdr = parent.next_header_buffer();
     auto payload = parent.next_payload_buffer();
@@ -184,7 +178,7 @@ private:
   node_id peer_id_;
 
   /// Tracks which local actors our peer monitors.
-  std::unordered_set<actor_addr> monitored_actors_; // TODO: this is unused
+  std::unordered_set<actor_addr> monitored_actors_;
 
   /// Caches actor handles obtained via `resolve`.
   std::unordered_map<uint64_t, actor> pending_resolves_;
@@ -202,9 +196,10 @@ private:
   /// serializers and deserializer.
   scoped_execution_unit executor_;
 
+  /// The message_queue that orders deserialized messages.
   std::unique_ptr<message_queue> queue_;
 
-  std::unique_ptr<hub_type> hub_;
+  basp_worker_hub_type& basp_worker_hub_;
 };
 
 } // namespace caf::net::basp

@@ -48,7 +48,7 @@ struct fixture : test_coordinator_fixture<>,
                  public packet_writer {
   using buffer_type = std::vector<byte>;
 
-  fixture() : proxies(sys, *this), app(proxies) {
+  fixture() : proxies(sys, *this), app(proxies, hub) {
     REQUIRE_OK(app.init(*this));
     uri mars_uri;
     REQUIRE_OK(parse("tcp://mars", mars_uri));
@@ -148,6 +148,8 @@ protected:
   node_id mars;
 
   proxy_registry proxies;
+
+  detail::worker_hub<basp::worker> hub;
 
   basp::application app;
 };
