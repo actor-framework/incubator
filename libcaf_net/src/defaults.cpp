@@ -18,6 +18,7 @@
 
 #include "caf/net/defaults.hpp"
 
+#include <algorithm>
 #include <thread>
 
 using std::min;
