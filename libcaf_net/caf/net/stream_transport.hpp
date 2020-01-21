@@ -180,6 +180,7 @@ private:
         if (this->header_bufs_.size() < this->header_bufs_.capacity())
           this->header_bufs_.emplace_back(std::move(buf));
       } else if (this->payload_bufs_.size() < this->payload_bufs_.capacity()) {
+        const std::lock_guard<std::mutex> lock(*this->payload_buffer_lock_);
         this->payload_bufs_.emplace_back(std::move(buf));
       }
       write_queue_.pop_front();

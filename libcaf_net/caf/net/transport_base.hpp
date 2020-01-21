@@ -58,7 +58,10 @@ public:
   // -- constructors, destructors, and assignment operators --------------------
 
   transport_base(handle_type handle, application_type application)
-    : next_layer_(std::move(application)), handle_(handle), manager_(nullptr) {
+    : payload_buffer_lock_{std::make_shared<std::mutex>()},
+      next_layer_(std::move(application)),
+      handle_(handle),
+      manager_(nullptr) {
     // nop
   }
 
@@ -204,6 +207,7 @@ public:
   /// Returns the next cached payload buffer or creates a new one if no buffers
   /// are cached.
   buffer_type next_payload_buffer() {
+    const std::lock_guard<std::mutex> lock(*payload_buffer_lock_);
     return next_buffer_impl(payload_bufs_);
   }
 
@@ -219,6 +223,9 @@ private:
   }
 
 protected:
+  /// Lock for synchronizing payload_buffer_cache access.
+  std::shared_ptr<std::mutex> payload_buffer_lock_;
+
   /// Next Layer of this stack.
   next_layer_type next_layer_;
 

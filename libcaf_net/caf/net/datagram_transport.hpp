@@ -178,6 +178,7 @@ private:
              && this->payload_bufs_.size() < this->payload_bufs_.capacity();
            ++it) {
         it->clear();
+        const std::lock_guard<std::mutex> lock(*this->payload_buffer_lock_);
         this->payload_bufs_.emplace_back(std::move(*it));
       }
       packet_queue_.pop_front();
