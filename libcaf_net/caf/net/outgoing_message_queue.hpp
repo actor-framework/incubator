@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "caf/actor_control_block.hpp"
+#include "caf/detail/net_export.hpp"
 #include "caf/fwd.hpp"
 #include "caf/mailbox_element.hpp"
 #include "caf/net/endpoint_manager_queue.hpp"
@@ -33,7 +34,7 @@ namespace caf::net {
 /// Enforces strict order of message delivery to a single endpoint_manager
 /// i.e., deliver messages in the same order as if they were deserialized by a
 /// single thread.
-class outgoing_message_queue {
+class CAF_NET_EXPORT outgoing_message_queue {
 public:
   // -- member types -----------------------------------------------------------
 

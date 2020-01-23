@@ -20,16 +20,18 @@
 
 #include <cstddef>
 
+#include "caf/detail/net_export.hpp"
+
 // -- hard-coded default values for various CAF options ------------------------
 
 namespace caf::defaults::middleman {
 
-extern const size_t serializing_workers;
+CAF_NET_EXPORT extern const size_t serializing_workers;
 
 /// Maximum number of cached buffers for sending payloads.
-extern const size_t max_payload_buffers;
+CAF_NET_EXPORT extern const size_t max_payload_buffers;
 
 /// Maximum number of cached buffers for sending headers.
-extern const size_t max_header_buffers;
+CAF_NET_EXPORT extern const size_t max_header_buffers;
 
 } // namespace caf::defaults::middleman
