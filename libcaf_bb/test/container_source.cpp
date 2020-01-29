@@ -91,7 +91,7 @@ CAF_TEST(stream_to_sink) {
   auto src = sys.spawn(bb::container_source<container_type, actor>,
                        test_container, sink);
   auto mon = sys.spawn(container_monitor);
-  self->send(mon, join_atom::value, src);
+  self->send(mon, join_atom_v, src);
   run();
   CAF_CHECK_EQUAL(deref<container_sink_actor>(sink).state.con, test_container);
 }
@@ -106,7 +106,7 @@ CAF_TEST(stream_to_sinks) {
                .spawn(bb::container_source<container_type, actor, actor, actor>,
                       test_container, snk1, snk2, snk3);
   auto mon = sys.spawn(container_monitor);
-  self->send(mon, join_atom::value, src);
+  self->send(mon, join_atom_v, src);
   run();
   CAF_CHECK_EQUAL(deref<container_sink_actor>(snk1).state.con, test_container);
   CAF_CHECK_EQUAL(deref<container_sink_actor>(snk2).state.con, test_container);

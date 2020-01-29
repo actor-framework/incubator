@@ -109,7 +109,7 @@ CAF_TEST(stream_to_sink) {
                          stream_type, actor>,
                        std::move(ptr_test_stream), sink);
   auto mon = sys.spawn(stream_monitor);
-  self->send(mon, join_atom::value, src);
+  self->send(mon, join_atom_v, src);
   run();
   CAF_CHECK_EQUAL(deref<stream_reader_sink_actor>(sink).state.vec,
                   test_container);
@@ -130,7 +130,7 @@ CAF_TEST(stream_to_sinks) {
                          stream_type, actor, actor, actor>,
                        std::move(ptr_test_stream), snk1, snk2, snk3);
   auto mon = sys.spawn(stream_monitor);
-  self->send(mon, join_atom::value, src);
+  self->send(mon, join_atom_v, src);
   run();
   CAF_CHECK_EQUAL(deref<stream_reader_sink_actor>(snk1).state.vec,
                   test_container);
@@ -151,7 +151,7 @@ CAF_TEST(error_stream_to_sink) {
                          stream_type, actor>,
                        std::move(ptr_test_stream), sink);
   auto mon = sys.spawn(stream_monitor);
-  self->send(mon, join_atom::value, src);
+  self->send(mon, join_atom_v, src);
   run();
 }
 
