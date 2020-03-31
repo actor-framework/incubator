@@ -1,7 +1,7 @@
 # -- project setup -------------------------------------------------------------
 
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
-project(caf_incubator C CXX)
+project(caf_incubator CXX)
 
 # -- project options -----------------------------------------------------------
 
@@ -10,11 +10,9 @@ option(BUILD_SHARED_LIBS "Build all modules as shared library" ON)
 # -- includes ------------------------------------------------------------------
 
 include(CMakePackageConfigHelpers) # For creating .cmake files
-include(CheckCSourceCompiles)      # Check whether compiler works
-include(CheckCSourceRuns)          # Check whether compiler produces binaries
+include(CheckCXXSourceCompiles)    # Check wether compiler works
 include(GNUInstallDirs)            # Sets default install paths
 include(GenerateExportHeader)      # Auto-generates dllexport macros
-
 
 # -- project-specific CMake settings -------------------------------------------
 
@@ -165,19 +163,6 @@ endif()
 #                              utility functions                               #
 ################################################################################
 
-# Appends `str` to the variable named `var` with a whitespace as separator.
-# Suppresses a leading whitespace if the variable is empty and does nothing if
-# `str` is empty.
-function(build_string var str)
-  if(NOT str STREQUAL "")
-    if("${${var}}" STREQUAL "")
-      set("${var}" "${str}" PARENT_SCOPE)
-    else()
-      set("${var}" "${${var}} ${str}" PARENT_SCOPE)
-    endif()
-  endif()
-endfunction(build_string)
-
 # Forces `var` to 'no' if the content of the variables evaluates to false.
 function(pretty_no var)
   if(NOT "${${var}}")
@@ -266,42 +251,6 @@ endif()
 
 # -- compiler setup ------------------------------------------------------------
 
-# Enable a ton of warnings if --more-clang-warnings is used.
-if(CAF_MORE_WARNINGS)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(WFLAGS "-Weverything -Wno-c++98-compat -Wno-padded "
-               "-Wno-documentation-unknown-command -Wno-exit-time-destructors "
-               "-Wno-global-constructors -Wno-missing-prototypes "
-               "-Wno-c++98-compat-pedantic -Wno-unused-member-function "
-               "-Wno-unused-const-variable -Wno-switch-enum "
-               "-Wno-abstract-vbase-init -Wno-shadow "
-               "-Wno-missing-noreturn -Wno-covered-switch-default")
-  elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    set(WFLAGS "-Waddress -Wall -Warray-bounds "
-               "-Wattributes -Wbuiltin-macro-redefined -Wcast-align "
-               "-Wcast-qual -Wchar-subscripts -Wclobbered -Wcomment "
-               "-Wconversion -Wconversion-null -Wcoverage-mismatch "
-               "-Wcpp -Wdelete-non-virtual-dtor -Wdeprecated "
-               "-Wdeprecated-declarations -Wdiv-by-zero -Wdouble-promotion "
-               "-Wempty-body -Wendif-labels -Wenum-compare -Wextra "
-               "-Wfloat-equal -Wformat -Wfree-nonheap-object "
-               "-Wignored-qualifiers -Winit-self "
-               "-Winline -Wint-to-pointer-cast -Winvalid-memory-model "
-               "-Winvalid-offsetof -Wlogical-op -Wmain -Wmaybe-uninitialized "
-               "-Wmissing-braces -Wmultichar "
-               "-Wnarrowing -Wnoexcept -Wnon-template-friend "
-               "-Wnon-virtual-dtor -Wnonnull -Woverflow "
-               "-Woverlength-strings -Wparentheses "
-               "-Wpmf-conversions -Wpointer-arith -Wreorder "
-               "-Wreturn-type -Wsequence-point "
-               "-Wsign-compare -Wswitch -Wtype-limits -Wundef "
-               "-Wuninitialized -Wunused -Wvla -Wwrite-strings")
-  endif()
-  # convert CMake list to a single string, erasing the ";" separators
-  string(REPLACE ";" "" WFLAGS_STR ${WFLAGS})
-  build_string("EXTRA_FLAGS" "${WFLAGS_STR}")
-endif()
-
 # Enable ASAN if requested by the user.
 if(CAF_SANITIZERS)
   add_compile_options("-fsanitize=${CAF_SANITIZERS}"
@@ -311,18 +260,18 @@ endif()
 
 # -pthread is ignored on MacOSX but required on other platforms
 if(NOT APPLE AND NOT WIN32)
-    build_string("EXTRA_FLAGS" "-pthread")
+  add_compile_options(-pthread)
+  list(APPEND CAF_EXTRA_LDFLAGS "-pthread")
 endif()
 
 # -fPIC generates warnings on MinGW and Cygwin plus extra setup steps needed on MinGW
 if(MINGW)
-  add_definitions(-D_WIN32_WINNT=0x0600)
-  add_definitions(-DWIN32)
+  add_definitions(-D_WIN32_WINNT=0x0600 -DWIN32)
   list(APPEND CAF_EXTRA_LDFLAGS -lws2_32 -liphlpapi -lpsapi)
   # build static to avoid runtime dependencies to GCC libraries
-  build_string("EXTRA_FLAGS" "-static")
+  add_compile_options(-static)
 elseif(CYGWIN)
-  build_string("EXTRA_FLAGS" "-U__STRICT_ANSI__")
+  add_compile_options(-U__STRICT_ANSI__)
 endif()
 
 # Add Windows-specific linker flags.
@@ -338,43 +287,10 @@ endif()
 # Add iOS target if requested by user.
 if(CAF_IOS_DEPLOYMENT_TARGET)
   if(CAF_OSX_SYSROOT STREQUAL "iphonesimulator")
-    build_string("EXTRA_FLAGS"
-                 "-mios-simulator-version-min=${CAF_IOS_DEPLOYMENT_TARGET}")
+    add_compile_options("-mios-simulator-version-min=${CAF_IOS_DEPLOYMENT_TARGET}")
   else()
-    build_string("EXTRA_FLAGS"
-                 "-miphoneos-version-min=${CAF_IOS_DEPLOYMENT_TARGET}")
+    add_compile_options("-miphoneos-version-min=${CAF_IOS_DEPLOYMENT_TARGET}")
   endif()
-endif()
-
-# -- check if the user provided CXXFLAGS, set defaults otherwise ---------------
-
-if(NOT CMAKE_CXX_FLAGS)
-  set(CMAKE_CXX_FLAGS "-Wextra -Wall -pedantic ${EXTRA_FLAGS}")
-endif()
-
-if(NOT CMAKE_CXX_FLAGS_DEBUG)
-  set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g")
-endif()
-
-if(NOT CMAKE_CXX_FLAGS_MINSIZEREL)
-  set(CMAKE_CXX_FLAGS_MINSIZEREL "-Os")
-endif()
-
-if(NOT CMAKE_CXX_FLAGS_RELEASE)
-  set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
-endif()
-
-if(NOT CMAKE_CXX_FLAGS_RELWITHDEBINFO)
-  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O2 -g -fno-omit-frame-pointer")
-endif()
-
-if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE RelWithDebInfo)
-endif()
-
-# needed by subprojects
-if (DEFINED CMAKE_LD_LIBS)
-  list(APPEND ${CMAKE_LD_LIBS})
 endif()
 
 # -- install targets -----------------------------------------------------------
@@ -435,12 +351,7 @@ endmacro()
 
 # Invert CAF_NO_* variables for nicer output.
 invertYesNo(CAF_NO_UNIT_TESTS CAF_BUILD_UNIT_TESTS)
-
-# Collect all compiler flags.
-string(TOUPPER "${CMAKE_BUILD_TYPE}" UPPER_BUILD_TYPE)
-set(ALL_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_${UPPER_BUILD_TYPE}}")
-set(ALL_LD_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${CAF_EXTRA_LDFLAGS}")
-string(STRIP "${ALL_LD_FLAGS}" ALL_LD_FLAGS)
+get_property(all_cxx_flags DIRECTORY PROPERTY COMPILE_OPTIONS)
 
 # Print summary.
 if(NOT CAF_NO_SUMMARY)
@@ -452,7 +363,7 @@ if(NOT CAF_NO_SUMMARY)
         "\nBuild static runtime:  ${CAF_BUILD_STATIC_RUNTIME}"
         "\n"
         "\nCXX:                   ${CMAKE_CXX_COMPILER}"
-        "\nCXXFLAGS:              ${ALL_CXX_FLAGS}"
+        "\nCXXFLAGS:              ${all_cxx_flags}"
         "\nLINKER_FLAGS (shared): ${ALL_LD_FLAGS}"
         "\n"
         "\nSource directory:      ${CMAKE_CURRENT_SOURCE_DIR}"

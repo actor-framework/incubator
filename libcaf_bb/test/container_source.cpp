@@ -20,6 +20,7 @@
 
 #include "caf/bb/container_source.hpp"
 
+#include "caf/bb/test/bb_test_type_ids.hpp"
 #include "caf/test/dsl.hpp"
 
 #include <vector>
@@ -74,7 +75,7 @@ TESTEE(container_monitor) {
 
 struct config : actor_system_config {
   config() {
-    add_message_type<container_type::value_type>("value_type");
+    // nop
   }
 };
 

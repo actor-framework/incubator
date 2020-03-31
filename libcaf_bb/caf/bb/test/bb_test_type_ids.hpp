@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright 2011-2019 Dominik Charousset                                     *
+ * Copyright 2011-2020 Dominik Charousset                                     *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
  * (at your option) under the terms and conditions of the Boost Software      *
@@ -16,41 +16,11 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#include "caf/net/host.hpp"
+#include "caf/test/dsl.hpp"
 
-#include "caf/config.hpp"
-#include "caf/detail/net_syscall.hpp"
-#include "caf/detail/socket_sys_includes.hpp"
-#include "caf/error.hpp"
-#include "caf/message.hpp"
-#include "caf/net/socket.hpp"
-#include "caf/none.hpp"
+CAF_BEGIN_TYPE_ID_BLOCK(bb_test, caf::first_custom_type_id)
 
-namespace caf::net {
+CAF_ADD_TYPE_ID(bb_test, (caf::stream<int>) )
+CAF_ADD_TYPE_ID(bb_test, (std::vector<int>) )
 
-#ifdef CAF_WINDOWS
-
-error this_host::startup() {
-  WSADATA WinsockData;
-  CAF_NET_SYSCALL("WSAStartup", result, !=, 0,
-                  WSAStartup(MAKEWORD(2, 2), &WinsockData));
-  return none;
-}
-
-void this_host::cleanup() {
-  WSACleanup();
-}
-
-#else // CAF_WINDOWS
-
-error this_host::startup() {
-  return none;
-}
-
-void this_host::cleanup() {
-  // nop
-}
-
-#endif // CAF_WINDOWS
-
-} // namespace caf::net
+CAF_END_TYPE_ID_BLOCK(bb_test)

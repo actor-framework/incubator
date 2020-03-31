@@ -21,10 +21,10 @@
 #include "caf/bb/stream_reader.hpp"
 #include "caf/policy/tokenized_integer_reader.hpp"
 
+#include "caf/bb/test/bb_test_type_ids.hpp"
 #include "caf/test/dsl.hpp"
 
 #include <memory>
-#include <sstream>
 #include <string>
 #include <vector>
 
