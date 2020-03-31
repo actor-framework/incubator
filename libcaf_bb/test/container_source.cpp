@@ -75,7 +75,7 @@ TESTEE(container_monitor) {
 
 struct config : actor_system_config {
   config() {
-    init_global_meta_objects<bb_test_type_ids>();
+    // nop
   }
 };
 

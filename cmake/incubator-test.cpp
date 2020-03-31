@@ -1,11 +1,9 @@
 #define CAF_TEST_NO_MAIN
 
-#include "caf/fwd.hpp"
-#include "caf/test/dsl.hpp"
-#include "caf/test/unit_test_impl.hpp"
-#include "caf/type_id.hpp"
+#include "incubator-test.hpp"
 
 int main(int argc, char** argv) {
-  caf::init_global_meta_objects<>();
+  caf::core::init_global_meta_objects();
+  caf::init_global_meta_objects<caf::id_block::incubator_test>();
   return caf::test::main(argc, argv);
 }
