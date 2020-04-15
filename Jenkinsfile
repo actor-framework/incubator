@@ -4,12 +4,14 @@
 
 // Default CMake flags for release builds.
 defaultReleaseBuildFlags = [
-    'CAF_ENABLE_RUNTIME_CHECKS:BOOL=yes',
+    'CAF_INC_ENABLE_STANDALONE_BUILD:BOOL=ON',
+    'CAF_ENABLE_RUNTIME_CHECKS:BOOL=ON',
 ]
 
 // Default CMake flags for debug builds.
 defaultDebugBuildFlags = defaultReleaseBuildFlags + [
-    'CAF_SANITIZERS:STRING=address,undefined',
+    'CAF_INC_ENABLE_STANDALONE_BUILD:BOOL=ON',
+    'CAF_INC_SANITIZERS:STRING=address,undefined',
     'CAF_LOG_LEVEL:STRING=TRACE',
 ]
 
@@ -24,22 +26,9 @@ config = [
         'tests',
         'coverage',
     ],
-    // Dependencies that we need to fetch before each build.
-    dependencies: [
-        artifact: [
-            'CAF/actor-framework/master',
-        ],
-        cmakeRootVariables: [
-            'CAF_ROOT_DIR',
-        ],
-    ],
     // Our build matrix. Keys are the operating system labels and values are build configurations.
     buildMatrix: [
         // Various Linux builds for debug and release.
-        ['debian-8', [
-            builds: ['debug', 'release'],
-            tools: ['clang-4'],
-        ]],
         ['centos-6', [
             builds: ['debug', 'release'],
             tools: ['gcc-7'],
@@ -99,7 +88,10 @@ config = [
     ],
     // Configures what binary the coverage report uses and what paths to exclude.
     coverage: [
-        binary: 'build/libcaf_net/caf-net-test',
+        binaries: [
+          'build/libcaf_net/caf-net-test',
+          'build/libcaf_bb/caf-bb-test',
+        ],
         relativeExcludePaths: [
           'libcaf_net/test'
         ],
@@ -110,9 +102,6 @@ config = [
 pipeline {
     options {
         buildDiscarder(logRotator(numToKeepStr: '50', artifactNumToKeepStr: '3'))
-    }
-    triggers {
-        upstream(upstreamProjects: 'CAF/actor-framework/master/', threshold: hudson.model.Result.SUCCESS)
     }
     agent {
         label 'master'
@@ -132,6 +121,26 @@ pipeline {
             agent { label 'clang-format' }
             steps {
                 runClangFormat(config)
+            }
+        }
+        stage('Check Consistency') {
+            agent { label 'unix' }
+            steps {
+                deleteDir()
+                unstash('sources')
+                dir('sources') {
+                    cmakeBuild([
+                        buildDir: 'build',
+                        installation: 'cmake in search path',
+                        sourceDir: '.',
+                        cmakeArgs: '-DCAF_ENABLE_IO_MODULE:BOOL=OFF ' +
+                                   '-DCAF_ENABLE_UTILITY_TARGETS:BOOL=ON',
+                        steps: [[
+                            args: '--target consistency-check',
+                            withCmake: true,
+                        ]],
+                    ])
+                }
             }
         }
         stage('Build') {

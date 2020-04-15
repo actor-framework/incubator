@@ -78,8 +78,8 @@ behavior container_source(container_source_type<Container>* self, Container xs,
     return {};
   // Spin up stream manager and connect the first sink.
   self->state.init(std::move(xs));
-  auto src = self->make_source(
-    std::move(sink),
+  auto src = attach_stream_source(
+    self, std::move(sink),
     [&](unit_t&) {
       // nop
     },

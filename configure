@@ -1,237 +1,214 @@
 #!/bin/sh
-# Convenience wrapper for easily viewing/setting options that
-# the project's CMake scripts will recognize.
+set -e
 
-command="$0 $*"
-dirname_0=`dirname $0`
-sourcedir=`cd $dirname_0 && pwd`
+# Convenience wrapper for easily setting options that the project's CMake
+# scripts will recognize.
+
+Command="$0 $*"
+CommandDirname=`dirname $0`
+SourceDir=`cd $CommandDirname && pwd`
 
 usage="\
-Usage: $0 [OPTION]... [VAR=VALUE]...
+Usage:
 
-  Build Options:
-    --cmake=PATH                set a custom path to the CMake binary
-    --generator=GENERATOR       set CMake generator (see cmake --help)
-    --build-type=TYPE           set CMake build type [RelWithDebInfo]:
-                                  - Debug: debugging flags enabled
-                                  - MinSizeRel: minimal output size
-                                  - Release: optimizations on, debugging off
-                                  - RelWithDebInfo: release flags plus debugging
-    --extra-flags=STRING        additional compiler flags (sets CMAKE_CXX_FLAGS)
-    --build-dir=DIR             place build files in directory [build]
-    --bin-dir=DIR               executable directory [build/bin]
-    --lib-dir=DIR               library directory [build/lib]
-    --build-static              build as static and shared library
-    --build-static-only         build as static library only
-    --static-runtime            build with static C++ runtime
-    --no-compiler-check         disable compiler version check
-    --no-auto-libc++            do not automatically enable libc++ for Clang
+  $0 [--<variable>=<value>...]
 
-  Required packages in non-standard locations:
-    --with-caf=PATH             path to CAF install root or build directory
+General CMake options:
 
-  Installation Directories:
-    --prefix=PREFIX             installation directory [/usr/local]
+  --cmake=PATH              set a custom path to the CMake binary
+  --build-dir=PATH          set build directory [build]
+  --build-type=STRING       set build type of single-configuration generators
+  --generator=STRING        set CMake generator (see cmake --help)
+  --cxx-flags=STRING        set CMAKE_CXX_FLAGS when running CMake
+  --prefix=PATH             set installation directory
 
-  Debugging:
-    --with-sanitizers=LIST      build with this list of sanitizers enabled
+Locating packages in non-standard locations:
 
-  Convenience options:
-    --dev-mode                  sets --build-type=debug and 
-                                --sanitizers=address,undefined
+  --caf-root-dir=PATH       set root directory of a CAF installation
 
-  Influential Environment Variables (only on first invocation):
-    CXX                         C++ compiler command
-    CXXFLAGS                    C++ compiler flags (overrides defaults)
-    LDFLAGS                     Additional linker flags
-    CMAKE_GENERATOR     Selects a custom generator
+Debugging options:
 
-  Python Build Options:
-    --with-python-config=FILE   Use python-conf binary to determine includes and libs
+  --sanitizers=STRING     build with this list of sanitizers enabled
 
-  iOS Build Options (should be used with XCode generator):
-    --sysroot=DIR               set system root for Clang
-                                  - iphoneos: for iOS device
-                                  - iphonesimulator: for iOS simulator
-    --ios-min-ver=VERSION       set the ios deployment target version
+Convenience options:
+
+  --dev-mode                shortcut for passing:
+                              --build-type=Debug
+                              --sanitizers=address,undefined
+                              --enable-utility-targets
+
+Flags (use --enable-<name> to activate and --disable-<name> to deactivate):
+
+  shared-libs               build shared library targets [ON]
+  export-compile-commands   write JSON compile commands database [ON]
+  prefer-pthread-flag       prefer -pthread flag if available  [ON]
+  curl-examples             build examples with libcurl [OFF]
+  protobuf-examples         build examples with Google Protobuf [OFF]
+  qt5-examples              build examples with the Qt5 framework [OFF]
+  runtime-checks            build CAF with extra runtime assertions [OFF]
+  utility-targets           include targets like consistency-check [OFF]
+  standalone-build          Fetch and bulid required CAF modules [OFF]
+  testing                   build unit test suites [ON]
+  net-module                build networking module [ON]
+  bb-module                 build building blocks module [ON]
+
+Influential Environment Variables (only on first invocation):
+
+  CXX                       C++ compiler command
+  CXXFLAGS                  Additional C++ compiler flags
+  LDFLAGS                   Additional linker flags
+  CMAKE_GENERATOR           Selects a custom generator
 "
 
-
 # Appends a CMake cache entry definition to the CMakeCacheEntries variable.
-#   $1 is the cache entry variable name
-#   $2 is the cache entry variable type
-#   $3 is the cache entry variable value
-append_cache_entry ()
-{
-    case "$3" in
-        *\ * )
-            # string contains whitespace
-            CMakeCacheEntries="$CMakeCacheEntries -D \"$1:$2=$3\""
-            ;;
-        *)
-            # string contains whitespace
-            CMakeCacheEntries="$CMakeCacheEntries -D $1:$2=$3"
-            ;;
-    esac
+#   $1: variable name
+#   $2: CMake type
+#   $3: value
+append_cache_entry() {
+  case "$3" in
+    *\ * )
+      # string contains whitespace
+      CMakeCacheEntries="$CMakeCacheEntries -D \"$1:$2=$3\""
+      ;;
+    *)
+      # string contains no whitespace
+      CMakeCacheEntries="$CMakeCacheEntries -D $1:$2=$3"
+      ;;
+  esac
 }
 
-# -- set defaults --------------------------------------------------------------
+# Appends a BOOL cache entry to the CMakeCacheEntries variable.
+#   $1: flag name
+#   $2: value (ON or OFF)
+set_build_flag() {
+  FlagName=''
+  case "$1" in
+    shared-libs)             FlagName='BUILD_SHARED_LIBS' ;;
+    export-compile-commands) FlagName='CMAKE_EXPORT_COMPILE_COMMANDS' ;;
+    prefer-pthread-flag)     FlagName='THREADS_PREFER_PTHREAD_FLAG' ;;
+    utility-targets)         FlagName='CAF_INC_ENABLE_UTILITY_TARGETS' ;;
+    standalone-build)        FlagName='CAF_INC_ENABLE_STANDALONE_BUILD' ;;
+    testing)                 FlagName='CAF_INC_ENABLE_TESTING' ;;
+    net-module)              FlagName='CAF_INC_ENABLE_NET_MODULE' ;;
+    bb-module)               FlagName='CAF_INC_ENABLE_BB_MODULE' ;;
+    *)
+      echo "Invalid flag '$1'.  Try $0 --help to see available options."
+      exit 1
+      ;;
+  esac
+  append_cache_entry $FlagName BOOL $2
+}
 
-builddir="$sourcedir/build"
-
+# Set defaults.
+CMakeBuildDir="$SourceDir/build"
 CMakeCacheEntries=""
 
-append_cache_entry CMAKE_INSTALL_PREFIX PATH /usr/local
-
-# -- parse custom environment variables ----------------------------------------
-
-if [ -n "$CMAKE_GENERATOR" ]; then
-  CMakeGenerator="$CMAKE_GENERATOR"
-fi
-
-# -- parse arguments -----------------------------------------------------------
-
+# Parse user input.
 while [ $# -ne 0 ]; do
-    case "$1" in
-        -*=*) optarg=`echo "$1" | sed 's/[-_a-zA-Z0-9]*=//'` ;;
-        *) optarg= ;;
-    esac
-
-    case "$1" in
-        --help|-h)
-            echo "${usage}" 1>&2
-            exit 1
-            ;;
-        --cmake=*)
-            CMakeCommand="$optarg"
-            ;;
-        --generator=*)
-            CMakeGenerator="$optarg"
-            ;;
-        --prefix=*)
-            append_cache_entry CMAKE_INSTALL_PREFIX PATH "$optarg"
-            ;;
-        --with-sanitizers=*)
-            append_cache_entry CAF_SANITIZERS STRING "$optarg"
-            ;;
-        --no-compiler-check)
-            append_cache_entry CAF_NO_COMPILER_CHECK BOOL yes
-            ;;
-        --no-auto-libc++)
-            append_cache_entry CAF_NO_AUTO_LIBCPP BOOL yes
-            ;;
-        --with-caf=*)
-            append_cache_entry CAF_ROOT_DIR PATH "$optarg"
-            ;;
-        --sysroot=*)
-            append_cache_entry CAF_OSX_SYSROOT PATH "$optarg"
-            ;;
-        --ios-min-ver=*)
-            append_cache_entry CMAKE_OSX_ARCHITECTURES STRING "\$(ARCHS_STANDARD_32_64_BIT)"
-            append_cache_entry CAF_IOS_DEPLOYMENT_TARGET STRING "$optarg"
-            ;;
-        --build-type=*)
-            append_cache_entry CMAKE_BUILD_TYPE STRING "$optarg"
-            ;;
-        --extra-flags=*)
-            append_cache_entry CMAKE_CXX_FLAGS STRING "$optarg"
-            ;;
-        --build-dir=*)
-            builddir="$optarg"
-            ;;
-        --bin-dir=*)
-            append_cache_entry EXECUTABLE_OUTPUT_PATH PATH "$optarg"
-            ;;
-        --lib-dir=*)
-            append_cache_entry LIBRARY_OUTPUT_PATH PATH "$optarg"
-            ;;
-        --no-curl-examples)
-            append_cache_entry CAF_NO_CURL_EXAMPLES BOOL yes
-            ;;
-        --no-unit-tests)
-            append_cache_entry CAF_NO_UNIT_TESTS BOOL yes
-            ;;
-        --no-openssl)
-            append_cache_entry CAF_NO_OPENSSL BOOL yes
-            ;;
-        --build-static)
-            append_cache_entry CAF_BUILD_STATIC BOOL yes
-            ;;
-        --build-static-only)
-            append_cache_entry CAF_BUILD_STATIC_ONLY BOOL yes
-            ;;
-        --static-runtime)
-            append_cache_entry CAF_BUILD_STATIC_RUNTIME BOOL yes
-            ;;
-        --dev-mode)
-            append_cache_entry CMAKE_BUILD_TYPE STRING Debug
-            append_cache_entry CAF_SANITIZERS STRING address,undefined
-            ;;
-        *)
-            echo "Invalid option '$1'.  Try $0 --help to see available options."
-            exit 1
-            ;;
-    esac
-    shift
+  # Fetch the option argument.
+  case "$1" in
+    --*=*) optarg=`echo "$1" | sed 's/[-_a-zA-Z0-9]*=//'` ;;
+    --enable-*) optarg=`echo "$1" | sed 's/--enable-//'` ;;
+    --disable-*) optarg=`echo "$1" | sed 's/--disable-//'` ;;
+    *) ;;
+  esac
+  # Consume current input.
+  case "$1" in
+    --help|-h)
+      echo "${usage}" 1>&2
+      exit 1
+      ;;
+    --cmake=*)
+      CMakeCommand="$optarg"
+      ;;
+    --build-dir=*)
+      CMakeBuildDir="$optarg"
+      ;;
+    --generator=*)
+      CMakeGenerator="$optarg"
+      ;;
+    --build-type=*)
+      CMakeBuildType="$optarg"
+      ;;
+    --cxx-flags=*)
+      append_cache_entry CMAKE_CXX_FLAGS STRING "$optarg"
+      ;;
+    --prefix=*)
+      append_cache_entry CMAKE_INSTALL_PREFIX PATH "$optarg"
+      ;;
+    --sanitizers=*)
+      append_cache_entry CAF_INC_SANITIZERS STRING "$optarg"
+      ;;
+    --dev-mode)
+      CMakeBuildType='Debug'
+      append_cache_entry CAF_INC_SANITIZERS STRING 'address,undefined'
+      set_build_flag utility-targets ON
+      ;;
+   --enable-*)
+      set_build_flag $optarg ON
+      ;;
+    --disable-*)
+      set_build_flag $optarg OFF
+      ;;
+    --caf-root-dir=*)
+      append_cache_entry CAF_ROOT_DIR PATH "$optarg"
+      ;;
+    *)
+      echo "Invalid option '$1'. Try $0 --help to see available options."
+      exit 1
+      ;;
+  esac
+  # Get next input.
+  shift
 done
-
-# -- CMake setup ---------------------------------------------------------------
 
 # Check for `cmake` command.
 if [ -z "$CMakeCommand" ]; then
-    # prefer cmake3 over "regular" cmake (cmake == cmake2 on RHEL)
-    if command -v cmake3 >/dev/null 2>&1 ; then
-        CMakeCommand="cmake3"
-    elif command -v cmake >/dev/null 2>&1 ; then
-        CMakeCommand="cmake"
-    else
-        echo "This package requires CMake, please install it first."
-        echo "Then you may use this script to configure the CMake build."
-        echo "Note: pass --cmake=PATH to use cmake in non-standard locations."
-        exit 1;
-    fi
+  # Prefer cmake3 over "regular" cmake (cmake == cmake2 on RHEL).
+  if command -v cmake3 >/dev/null 2>&1 ; then
+    CMakeCommand="cmake3"
+  elif command -v cmake >/dev/null 2>&1 ; then
+    CMakeCommand="cmake"
+  else
+    echo "This package requires CMake, please install it first."
+    echo "Then you may use this script to configure the CMake build."
+    echo "Note: pass --cmake=PATH to use cmake in non-standard locations."
+    exit 1
+  fi
 fi
 
-CMakeDefaultCache=$CMakeCacheEntries
-
-CMakeCacheEntries=$CMakeDefaultCache
-
-# Set $workdir to the absolute path of $builddir.
-case "$builddir" in
-    /*)
-        # Absolute path given
-        workdir="$builddir"
-        ;;
-    *)
-        # Relative path given, convert to absolute path.
-        workdir="$PWD/$builddir"
-        ;;
+# Make sure the build directory is an absolute path.
+case "$CMakeBuildDir" in
+  /*)
+    CMakeAbsoluteBuildDir="$CMakeBuildDir"
+    ;;
+  *)
+    CMakeAbsoluteBuildDir="$PWD/$CMakeBuildDir"
+    ;;
 esac
 
-# Make sure the build directory exists but has no CMakeCache.txt in it.
-if [ -d "$workdir" ]; then
-    if [ -f "$workdir/CMakeCache.txt" ]; then
-        rm -f "$workdir/CMakeCache.txt"
-    fi
+# If a build directory exists, delete any existing cache to have a clean build.
+if [ -d "$CMakeAbsoluteBuildDir" ]; then
+  if [ -f "$CMakeAbsoluteBuildDir/CMakeCache.txt" ]; then
+    rm -f "$CMakeAbsoluteBuildDir/CMakeCache.txt"
+  fi
 else
-    mkdir -p "$workdir"
+  mkdir -p "$CMakeAbsoluteBuildDir"
 fi
 
-cd "$workdir"
-
+# Run CMake.
+cd "$CMakeAbsoluteBuildDir"
 if [ -n "$CMakeGenerator" ]; then
-    "$CMakeCommand" -G "$CMakeGenerator" $CMakeCacheEntries "$sourcedir"
+  "$CMakeCommand" -G "$CMakeGenerator" $CMakeCacheEntries "$SourceDir"
 else
-    "$CMakeCommand" $CMakeCacheEntries "$sourcedir"
+  "$CMakeCommand" $CMakeCacheEntries "$SourceDir"
 fi
 
+# Generate a config.status file that allows re-running a clean build.
 printf "#!/bin/sh\n\n" > config.status
 printf "# Switch to the source of this build directory.\n" >> config.status
-printf "cd \"$sourcedir\"\n\n" >> config.status
+printf "cd \"%s\"\n\n" "$CMakeAbsoluteBuildDir" >> config.status
 printf "# Invoke the command to configure this build.\n" >> config.status
-if [ -n "$CC" ]; then
-  printf "CC=\"%s\"\n" "$CC" >> config.status
-fi
 if [ -n "$CXX" ]; then
   printf "CXX=\"%s\"\n" "$CXX" >> config.status
 fi
@@ -241,5 +218,5 @@ fi
 if [ -n "$LDFLAGS" ]; then
   printf "LDFLAGS=\"%s\"\n" "$LDFLAGS" >> config.status
 fi
-echo $command >> config.status
+echo $Command >> config.status
 chmod u+x config.status

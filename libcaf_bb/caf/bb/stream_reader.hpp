@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "caf/attach_stream_source.hpp"
 #include "caf/behavior.hpp"
 #include "caf/event_based_actor.hpp"
 #include "caf/stateful_actor.hpp"
@@ -77,8 +78,8 @@ void stream_reader(stream_source_type<InputStream>* self,
   if (self->state.at_end())
     return;
   // Spin up stream manager and connect the first sink.
-  auto src = self->make_source(
-    std::move(sink),
+  auto src = attach_stream_source(
+    self, std::move(sink),
     [&](Policy&) {
       // nop
     },

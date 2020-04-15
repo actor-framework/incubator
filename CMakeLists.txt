@@ -1,377 +1,205 @@
-# -- project setup -------------------------------------------------------------
+cmake_minimum_required(VERSION 3.13.5 FATAL_ERROR)
+project(CAF_INC CXX)
 
-cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
-project(caf_incubator CXX)
-
-# -- project options -----------------------------------------------------------
-
-option(BUILD_SHARED_LIBS "Build all modules as shared library" ON)
+set(CMAKE_CXX_STANDARD 17)
 
 # -- includes ------------------------------------------------------------------
 
 include(CMakePackageConfigHelpers) # For creating .cmake files
 include(CheckCXXSourceCompiles)    # Check wether compiler works
+include(FetchContent)              # For bundling CAF with the incubator
 include(GNUInstallDirs)            # Sets default install paths
 include(GenerateExportHeader)      # Auto-generates dllexport macros
+
+# -- general options -----------------------------------------------------------
+
+option(BUILD_SHARED_LIBS "Build shared library targets" ON)
+option(CMAKE_EXPORT_COMPILE_COMMANDS "Write JSON compile commands database" ON)
+
+# -- incubator options that are off by default ---------------------------------
+
+option(CAF_INC_ENABLE_UTILITY_TARGETS
+       "Include targets like consistency-check" OFF)
+option(CAF_INC_ENABLE_STANDALONE_BUILD
+       "Fetch and bulid required CAF modules" OFF)
+
+# -- incubator options that are on by default ----------------------------------
+
+option(CAF_INC_ENABLE_TESTING "Build unit test suites" ON)
+option(CAF_INC_ENABLE_NET_MODULE "Build networking module" ON)
+option(CAF_INC_ENABLE_BB_MODULE "Build building blocks module" ON)
+
+# -- incubator options with non-boolean values ---------------------------------
+
+set(CAF_INC_SANITIZERS "" CACHE STRING
+    "Comma separated sanitizers, e.g., 'address,undefined'")
+
+# -- macOS-specific options ----------------------------------------------------
+
+if(APPLE)
+  option(CMAKE_MACOSX_RPATH "Use rpaths on macOS and iOS" ON)
+endif()
 
 # -- project-specific CMake settings -------------------------------------------
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-# -- check whether we are running as CMake subdirectory ------------------------
+# -- get dependencies ----------------------------------------------------------
 
-get_directory_property(_parent PARENT_DIRECTORY)
-if(_parent)
-  set(caf_is_subproject ON)
+if(CAF_INC_ENABLE_STANDALONE_BUILD)
+  FetchContent_Declare(
+    actor_framework
+    GIT_REPOSITORY https://github.com/actor-framework/actor-framework.git
+    GIT_TAG        b3c59ff
+  )
+  FetchContent_Populate(actor_framework)
+  set(CAF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(CAF_ENABLE_IO_MODULE OFF CACHE BOOL "" FORCE)
+  set(CAF_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+  set(CAF_ENABLE_TOOLS OFF CACHE BOOL "" FORCE)
+  set(CAF_ENABLE_OPENSSL_MODULE OFF CACHE BOOL "" FORCE)
+  set(CAF_SANITIZERS "${CAF_INC_SANITIZERS}" CACHE STRING "" FORCE)
+  add_subdirectory(${actor_framework_SOURCE_DIR} ${actor_framework_BINARY_DIR})
 else()
-  set(caf_is_subproject OFF)
-endif()
-unset(_parent)
-
-# enable tests if not disabled
-if(NOT CAF_NO_UNIT_TESTS)
-  enable_testing()
-  function(add_test_suites executable dir)
-    # enumerate all test suites.
-    set(suites "")
-    foreach(cpp_file ${ARGN})
-      file(STRINGS "${dir}/${cpp_file}" contents)
-      foreach(line ${contents})
-        if ("${line}" MATCHES "SUITE (.+)")
-          string(REGEX REPLACE ".*SUITE (.+)" "\\1" suite ${line})
-          list(APPEND suites "${suite}")
-        endif()
-      endforeach()
-    endforeach()
-    list(REMOVE_DUPLICATES suites)
-    list(LENGTH suites num_suites)
-    message(STATUS "Found ${num_suites} test suite for ${executable}")
-    # creates one CMake test per test suite.
-    macro (make_test suite)
-      string(REPLACE " " "_" test_name ${suite})
-      add_test(NAME ${test_name} COMMAND ${executable} -r300 -n -v5 -s"^${suite}$")
-    endmacro ()
-    list(LENGTH suites num_suites)
-    foreach(suite ${suites})
-      make_test("${suite}")
-    endforeach ()
-  endfunction()
+  find_package(CAF COMPONENTS core test REQUIRED)
 endif()
 
-# -- make sure we have at least C++17 available --------------------------------
+# -- base target to propagate dependencies and flags ---------------------------
 
-if(NOT CMAKE_CROSSCOMPILING)
-  # Check whether the user already provided flags that enable C++ >= 17.
-  try_compile(caf_has_cxx_17
-              "${CMAKE_CURRENT_BINARY_DIR}"
-              "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-compiler-features.cpp")
-  # Try enabling C++17 mode if user-provided flags aren't sufficient.
-  if(NOT caf_has_cxx_17)
-    if(MSVC)
-      set(cxx_flag "/std:c++17")
-    else()
-      if(CMAKE_CXX_COMPILER_ID MATCHES "Clang"
-         AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5)
-        set(cxx_flag "-std=c++1z")
-      else()
-        set(cxx_flag "-std=c++17")
-      endif()
-    endif()
-    # Re-run compiler check.
-    try_compile(caf_has_cxx_17
-                "${CMAKE_CURRENT_BINARY_DIR}"
-                "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-compiler-features.cpp"
-                COMPILE_DEFINITIONS "${cxx_flag}"
-                OUTPUT_VARIABLE cxx_check_output)
-    if(NOT caf_has_cxx_17)
-      MESSAGE(FATAL_ERROR "\nFatal error: unable activate C++17 mode!\
-                           \nPlease see README.md for supported compilers.\
-                           \n\ntry_compile output:\n${cxx_check_output}")
-    endif()
-    add_compile_options("${cxx_flag}")
+add_library(caf-incubator-project INTERFACE)
+
+# -- compiler setup ------------------------------------------------------------
+
+if(MSVC)
+  # Disable 4275 and 4251 (warnings regarding C++ classes at ABI boundaries).
+  target_compile_options(caf-incubator-project INTERFACE /wd4275 /wd4251)
+  if(CAF_INC_SANITIZERS)
+    message(FATAL_ERROR "Sanitizer builds are currently not supported on MSVC")
+  endif()
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang"
+       OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+  # Flags for both compilers.
+  target_compile_options(caf-incubator-project INTERFACE
+                         -ftemplate-depth=512 -ftemplate-backtrace-limit=0
+                         -Wall -Wextra -pedantic)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # Flags for Clang only.
+    target_compile_options(caf-incubator-project INTERFACE -Wdocumentation)
+  else()
+    # Flags for GCC only.
+    target_compile_options(caf-incubator-project INTERFACE
+                           -Wno-missing-field-initializers)
   endif()
 endif()
 
-set(CMAKE_INSTALL_CMAKEBASEDIR "${CMAKE_INSTALL_LIBDIR}/cmake" CACHE PATH
-    "Base directory for installing cmake specific artifacts")
-set(INSTALL_CAF_CMAKEDIR "${CMAKE_INSTALL_CMAKEBASEDIR}/caf")
+if(CAF_INC_SANITIZERS)
+  target_compile_options(caf-incubator-project INTERFACE
+                         -fsanitize=${CAF_INC_SANITIZERS}
+                         -fno-omit-frame-pointer)
+  target_link_libraries(caf-incubator-project INTERFACE
+                        -fsanitize=${CAF_INC_SANITIZERS}
+                        -fno-omit-frame-pointer)
+endif()
+
+if(NOT TARGET Threads::Threads)
+  find_package(Threads REQUIRED)
+endif()
+
+target_link_libraries(caf-incubator-project INTERFACE Threads::Threads)
+
+# -- unit testing setup / caf_add_test_suites function  ------------------------
+
+if(CAF_INC_ENABLE_TESTING)
+  enable_testing()
+  function(caf_incubator_add_test_suites target)
+    foreach(suiteName ${ARGN})
+      string(REPLACE "." "/" suitePath ${suiteName})
+      target_sources(${target} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/test/${suitePath}.cpp")
+      add_test(NAME ${suiteName}
+               COMMAND ${target} -r300 -n -v5 -s"^${suiteName}$")
+    endforeach()
+  endfunction()
+endif()
+
+# -- set default visibility to hidden when building shared libs ----------------
 
 if(BUILD_SHARED_LIBS)
-  set(LINK_TYPE "shared")
   set(CMAKE_CXX_VISIBILITY_PRESET hidden)
   set(CMAKE_VISIBILITY_INLINES_HIDDEN yes)
   if(POLICY CMP0063)
     cmake_policy(SET CMP0063 NEW)
   endif()
+endif()
+
+# -- utility targets -----------------------------------------------------------
+
+if(CAF_INC_ENABLE_UTILITY_TARGETS)
+  add_executable(caf-generate-enum-strings
+                 EXCLUDE_FROM_ALL
+                 cmake/caf-generate-enum-strings.cpp)
+  add_custom_target(consistency-check)
+  add_custom_target(update-enum-strings)
+  # adds a consistency check that verifies that `cpp_file` is still valid by
+  # re-generating the file and comparing it to the existing file
+  function(caf_incubator_add_enum_consistency_check hpp_file cpp_file)
+    set(input "${CMAKE_CURRENT_SOURCE_DIR}/${hpp_file}")
+    set(file_under_test "${CMAKE_CURRENT_SOURCE_DIR}/${cpp_file}")
+    set(output "${CMAKE_CURRENT_BINARY_DIR}/check/${cpp_file}")
+    get_filename_component(output_dir "${output}" DIRECTORY)
+    file(MAKE_DIRECTORY "${output_dir}")
+    add_custom_command(OUTPUT "${output}"
+                       COMMAND caf-generate-enum-strings "${input}" "${output}"
+                       DEPENDS caf-generate-enum-strings "${input}")
+    get_filename_component(target_name "${input}" NAME_WE)
+    add_custom_target("${target_name}"
+                      COMMAND
+                        "${CMAKE_COMMAND}"
+                        "-Dfile_under_test=${file_under_test}"
+                        "-Dgenerated_file=${output}"
+                        -P "${PROJECT_SOURCE_DIR}/cmake/check-consistency.cmake"
+                      DEPENDS "${output}")
+    add_dependencies(consistency-check "${target_name}")
+    add_custom_target("${target_name}-update"
+                      COMMAND
+                        caf-generate-enum-strings
+                        "${input}"
+                        "${file_under_test}"
+                       DEPENDS caf-generate-enum-strings "${input}")
+    add_dependencies(update-enum-strings "${target_name}-update")
+  endfunction()
 else()
-  set(CAF_STATIC_BUILD yes)
-  set(LINK_TYPE "static")
+  function(caf_incubator_add_enum_consistency_check hpp_file cpp_file)
+    # nop
+  endfunction()
 endif()
 
-# Be nice to VIM users and Clang tools.
-set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
-
-# Silence policy CMP0042 warning by enabling RPATH explicitly.
-if(APPLE AND NOT DEFINED CMAKE_MACOSX_RPATH)
-  set(CMAKE_MACOSX_RPATH true)
-endif()
-
-# -- helper targets ------------------------------------------------------------
-
-# Simplifies re-running configuration setup.
-add_custom_target(configure COMMAND ${CMAKE_CURRENT_BINARY_DIR}/config.status)
-
-# -- check for static builds ---------------------------------------------------
-
-if(CAF_BUILD_STATIC_RUNTIME)
-    set(flags_configs
-        CMAKE_CXX_FLAGS
-        CMAKE_CXX_FLAGS_DEBUG
-        CMAKE_CXX_FLAGS_RELEASE
-        CMAKE_CXX_FLAGS_RELWITHDEBINFO
-        CMAKE_CXX_FLAGS_MINSIZEREL
-        CMAKE_C_FLAGS
-        CMAKE_C_FLAGS_DEBUG
-        CMAKE_C_FLAGS_RELEASE
-        CMAKE_C_FLAGS_RELWITHDEBINFO
-        CMAKE_C_FLAGS_MINSIZEREL
-        )
-  foreach(flags ${flags_configs})
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-      if(NOT ${flags} MATCHES "-static-libstdc\\+\\+")
-        set(${flags} "${${flags}} -static-libstdc++")
-      endif()
-      if(NOT ${flags} MATCHES "-static-libgcc")
-        set(${flags} "${${flags}} -static-libgcc")
-      endif()
-    elseif(MSVC)
-      if(${flags} MATCHES "/MD")
-        string(REGEX REPLACE "/MD" "/MT" ${flags} "${${flags}}")
-      endif()
-    endif()
-  endforeach()
-else()
-  set(CAF_BUILD_STATIC_RUNTIME no)
-endif()
-
-# Silence annoying MSVC warning.
-if(MSVC)
-  add_compile_options(/wd4275 /wd4251)
-endif()
-
-################################################################################
-#                              utility functions                               #
-################################################################################
-
-# Forces `var` to 'no' if the content of the variables evaluates to false.
-function(pretty_no var)
-  if(NOT "${${var}}")
-    set("${var}" no PARENT_SCOPE)
-  endif()
-endfunction(pretty_no)
-
-# Forces `var` to 'yes' if the content of the variables evaluates to false.
-function(pretty_yes var)
-  if("${${var}}")
-    set("${var}" yes PARENT_SCOPE)
-  endif()
-endfunction(pretty_yes)
-
-add_executable(caf-generate-enum-strings
-               EXCLUDE_FROM_ALL
-               cmake/caf-generate-enum-strings.cpp)
-
-add_custom_target(consistency-check)
-
-add_custom_target(update-enum-strings)
-
-# adds a consistency check that verifies that `cpp_file` is still valid by
-# re-generating the file and comparing it to the existing file
-function(add_enum_consistency_check hpp_file cpp_file)
-  set(input "${CMAKE_CURRENT_SOURCE_DIR}/${hpp_file}")
-  set(file_under_test "${CMAKE_CURRENT_SOURCE_DIR}/${cpp_file}")
-  set(output "${CMAKE_CURRENT_BINARY_DIR}/check/${cpp_file}")
-  get_filename_component(output_dir "${output}" DIRECTORY)
-  file(MAKE_DIRECTORY "${output_dir}")
-  add_custom_command(OUTPUT "${output}"
-                     COMMAND caf-generate-enum-strings "${input}" "${output}"
-                     DEPENDS caf-generate-enum-strings "${input}")
-  get_filename_component(target_name "${input}" NAME_WE)
-  add_custom_target("${target_name}"
-                    COMMAND
-                      "${CMAKE_COMMAND}"
-                      "-Dfile_under_test=${file_under_test}"
-                      "-Dgenerated_file=${output}"
-                      -P "${PROJECT_SOURCE_DIR}/cmake/check-consistency.cmake"
-                    DEPENDS "${output}")
-  add_dependencies(consistency-check "${target_name}")
-  add_custom_target("${target_name}-update"
-                    COMMAND
-                      caf-generate-enum-strings
-                      "${input}"
-                      "${file_under_test}"
-                     DEPENDS caf-generate-enum-strings "${input}")
-  add_dependencies(update-enum-strings "${target_name}-update")
-endfunction()
-
-# -- binary and library path setup ---------------------------------------------
-
-# Prohibit in-source builds.
-if(CMAKE_CURRENT_SOURCE_DIR STREQUAL "${CMAKE_CURRENT_BINARY_DIR}")
-    message(FATAL_ERROR "In-source builds are not allowed. Please use "
-                        "./configure to choose a build directory and "
-                        "initialize the build configuration.")
-endif()
-
-# -- get dependencies ----------------------------------------------------------
-
-find_package(CAF COMPONENTS core io test)
-
-# -- fetch CAF version ---------------------------------------------------------
-
-# read content of config.hpp
-file(READ "${CAF_INCLUDE_DIR_CORE}/caf/config.hpp" CONFIG_HPP)
-# get line containing the version
-string(REGEX MATCH "#define CAF_VERSION [0-9]+" VERSION_LINE "${CONFIG_HPP}")
-# extract version number from line
-string(REGEX MATCH "[0-9]+" VERSION_INT "${VERSION_LINE}")
-# calculate major, minor, and patch version
-math(EXPR CAF_VERSION_MAJOR "${VERSION_INT} / 10000")
-math(EXPR CAF_VERSION_MINOR "( ${VERSION_INT} / 100) % 100")
-math(EXPR CAF_VERSION_PATCH "${VERSION_INT} % 100")
-# create full version string
-set(CAF_VERSION
-    "${CAF_VERSION_MAJOR}.${CAF_VERSION_MINOR}.${CAF_VERSION_PATCH}")
-# set the library version for our shared library targets
-if(CMAKE_HOST_SYSTEM_NAME MATCHES "OpenBSD")
-  set(CAF_LIB_VERSION "${CAF_VERSION_MAJOR}.${CAF_VERSION_MINOR}")
-else()
-  set(CAF_LIB_VERSION "${CAF_VERSION}")
-endif()
-
-# -- compiler setup ------------------------------------------------------------
-
-# Enable ASAN if requested by the user.
-if(CAF_SANITIZERS)
-  add_compile_options("-fsanitize=${CAF_SANITIZERS}"
-                      "-fno-omit-frame-pointer")
-  list(APPEND CAF_EXTRA_LDFLAGS "-fsanitize=${CAF_SANITIZERS}")
-endif()
-
-# -pthread is ignored on MacOSX but required on other platforms
-if(NOT APPLE AND NOT WIN32)
-  add_compile_options(-pthread)
-  list(APPEND CAF_EXTRA_LDFLAGS "-pthread")
-endif()
-
-# -fPIC generates warnings on MinGW and Cygwin plus extra setup steps needed on MinGW
-if(MINGW)
-  add_definitions(-D_WIN32_WINNT=0x0600 -DWIN32)
-  list(APPEND CAF_EXTRA_LDFLAGS -lws2_32 -liphlpapi -lpsapi)
-  # build static to avoid runtime dependencies to GCC libraries
-  add_compile_options(-static)
-elseif(CYGWIN)
-  add_compile_options(-U__STRICT_ANSI__)
-endif()
-
-# Add Windows-specific linker flags.
-if (WIN32)
-  list(APPEND CAF_EXTRA_LDFLAGS ws2_32 iphlpapi)
-endif()
-
-# Support macOS/iOS-specific magic.
-if(CAF_OSX_SYSROOT)
-  set(CMAKE_OSX_SYSROOT "${CAF_OSX_SYSROOT}")
-endif()
-
-# Add iOS target if requested by user.
-if(CAF_IOS_DEPLOYMENT_TARGET)
-  if(CAF_OSX_SYSROOT STREQUAL "iphonesimulator")
-    add_compile_options("-mios-simulator-version-min=${CAF_IOS_DEPLOYMENT_TARGET}")
-  else()
-    add_compile_options("-miphoneos-version-min=${CAF_IOS_DEPLOYMENT_TARGET}")
-  endif()
-endif()
-
-# -- install targets -----------------------------------------------------------
+# -- provide an uinstall target ------------------------------------------------
 
 # Process cmake_uninstall.cmake.in.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
                "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
                IMMEDIATE @ONLY)
 
-# Add uninstall target.
-add_custom_target(uninstall
-                  COMMAND "${CMAKE_COMMAND}" -P
-                  "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake")
+# Add uninstall target if it does not exist yet.
+if(NOT TARGET uninstall)
+  add_custom_target(uninstall)
+endif()
 
-# -- set include paths for all subprojects -------------------------------------
+add_custom_target(caf-incubator-uninstall)
+add_custom_command(TARGET caf-incubator-uninstall
+                   PRE_BUILD
+                   COMMAND "${CMAKE_COMMAND}" -P
+                   "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake")
 
-include_directories("${CMAKE_BINARY_DIR}"
-                    "${CMAKE_CURRENT_SOURCE_DIR}/libcaf_net"
-                    "${CAF_INCLUDE_DIRS}")
+add_dependencies(uninstall caf-incubator-uninstall)
 
-################################################################################
-#                                 add targets                                  #
-################################################################################
+# -- build all components the user asked for -----------------------------------
 
-add_subdirectory(libcaf_net)
-add_subdirectory(libcaf_bb)
+if(CAF_INC_ENABLE_NET_MODULE)
+  add_subdirectory(libcaf_net)
+endif()
 
-export(EXPORT CAFTargets FILE CAFTargets.cmake NAMESPACE caf::)
-
-install(EXPORT CAFTargets
-        DESTINATION "${INSTALL_CAF_CMAKEDIR}"
-        NAMESPACE caf::)
-
-write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/CAFConfigVersion.cmake"
-  VERSION ${CAF_VERSION}
-  COMPATIBILITY ExactVersion)
-
-configure_package_config_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CAFConfig.cmake.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/CAFConfig.cmake" INSTALL_DESTINATION
-  "${INSTALL_CAF_CMAKEDIR}")
-
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/CAFConfig.cmake"
-  "${CMAKE_CURRENT_BINARY_DIR}/CAFConfigVersion.cmake"
-  DESTINATION "${INSTALL_CAF_CMAKEDIR}")
-
-# -- print summary -------------------------------------------------------------
-
-# Inverts a boolean.
-macro(invertYesNo in out)
-  if(${in})
-    set(${out} no)
-  else()
-    set(${out} yes)
-  endif()
-endmacro()
-
-# Invert CAF_NO_* variables for nicer output.
-invertYesNo(CAF_NO_UNIT_TESTS CAF_BUILD_UNIT_TESTS)
-get_property(all_cxx_flags DIRECTORY PROPERTY COMPILE_OPTIONS)
-
-# Print summary.
-if(NOT CAF_NO_SUMMARY)
-  message(STATUS
-        "\n====================|  Build Summary  |===================="
-        "\n"
-        "\nBuild type:            ${CMAKE_BUILD_TYPE}"
-        "\nLink type:             ${LINK_TYPE}"
-        "\nBuild static runtime:  ${CAF_BUILD_STATIC_RUNTIME}"
-        "\n"
-        "\nCXX:                   ${CMAKE_CXX_COMPILER}"
-        "\nCXXFLAGS:              ${all_cxx_flags}"
-        "\nLINKER_FLAGS (shared): ${ALL_LD_FLAGS}"
-        "\n"
-        "\nSource directory:      ${CMAKE_CURRENT_SOURCE_DIR}"
-        "\nBuild directory:       ${CMAKE_CURRENT_BINARY_DIR}"
-        "\nExecutable path:       ${EXECUTABLE_OUTPUT_PATH}"
-        "\nLibrary path:          ${LIBRARY_OUTPUT_PATH}"
-        "\nInstall prefix:        ${CMAKE_INSTALL_PREFIX}"
-        "\nGenerator:             ${CMAKE_GENERATOR}"
-        "\n"
-        "\n===========================================================\n")
+if(CAF_INC_ENABLE_NET_MODULE)
+  add_subdirectory(libcaf_bb)
 endif()
