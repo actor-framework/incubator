@@ -133,8 +133,8 @@ pipeline {
                         buildDir: 'build',
                         installation: 'cmake in search path',
                         sourceDir: '.',
-                        cmakeArgs: '-DCAF_ENABLE_IO_MODULE:BOOL=OFF ' +
-                                   '-DCAF_ENABLE_UTILITY_TARGETS:BOOL=ON',
+                        cmakeArgs: '-DCAF_INC_ENABLE_STANDALONE_BUILD:BOOL=ON ' +
+                                   '-DCAF_INC_ENABLE_UTILITY_TARGETS:BOOL=ON',
                         steps: [[
                             args: '--target consistency-check',
                             withCmake: true,
