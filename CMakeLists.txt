@@ -64,48 +64,44 @@ else()
   find_package(CAF COMPONENTS core test REQUIRED)
 endif()
 
-# -- base target to propagate dependencies and flags ---------------------------
+# -- sanity checks -------------------------------------------------------------
 
-add_library(caf-incubator-project INTERFACE)
+if(MSVC AND CAF_INC_SANITIZERS)
+  message(FATAL_ERROR "Sanitizer builds are currently not supported on MSVC")
+endif()
 
 # -- compiler setup ------------------------------------------------------------
 
-if(MSVC)
-  # Disable 4275 and 4251 (warnings regarding C++ classes at ABI boundaries).
-  target_compile_options(caf-incubator-project INTERFACE /wd4275 /wd4251)
-  if(CAF_INC_SANITIZERS)
-    message(FATAL_ERROR "Sanitizer builds are currently not supported on MSVC")
-  endif()
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang"
-       OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-  # Flags for both compilers.
-  target_compile_options(caf-incubator-project INTERFACE
-                         -ftemplate-depth=512 -ftemplate-backtrace-limit=0
-                         -Wall -Wextra -pedantic)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    # Flags for Clang only.
-    target_compile_options(caf-incubator-project INTERFACE -Wdocumentation)
-  else()
-    # Flags for GCC only.
-    target_compile_options(caf-incubator-project INTERFACE
-                           -Wno-missing-field-initializers)
-  endif()
-endif()
-
-if(CAF_INC_SANITIZERS)
-  target_compile_options(caf-incubator-project INTERFACE
-                         -fsanitize=${CAF_INC_SANITIZERS}
-                         -fno-omit-frame-pointer)
-  target_link_libraries(caf-incubator-project INTERFACE
-                        -fsanitize=${CAF_INC_SANITIZERS}
-                        -fno-omit-frame-pointer)
-endif()
-
-if(NOT TARGET Threads::Threads)
-  find_package(Threads REQUIRED)
-endif()
-
-target_link_libraries(caf-incubator-project INTERFACE Threads::Threads)
+function(caf_incubator_set_default_properties)
+  foreach(target ${ARGN})
+    if(MSVC)
+      # Disable 4275 and 4251 (warnings regarding C++ classes at ABI boundaries).
+      target_compile_options(${target} PRIVATE /wd4275 /wd4251)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang"
+           OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+      # Flags for both compilers.
+      target_compile_options(${target} PRIVATE
+                             -ftemplate-depth=512 -ftemplate-backtrace-limit=0
+                             -Wall -Wextra -pedantic)
+      if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        # Flags for Clang only.
+        target_compile_options(${target} PRIVATE -Wdocumentation)
+      else()
+        # Flags for GCC only.
+        target_compile_options(${target} PRIVATE
+                               -Wno-missing-field-initializers)
+      endif()
+    endif()
+    if(CAF_INC_SANITIZERS)
+      target_compile_options(${target} PRIVATE
+                             -fsanitize=${CAF_INC_SANITIZERS}
+                             -fno-omit-frame-pointer)
+      target_link_libraries(${target} PRIVATE
+                            -fsanitize=${CAF_INC_SANITIZERS}
+                            -fno-omit-frame-pointer)
+    endif()
+  endforeach()
+endfunction()
 
 # -- unit testing setup / caf_add_test_suites function  ------------------------
 

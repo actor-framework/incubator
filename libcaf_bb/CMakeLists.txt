@@ -32,6 +32,8 @@ endif()
 
 add_executable(caf-bb-test test/bb-test.cpp)
 
+caf_incubator_set_default_properties(caf-bb-test)
+
 target_include_directories(caf-bb-test PRIVATE
                            "${CMAKE_CURRENT_SOURCE_DIR}"
                            "${CMAKE_CURRENT_SOURCE_DIR}/test")
