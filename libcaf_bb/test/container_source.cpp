@@ -20,19 +20,19 @@
 
 #include "caf/bb/container_source.hpp"
 
-#include "caf/bb/test/bb_test_type_ids.hpp"
-#include "caf/test/dsl.hpp"
+#include "bb-test.hpp"
 
 #include <vector>
 
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
+#include "caf/attach_stream_sink.hpp"
 
 using namespace caf;
 
 namespace {
 
-using container_type = std::vector<int>;
+using container_type = std::vector<int32_t>;
 
 TESTEE_SETUP();
 
@@ -41,21 +41,26 @@ TESTEE_STATE(container_sink) {
 };
 
 TESTEE(container_sink) {
-  return {[=](stream<container_type::value_type> in) {
-    return self->make_sink(
-      // input stream
-      in,
-      // initialize state
-      [=](unit_t&) {
-        // nop
-      },
-      // Consumer
-      [=](unit_t&, container_type::value_type val) {
-        self->state.con.emplace_back(std::move(val));
-      },
-      // cleanup and produce result message
-      [=](unit_t&, const error&) { CAF_MESSAGE(self->name() << " is done"); });
-  }};
+  return {
+    [=](stream<container_type::value_type> in) {
+      return attach_stream_sink(
+        self,
+        // input stream
+        in,
+        // initialize state
+        [=](unit_t&) {
+          // nop
+        },
+        // Consumer
+        [=](unit_t&, container_type::value_type val) {
+          self->state.con.emplace_back(std::move(val));
+        },
+        // cleanup and produce result message
+        [=](unit_t&, const error&) {
+          CAF_MESSAGE(self->name() << " is done");
+        });
+    },
+  };
 }
 
 TESTEE_STATE(container_monitor) {

@@ -19,10 +19,8 @@
 #define CAF_SUITE stream_reader
 
 #include "caf/bb/stream_reader.hpp"
-#include "caf/policy/tokenized_integer_reader.hpp"
 
-#include "caf/bb/test/bb_test_type_ids.hpp"
-#include "caf/test/dsl.hpp"
+#include "bb-test.hpp"
 
 #include <memory>
 #include <string>
@@ -30,6 +28,8 @@
 
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
+#include "caf/attach_stream_sink.hpp"
+#include "caf/policy/tokenized_integer_reader.hpp"
 
 using namespace caf;
 
@@ -45,27 +45,30 @@ TESTEE_STATE(stream_reader_sink) {
 };
 
 TESTEE(stream_reader_sink) {
-  return {[=](stream<value_type> in) {
-    return self->make_sink(
-      // input stream
-      in,
-      // initialize state
-      [=](unit_t&) {
-        // nop
-      },
-      // consume values
-      [=](unit_t&, value_type val) {
-        self->state.vec.emplace_back(std::move(val));
-      },
-      // cleanup and produce result message
-      [=](unit_t&, const error& e) {
-        if (e) {
-          CAF_MESSAGE(self->name() << " " << e);
-        } else {
-          CAF_MESSAGE(self->name() << " is done");
-        }
-      });
-  }};
+  return {
+    [=](stream<value_type> in) {
+      return attach_stream_sink(
+        self,
+        // input stream
+        in,
+        // initialize state
+        [=](unit_t&) {
+          // nop
+        },
+        // consume values
+        [=](unit_t&, value_type val) {
+          self->state.vec.emplace_back(std::move(val));
+        },
+        // cleanup and produce result message
+        [=](unit_t&, const error& e) {
+          if (e) {
+            CAF_MESSAGE(self->name() << " " << e);
+          } else {
+            CAF_MESSAGE(self->name() << " is done");
+          }
+        });
+    },
+  };
 }
 
 TESTEE_STATE(stream_monitor) {
