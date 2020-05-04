@@ -29,34 +29,13 @@ config = [
     // Our build matrix. Keys are the operating system labels and values are build configurations.
     buildMatrix: [
         // Various Linux builds for debug and release.
-        ['centos-6', [
-            numCores: 4,
-            tags: ['docker'],
-            builds: ['debug', 'release'],
-            extraDebugFlags: ['CAF_SANITIZERS:STRING=address,undefined'],
-        ]],
         ['centos-7', [
             numCores: 4,
             tags: ['docker'],
             builds: ['debug', 'release'],
             extraDebugFlags: ['CAF_SANITIZERS:STRING=address,undefined'],
         ]],
-        ['debian-9', [
-            numCores: 4,
-            tags: ['docker'],
-            builds: ['debug', 'release'],
-        ]],
-        ['debian-10', [
-            numCores: 4,
-            tags: ['docker'],
-            builds: ['debug', 'release'],
-        ]],
-        ['ubuntu-16.04', [
-            numCores: 4,
-            tags: ['docker'],
-            builds: ['debug', 'release'],
-        ]],
-        ['ubuntu-18.04', [
+        ['ubuntu-20.04', [
             numCores: 4,
             tags: ['docker'],
             builds: ['debug', 'release'],
