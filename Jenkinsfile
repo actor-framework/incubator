@@ -24,41 +24,85 @@ config = [
         'build',
         'style',
         'tests',
-        'coverage',
+        // 'coverage', TODO: fix kcov setup
     ],
     // Our build matrix. Keys are the operating system labels and values are build configurations.
     buildMatrix: [
         // Various Linux builds for debug and release.
-        ['centos-7', [
+        ['centos-6', [
+            numCores: 4,
+            tags: ['docker'],
             builds: ['debug', 'release'],
-            tools: ['gcc-7'],
+            extraDebugFlags: ['CAF_SANITIZERS:STRING=address,undefined'],
         ]],
-        // On Fedora 28, our debug build also produces the coverage report.
-        ['fedora-28', [
+        ['centos-7', [
+            numCores: 4,
+            tags: ['docker'],
+            builds: ['debug', 'release'],
+            extraDebugFlags: ['CAF_SANITIZERS:STRING=address,undefined'],
+        ]],
+        ['debian-9', [
+            numCores: 4,
+            tags: ['docker'],
+            builds: ['debug', 'release'],
+        ]],
+        ['debian-10', [
+            numCores: 4,
+            tags: ['docker'],
+            builds: ['debug', 'release'],
+        ]],
+        ['ubuntu-16.04', [
+            numCores: 4,
+            tags: ['docker'],
+            builds: ['debug', 'release'],
+        ]],
+        ['ubuntu-18.04', [
+            numCores: 4,
+            tags: ['docker'],
+            builds: ['debug', 'release'],
+        ]],
+        ['fedora-30', [
+            numCores: 4,
+            tags: ['docker'],
+            builds: ['debug', 'release'],
+        ]],
+        ['fedora-31', [
+            numCores: 4,
+            tags: ['docker'],
+            builds: ['debug', 'release'],
+        ]],
+        // One extra debug build with exceptions disabled.
+        ['centos-7', [
+            numCores: 4,
+            tags: ['docker'],
             builds: ['debug'],
-            tools: ['gcc-8'],
-            extraSteps: ['coverageReport'],
-            extraFlags: ['BUILD_SHARED_LIBS:BOOL=OFF'],
-        ]],
-        ['fedora-28', [
-            builds: ['release'],
-            tools: ['gcc-8'],
+            extraDebugFlags: [
+                'CAF_ENABLE_EXCEPTIONS:BOOL=OFF',
+                'CMAKE_CXX_FLAGS:STRING=-fno-exceptions',
+            ],
         ]],
         // Other UNIX systems.
         ['macOS', [
+            numCores: 4,
             builds: ['debug', 'release'],
-            tools: ['clang'],
+            extraFlags: [
+                'OPENSSL_ROOT_DIR=/usr/local/opt/openssl',
+                'OPENSSL_INCLUDE_DIR=/usr/local/opt/openssl/include',
+            ],
+            extraDebugFlags: ['CAF_SANITIZERS:STRING=address,undefined'],
         ]],
         ['FreeBSD', [
+            numCores: 4,
             builds: ['debug', 'release'],
-            tools: ['clang'],
+            extraDebugFlags: ['CAF_SANITIZERS:STRING=address,undefined'],
         ]],
         // Non-UNIX systems.
         ['Windows', [
+            numCores: 4,
             // TODO: debug build currently broken
             //builds: ['debug', 'release'],
             builds: ['release'],
-            tools: ['msvc'],
+            extraFlags: ['CAF_ENABLE_OPENSSL_MODULE:BOOL=OFF'],
         ]],
     ],
     // Platform-specific environment settings.
