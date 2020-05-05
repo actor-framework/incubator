@@ -1,9 +1,11 @@
 FROM ubuntu:20.04
 
-RUN apt update -y && \
-  apt upgrade -y
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt install -y \
+RUN apt-get update -y && \
+  apt-get upgrade -y
+
+RUN apt-get install -y \
   cmake \
   g++-9 \
   git \
