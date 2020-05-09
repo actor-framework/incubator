@@ -19,7 +19,6 @@
 #pragma once
 
 #include <string>
-#include <vector>
 
 #include "caf/attach_stream_source.hpp"
 #include "caf/behavior.hpp"
