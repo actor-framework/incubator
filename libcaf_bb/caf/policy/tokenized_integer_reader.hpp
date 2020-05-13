@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <limits>
 #include <string>
-#include <vector>
 
 #include "caf/behavior.hpp"
 #include "caf/event_based_actor.hpp"
