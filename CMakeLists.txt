@@ -50,7 +50,7 @@ if(CAF_INC_ENABLE_STANDALONE_BUILD)
   FetchContent_Declare(
     actor_framework
     GIT_REPOSITORY https://github.com/actor-framework/actor-framework.git
-    GIT_TAG        94e26b315
+    GIT_TAG        e3f7e64c8
   )
   FetchContent_Populate(actor_framework)
   set(CAF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
