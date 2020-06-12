@@ -20,11 +20,14 @@
 
 #include <unordered_map>
 
+#include "caf/ip_endpoint.hpp"
 #include "caf/logger.hpp"
 #include "caf/net/endpoint_manager_queue.hpp"
 #include "caf/net/fwd.hpp"
+#include "caf/net/ip.hpp"
 #include "caf/net/packet_writer_decorator.hpp"
 #include "caf/net/transport_worker.hpp"
+#include "caf/node_id.hpp"
 #include "caf/sec.hpp"
 #include "caf/send.hpp"
 
@@ -91,11 +94,16 @@ public:
 
   template <class Parent>
   void resolve(Parent& parent, const uri& locator, const actor& listener) {
-    if (auto worker = find_worker(make_node_id(locator)))
+    if (auto worker = find_worker(make_node_id(*locator.authority_only())))
       worker->resolve(parent, locator.path(), listener);
-    else
-      anon_send(listener,
-                make_error(sec::runtime_error, "could not resolve node"));
+    else {
+      if (auto ret = emplace(parent, locator)) {
+        auto& worker = *ret;
+        worker->resolve(parent, locator.path(), listener);
+      } else {
+        CAF_LOG_ERROR("emplace failed: " << ret.error());
+      }
+    }
   }
 
   template <class Parent>
@@ -132,8 +140,24 @@ public:
   }
 
   template <class Parent>
-  expected<worker_ptr> add_new_worker(Parent& parent, node_id node,
-                                      id_type id) {
+  expected<worker_ptr> emplace(Parent& parent, const uri& locator) {
+    auto& auth = locator.authority();
+    ip_address addr;
+    if (auto hostname = get_if<std::string>(&auth.host)) {
+      auto addrs = ip::resolve(*hostname);
+      if (addrs.empty())
+        return sec::cannot_connect_to_node;
+      addr = addrs.at(0);
+    } else {
+      addr = *get_if<ip_address>(&auth.host);
+    }
+    return add_new_worker(parent, make_node_id(*locator.authority_only()),
+                          ip_endpoint{addr, auth.port});
+  }
+
+  template <class Parent>
+  expected<worker_ptr>
+  add_new_worker(Parent& parent, node_id node, id_type id) {
     CAF_LOG_TRACE(CAF_ARG(node) << CAF_ARG(id));
     auto application = factory_.make();
     auto worker = std::make_shared<worker_type>(std::move(application), id);
@@ -141,7 +165,7 @@ public:
       return err;
     workers_by_id_.emplace(std::move(id), worker);
     workers_by_node_.emplace(std::move(node), worker);
-    return worker;
+    return std::move(worker);
   }
 
 private:
@@ -156,10 +180,8 @@ private:
   template <class Key>
   worker_ptr find_worker_impl(const std::unordered_map<Key, worker_ptr>& map,
                               const Key& key) {
-    if (map.count(key) == 0) {
-      CAF_LOG_DEBUG("could not find worker: " << CAF_ARG(key));
+    if (map.count(key) == 0)
       return nullptr;
-    }
     return map.at(key);
   }
 
