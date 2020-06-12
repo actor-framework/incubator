@@ -135,7 +135,7 @@ public:
   template <class Parent>
   void resolve(Parent& parent, string_view path, const actor& listener) {
     actor_id aid = 42;
-    auto uri = unbox(make_uri("test:/id/42"));
+    auto uri = unbox(make_uri("test://earth/id/42"));
     auto nid = make_node_id(uri);
     actor_config cfg;
     endpoint_manager_ptr ptr{&parent.manager()};
@@ -214,7 +214,7 @@ CAF_TEST(receive) {
 CAF_TEST(resolve and proxy communication) {
   using transport_type = datagram_transport<dummy_application_factory>;
   byte_buffer recv_buf(1024);
-  auto uri = unbox(make_uri("test:/id/42"));
+  auto uri = unbox(make_uri("test://earth/id/42"));
   auto mgr = make_endpoint_manager(
     mpx, sys,
     transport_type{send_socket, dummy_application_factory{shared_buf}});

@@ -55,9 +55,10 @@ error udp::init() {
   if (!sock)
     return sock.error();
   auto guard = make_socket_guard(sock->first);
-  nonblocking(guard.socket(), true);
+  if (auto err = nonblocking(guard.socket(), true))
+    return err;
   listening_port_ = sock->second;
-  CAF_LOG_INFO("udp socket spawned on " << CAF_ARG(listening_port));
+  CAF_LOG_INFO("udp socket spawned on " << CAF_ARG(listening_port_));
   auto& mpx = mm_.mpx();
   ep_manager_ = make_endpoint_manager(
     mpx, mm_.system(),
@@ -75,7 +76,7 @@ void udp::stop() {
   ep_manager_.reset();
 }
 
-expected<endpoint_manager_ptr> udp::connect(const uri& locator) {
+expected<endpoint_manager_ptr> udp::connect(const uri&) {
   return make_error(sec::runtime_error, "connect called on udp backend");
 }
 
