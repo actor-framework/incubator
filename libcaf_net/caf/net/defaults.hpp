@@ -36,4 +36,7 @@ CAF_NET_EXPORT extern const size_t max_header_buffers;
 /// Port to listen on for tcp.
 CAF_NET_EXPORT extern const uint16_t tcp_port;
 
+/// Port to listen on for udp.
+CAF_NET_EXPORT extern const uint16_t udp_port;
+
 } // namespace caf::defaults::middleman

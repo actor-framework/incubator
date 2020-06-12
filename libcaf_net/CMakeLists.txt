@@ -52,6 +52,7 @@ add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
   src/multiplexer.cpp
   src/net/backend/test.cpp
   src/net/backend/tcp.cpp
+  src/net/backend/udp.cpp
   src/net/endpoint_manager_queue.cpp
   src/net/middleman.cpp
   src/net/middleman_backend.cpp
@@ -149,4 +150,5 @@ caf_incubator_add_test_suites(caf-net-test
   udp_datagram_socket
   network_socket
   net.backend.tcp
+  net.backend.udp
 )

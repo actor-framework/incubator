@@ -163,6 +163,13 @@ public:
     }
   };
 
+  error emplace(const uri& locator) override {
+    if (auto ret = this->next_layer_.emplace(*this, locator))
+      return none;
+    else
+      return ret.error();
+  }
+
 private:
   // -- utility functions ------------------------------------------------------
 
