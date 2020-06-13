@@ -170,6 +170,10 @@ public:
       return ret.error();
   }
 
+  const transport_worker_dispatcher<Factory, ip_endpoint>& next_layer() {
+    return this->next_layer_;
+  }
+
 private:
   // -- utility functions ------------------------------------------------------
 
