@@ -28,6 +28,7 @@
 
 #include "caf/actor_system_config.hpp"
 #include "caf/ip_endpoint.hpp"
+#include "caf/net/ip.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_guard.hpp"
 #include "caf/uri.hpp"
@@ -46,13 +47,21 @@ behavior dummy_actor(event_based_actor*) {
 
 struct earth_node {
   uri operator()() {
-    return unbox(make_uri("udp://earth"));
+    return unbox(make_uri("udp://127.0.0.1:12345"));
+  }
+
+  uint16_t port() {
+    return 12345;
   }
 };
 
 struct mars_node {
   uri operator()() {
-    return unbox(make_uri("udp://mars"));
+    return unbox(make_uri("udp://127.0.0.1:12346"));
+  }
+
+  uint16_t port() {
+    return 12346;
   }
 };
 
@@ -60,6 +69,7 @@ template <class Node>
 struct config : actor_system_config {
   config() {
     Node this_node;
+    put(content, "middleman.udp-port", this_node.port());
     put(content, "middleman.this-node", this_node());
     load<middleman, backend::udp>();
   }
@@ -86,6 +96,13 @@ public:
 
   bool handle_io_event() override {
     return driver_.handle_io_event();
+  }
+
+  uint16_t port() {
+    return mm.port("udp");
+  }
+
+  uri locator() {
   }
 
   net::middleman& mm;
@@ -119,8 +136,8 @@ struct fixture : host_fixture, planet_driver {
 
 CAF_TEST_FIXTURE_SCOPE(udp_backend_tests, fixture)
 
-CAF_TEST(doorman accept) {
-  // nop
+CAF_TEST(worker creation) {
+    // CAF_CHECK(earth.mm.backend("udp").emplace(make_node_id()));
 }
 
 CAF_TEST(publish) {

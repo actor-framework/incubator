@@ -70,12 +70,7 @@ public:
     return listening_port_;
   }
 
-  template <class Handle>
-  expected<endpoint_manager_ptr> emplace(const uri& locator) {
-    if (auto err = ep_manager_->emplace(locator))
-      return err;
-    return ep_manager_;
-  }
+  expected<endpoint_manager_ptr> emplace(const uri& locator);
 
 private:
   middleman& mm_;

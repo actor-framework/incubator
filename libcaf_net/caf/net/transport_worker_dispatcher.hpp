@@ -68,8 +68,11 @@ public:
   error handle_data(Parent& parent, span<const byte> data, id_type id) {
     if (auto worker = find_worker(id))
       return worker->handle_data(parent, data);
-    // TODO: Where to get node_id from here?
-    auto worker = add_new_worker(parent, node_id{}, id);
+
+    auto locator = make_uri("udp://" + to_string(id));
+    if (!locator)
+      return locator.error();
+    auto worker = add_new_worker(parent, make_node_id(*locator), id);
     if (worker)
       return (*worker)->handle_data(parent, data);
     else
@@ -80,16 +83,16 @@ public:
   void write_message(Parent& parent,
                      std::unique_ptr<endpoint_manager_queue::message> msg) {
     auto receiver = msg->receiver;
-    if (!receiver)
-      return;
-    auto nid = receiver->node();
-    if (auto worker = find_worker(nid)) {
-      worker->write_message(parent, std::move(msg));
+    if (!receiver) {
+      CAF_LOG_ERROR("no receiver was specified");
       return;
     }
-    // TODO: where to get id_type from here?
-    if (auto worker = add_new_worker(parent, nid, id_type{}))
-      (*worker)->write_message(parent, std::move(msg));
+    auto nid = receiver->node();
+    auto worker = find_worker(nid);
+    if (!worker)
+      CAF_LOG_ERROR("could not find worker for endpoint");
+    else
+      worker->write_message(parent, std::move(msg));
   }
 
   template <class Parent>
@@ -101,7 +104,7 @@ public:
         auto& worker = *ret;
         worker->resolve(parent, locator.path(), listener);
       } else {
-        CAF_LOG_ERROR("emplace failed: " << ret.error());
+        anon_send(listener, ret.error());
       }
     }
   }
@@ -146,7 +149,7 @@ public:
     if (auto hostname = get_if<std::string>(&auth.host)) {
       auto addrs = ip::resolve(*hostname);
       if (addrs.empty())
-        return sec::cannot_connect_to_node;
+        return sec::remote_lookup_failed;
       addr = addrs.at(0);
     } else {
       addr = *get_if<ip_address>(&auth.host);
@@ -166,6 +169,10 @@ public:
     workers_by_id_.emplace(std::move(id), worker);
     workers_by_node_.emplace(std::move(node), worker);
     return std::move(worker);
+  }
+
+  size_t num_workers() const {
+    return workers_by_id_.size();
   }
 
 private:

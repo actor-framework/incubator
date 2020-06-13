@@ -45,12 +45,12 @@ udp::~udp() {
 }
 
 error udp::init() {
-  uint16_t conf_port = get_or<uint16_t>(
-    mm_.system().config(), "middleman.udp-port", defaults::middleman::udp_port);
-  ip_endpoint ep;
-  auto local_address = std::string("[::]:") + std::to_string(conf_port);
-  if (auto err = detail::parse(local_address, ep))
+  auto conf_port = get_or<uint16_t>(mm_.system().config(), "middleman.udp-port",
+                                    defaults::middleman::udp_port);
+  ip_address addr;
+  if (auto err = parse("0.0.0.0", addr))
     return err;
+  auto ep = ip_endpoint(addr, conf_port);
   auto sock = make_udp_datagram_socket(ep, true);
   if (!sock)
     return sock.error();
@@ -98,6 +98,12 @@ strong_actor_ptr udp::make_proxy(node_id nid, actor_id aid) {
 
 void udp::set_last_hop(node_id*) {
   // nop
+}
+
+expected<endpoint_manager_ptr> udp::emplace(const uri& locator) {
+  if (auto err = ep_manager_->emplace(locator))
+    return err;
+  return ep_manager_;
 }
 
 } // namespace caf::net::backend
