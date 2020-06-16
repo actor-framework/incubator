@@ -164,7 +164,7 @@ public:
       return err;
     workers_by_id_.emplace(std::move(id), worker);
     workers_by_node_.emplace(std::move(node), worker);
-    return std::move(worker);
+    return worker;
   }
 
   size_t num_workers() const {
