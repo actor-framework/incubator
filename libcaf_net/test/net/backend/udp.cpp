@@ -45,112 +45,79 @@ behavior dummy_actor(event_based_actor*) {
   };
 }
 
-struct earth_node {
-  uri operator()() {
-    return unbox(make_uri("udp://127.0.0.1:12345"));
-  }
-
-  uint16_t port() {
-    return 12345;
-  }
-};
-
-struct mars_node {
-  uri operator()() {
-    return unbox(make_uri("udp://127.0.0.1:12346"));
-  }
-
-  uint16_t port() {
-    return 12346;
-  }
-};
-
-template <class Node>
 struct config : actor_system_config {
   config() {
-    Node this_node;
-    put(content, "middleman.udp-port", this_node.port());
-    put(content, "middleman.this-node", this_node());
+    ip_endpoint ep;
+    CAF_REQUIRE_EQUAL(detail::parse("127.0.0.1:0"s, ep), none);
+    auto ret = unbox(make_udp_datagram_socket(ep));
+    sock = ret.first;
+    port = ret.second;
+    this_node_str = "udp://127.0.0.1:"s + std::to_string(port);
+    auto this_node = unbox(make_uri(this_node_str));
+    CAF_MESSAGE("datagram_socket spawned on " << CAF_ARG(this_node) << " "
+                                              << CAF_ARG(sock.id));
+    put(content, "middleman.this-node", this_node);
     load<middleman, backend::udp>();
   }
+
+  udp_datagram_socket sock;
+  uint16_t port;
+  std::string this_node_str;
 };
 
-class planet_driver {
+class planet : public test_coordinator_fixture<config> {
 public:
-  virtual ~planet_driver() = default;
-
-  virtual bool handle_io_event() = 0;
-};
-
-template <class Node>
-class planet : public test_coordinator_fixture<config<Node>> {
-public:
-  planet(planet_driver& driver)
-    : mm(this->sys.network_manager()), mpx(mm.mpx()), driver_(driver) {
+  planet() : mm(this->sys.network_manager()), mpx(mm.mpx()) {
     mpx->set_thread_id();
   }
 
-  node_id id() const {
-    return this->sys.node();
-  }
-
-  bool handle_io_event() override {
-    return driver_.handle_io_event();
-  }
-
-  uint16_t port() {
-    return mm.port("udp");
-  }
-
-  uri locator() {
+  std::string locator_str() {
+    return cfg.this_node_str;
   }
 
   net::middleman& mm;
   multiplexer_ptr mpx;
-
-private:
-  planet_driver& driver_;
 };
 
-struct fixture : host_fixture, planet_driver {
-  fixture() : earth(*this), mars(*this) {
-    earth.run();
-    mars.run();
-    // CAF_REQUIRE_EQUAL(earth.mpx->num_socket_managers(), 2);
-    // CAF_REQUIRE_EQUAL(mars.mpx->num_socket_managers(), 2);
+struct fixture : host_fixture {
+  fixture() {
+    dynamic_cast<net::backend::udp*>(earth.mm.backend("udp"))
+      ->emplace(earth.cfg.sock, earth.cfg.port);
+    dynamic_cast<net::backend::udp*>(mars.mm.backend("udp"))
+      ->emplace(mars.cfg.sock, mars.cfg.port);
   }
 
-  bool handle_io_event() override {
-    return earth.mpx->poll_once(false) || mars.mpx->poll_once(false);
+  bool handle_io_event() {
+    return mars.mpx->poll_once(false) || earth.mpx->poll_once(false);
   }
 
-  void run() {
-    earth.run();
-  }
-
-  planet<earth_node> earth;
-  planet<mars_node> mars;
+  planet earth;
+  planet mars;
 };
 
 } // namespace
 
 CAF_TEST_FIXTURE_SCOPE(udp_backend_tests, fixture)
 
-CAF_TEST(worker creation) {
-  // CAF_CHECK(earth.mm.backend("udp").emplace(make_node_id()));
-}
-
-CAF_TEST(publish) {
+CAF_TEST(resolve) {
   auto dummy = earth.sys.spawn(dummy_actor);
   auto path = "dummy"s;
   CAF_MESSAGE("publishing actor " << CAF_ARG(path));
   earth.mm.publish(dummy, path);
-  CAF_MESSAGE("check registry for " << CAF_ARG(path));
-  CAF_CHECK_NOT_EQUAL(earth.sys.registry().get(path), nullptr);
-}
-
-CAF_TEST(resolve) {
-  // nop
+  auto locator = unbox(make_uri(earth.locator_str() + "/name/" + path));
+  mars.mm.resolve(locator, mars.self);
+  while (handle_io_event())
+    ;
+  mars.self->receive(
+    [](strong_actor_ptr& ptr, const std::set<std::string>&) {
+      CAF_MESSAGE("resolved actor!");
+      CAF_CHECK_NOT_EQUAL(ptr, nullptr);
+    },
+    [](const error& err) {
+      CAF_FAIL("got error while resolving: " << CAF_ARG(err));
+    },
+    after(std::chrono::seconds(0)) >>
+      [] { CAF_FAIL("manager did not respond with a proxy."); });
 }
 
 CAF_TEST_FIXTURE_SCOPE_END()

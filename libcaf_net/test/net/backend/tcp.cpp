@@ -155,15 +155,6 @@ CAF_TEST(connect) {
   CAF_CHECK_EQUAL(earth.mpx->num_socket_managers(), 3);
 }
 
-CAF_TEST(publish) {
-  auto dummy = earth.sys.spawn(dummy_actor);
-  auto path = "dummy"s;
-  CAF_MESSAGE("publishing actor " << CAF_ARG(path));
-  earth.mm.publish(dummy, path);
-  CAF_MESSAGE("check registry for " << CAF_ARG(path));
-  CAF_CHECK_NOT_EQUAL(earth.sys.registry().get(path), nullptr);
-}
-
 CAF_TEST(resolve) {
   using std::chrono::milliseconds;
   using std::chrono::seconds;
@@ -180,9 +171,8 @@ CAF_TEST(resolve) {
   auto locator = unbox(make_uri("tcp://earth/name/dummy"s));
   CAF_MESSAGE("resolve " << CAF_ARG(locator));
   mars.mm.resolve(locator, mars.self);
-  mars.run();
-  earth.run();
-  mars.run();
+  while (handle_io_event())
+    ;
   mars.self->receive(
     [](strong_actor_ptr& ptr, const std::set<std::string>&) {
       CAF_MESSAGE("resolved actor!");

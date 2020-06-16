@@ -18,14 +18,10 @@
 
 #include "caf/net/backend/udp.hpp"
 
-#include <string>
-
 #include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/basp/application.hpp"
 #include "caf/net/basp/datagram_application_factory.hpp"
-#include "caf/net/basp/ec.hpp"
 #include "caf/net/datagram_transport.hpp"
-#include "caf/net/ip.hpp"
 #include "caf/net/make_endpoint_manager.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_guard.hpp"
