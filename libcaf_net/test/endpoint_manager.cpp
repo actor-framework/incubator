@@ -145,10 +145,6 @@ public:
     // nop
   }
 
-  error emplace(const uri&) {
-    return none;
-  }
-
 private:
   stream_socket handle_;
 

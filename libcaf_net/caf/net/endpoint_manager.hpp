@@ -77,8 +77,6 @@ public:
   /// Initializes the manager before adding it to the multiplexer's event loop.
   virtual error init() = 0;
 
-  virtual error emplace(const uri& locator) = 0;
-
 protected:
   bool enqueue(endpoint_manager_queue::element* ptr);
 

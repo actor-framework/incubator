@@ -66,9 +66,8 @@ public:
 
   template <class Parent>
   error handle_data(Parent& parent, span<const byte> data, id_type id) {
-    if (auto worker = find_worker(id)) {
+    if (auto worker = find_worker(id))
       return worker->handle_data(parent, data);
-    }
     auto locator = make_uri("udp://" + to_string(id));
     if (!locator)
       return locator.error();
@@ -96,9 +95,9 @@ public:
 
   template <class Parent>
   void resolve(Parent& parent, const uri& locator, const actor& listener) {
-    if (auto worker = find_worker(make_node_id(*locator.authority_only())))
+    if (auto worker = find_worker(make_node_id(*locator.authority_only()))) {
       worker->resolve(parent, locator.path(), listener);
-    else {
+    } else {
       if (auto ret = emplace(parent, locator)) {
         auto& worker = *ret;
         worker->resolve(parent, locator.path(), listener);
@@ -135,10 +134,8 @@ public:
   }
 
   void handle_error(sec error) {
-    for (const auto& p : workers_by_id_) {
-      auto worker = p.second;
-      worker->handle_error(error);
-    }
+    for (const auto& p : workers_by_id_)
+      p.second->handle_error(error);
   }
 
   template <class Parent>

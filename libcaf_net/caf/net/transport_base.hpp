@@ -192,10 +192,6 @@ public:
   /// @param buffers Pointers to the buffers that make up the packet content.
   virtual void write_packet(id_type id, span<byte_buffer*> buffers) = 0;
 
-  virtual error emplace(const uri&) {
-    return make_error(sec::runtime_error, "function not implemented");
-  }
-
   // -- buffer management ------------------------------------------------------
 
   /// Returns the next cached header buffer or creates a new one if no buffers

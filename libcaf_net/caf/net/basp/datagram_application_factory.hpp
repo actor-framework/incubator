@@ -27,7 +27,7 @@
 namespace caf::net::basp {
 
 /// Factory for datagram oriented basp::applications.
-/// @relates doorman
+/// @relates transport_worker_dispatcher
 class CAF_NET_EXPORT datagram_application_factory {
 public:
   using application_type = datagram_adaptor<basp::application>;
