@@ -66,14 +66,13 @@ public:
 
   template <class Parent>
   error handle_data(Parent& parent, span<const byte> data, id_type id) {
-    if (auto worker = find_worker(id))
+    if (auto worker = find_worker(id)) {
       return worker->handle_data(parent, data);
-
+    }
     auto locator = make_uri("udp://" + to_string(id));
     if (!locator)
       return locator.error();
-    auto worker = add_new_worker(parent, make_node_id(*locator), id);
-    if (worker)
+    if (auto worker = add_new_worker(parent, make_node_id(*locator), id))
       return (*worker)->handle_data(parent, data);
     else
       return std::move(worker.error());
