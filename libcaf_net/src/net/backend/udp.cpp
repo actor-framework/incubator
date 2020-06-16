@@ -22,7 +22,7 @@
 
 #include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/basp/application.hpp"
-#include "caf/net/basp/application_factory.hpp"
+#include "caf/net/basp/datagram_application_factory.hpp"
 #include "caf/net/basp/ec.hpp"
 #include "caf/net/datagram_transport.hpp"
 #include "caf/net/ip.hpp"
@@ -55,18 +55,8 @@ error udp::init() {
   if (!sock)
     return sock.error();
   auto guard = make_socket_guard(sock->first);
-  if (auto err = nonblocking(guard.socket(), true))
-    return err;
-  listening_port_ = sock->second;
-  CAF_LOG_INFO("udp socket spawned on " << CAF_ARG(listening_port_));
-  auto& mpx = mm_.mpx();
-  ep_manager_ = make_endpoint_manager(
-    mpx, mm_.system(),
-    datagram_transport{guard.release(), basp::application_factory{proxies_}});
-  if (auto err = ep_manager_->init()) {
-    CAF_LOG_ERROR("mgr->init() failed: " << err);
-    return err;
-  }
+  CAF_LOG_INFO("udp socket spawned on " << CAF_ARG2("port", sock->second));
+  emplace(sock->first, sock->second);
   return none;
 }
 
@@ -103,6 +93,24 @@ void udp::set_last_hop(node_id*) {
 expected<endpoint_manager_ptr> udp::emplace(const uri& locator) {
   if (auto err = ep_manager_->emplace(locator))
     return err;
+  return ep_manager_;
+}
+
+expected<endpoint_manager_ptr> udp::emplace(udp_datagram_socket sock,
+                                            uint16_t port) {
+  auto guard = make_socket_guard(sock);
+  listening_port_ = port;
+  if (auto err = nonblocking(guard.socket(), true))
+    return err;
+  auto& mpx = mm_.mpx();
+  ep_manager_ = make_endpoint_manager(
+    mpx, mm_.system(),
+    datagram_transport{guard.release(),
+                       basp::datagram_application_factory{proxies_}});
+  if (auto err = ep_manager_->init()) {
+    CAF_LOG_ERROR("mgr->init() failed: " << err);
+    return err;
+  }
   return ep_manager_;
 }
 

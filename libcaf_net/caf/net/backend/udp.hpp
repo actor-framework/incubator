@@ -72,6 +72,9 @@ public:
 
   expected<endpoint_manager_ptr> emplace(const uri& locator);
 
+  expected<endpoint_manager_ptr> emplace(udp_datagram_socket sock,
+                                         uint16_t port);
+
 private:
   middleman& mm_;
 
