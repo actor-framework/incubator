@@ -95,15 +95,18 @@ public:
 
   template <class Parent>
   void resolve(Parent& parent, const uri& locator, const actor& listener) {
-    if (auto worker = find_worker(make_node_id(*locator.authority_only()))) {
-      worker->resolve(parent, locator.path(), listener);
-    } else {
-      if (auto ret = emplace(parent, locator)) {
-        auto& worker = *ret;
+    if (auto auth = locator.authority_only()) {
+      if (auto worker = find_worker(make_node_id(*auth))) {
         worker->resolve(parent, locator.path(), listener);
       } else {
-        anon_send(listener, ret.error());
+        if (auto ret = emplace(parent, locator))
+          (*ret)->resolve(parent, locator.path(), listener);
+        else
+          anon_send(listener, ret.error());
       }
+    } else {
+      anon_send(listener,
+                make_error(sec::runtime_error, "could not get authority"));
     }
   }
 
@@ -165,10 +168,6 @@ public:
     workers_by_id_.emplace(std::move(id), worker);
     workers_by_node_.emplace(std::move(node), worker);
     return worker;
-  }
-
-  size_t num_workers() const {
-    return workers_by_id_.size();
   }
 
 private:

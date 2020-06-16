@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright 2011-2019 Dominik Charousset                                     *
+ * Copyright 2011-2020 Dominik Charousset                                     *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
  * (at your option) under the terms and conditions of the Boost Software      *
@@ -28,7 +28,6 @@
 
 #include "caf/actor_system_config.hpp"
 #include "caf/ip_endpoint.hpp"
-#include "caf/net/ip.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_guard.hpp"
 #include "caf/uri.hpp"
@@ -69,10 +68,15 @@ class planet : public test_coordinator_fixture<config> {
 public:
   planet() : mm(this->sys.network_manager()), mpx(mm.mpx()) {
     mpx->set_thread_id();
+    backend()->emplace(cfg.sock, cfg.port);
   }
 
   std::string locator_str() {
     return cfg.this_node_str;
+  }
+
+  net::backend::udp* backend() {
+    return dynamic_cast<net::backend::udp*>(mm.backend("udp"));
   }
 
   net::middleman& mm;
@@ -81,10 +85,7 @@ public:
 
 struct fixture : host_fixture {
   fixture() {
-    dynamic_cast<net::backend::udp*>(earth.mm.backend("udp"))
-      ->emplace(earth.cfg.sock, earth.cfg.port);
-    dynamic_cast<net::backend::udp*>(mars.mm.backend("udp"))
-      ->emplace(mars.cfg.sock, mars.cfg.port);
+    // nop
   }
 
   bool handle_io_event() {
@@ -105,6 +106,7 @@ CAF_TEST(resolve) {
   CAF_MESSAGE("publishing actor " << CAF_ARG(path));
   earth.mm.publish(dummy, path);
   auto locator = unbox(make_uri(earth.locator_str() + "/name/" + path));
+  CAF_MESSAGE("resolving " << CAF_ARG(locator));
   mars.mm.resolve(locator, mars.self);
   while (handle_io_event())
     ;
