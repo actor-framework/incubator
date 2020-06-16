@@ -36,7 +36,6 @@
 namespace caf::net::backend {
 
 /// Minimal backend for udp communication.
-/// @warning this backend is *not* thread safe.
 class CAF_NET_EXPORT udp : public middleman_backend {
 public:
   // -- constructors, destructors, and assignment operators --------------------
@@ -62,10 +61,6 @@ public:
   void set_last_hop(node_id*) override;
 
   // -- properties -------------------------------------------------------------
-
-  udp_datagram_socket socket(const node_id&) {
-    return socket_cast<udp_datagram_socket>(ep_manager_->handle());
-  }
 
   uint16_t port() const noexcept override {
     return listening_port_;
