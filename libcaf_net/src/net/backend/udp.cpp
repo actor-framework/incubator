@@ -66,7 +66,7 @@ void udp::stop() {
   ep_manager_.reset();
 }
 
-expected<endpoint_manager_ptr> udp::connect(const uri&) {
+expected<endpoint_manager_ptr> udp::get_or_connect(const uri&) {
   return make_error(sec::runtime_error, "connect called on udp backend");
 }
 
@@ -90,12 +90,6 @@ void udp::set_last_hop(node_id*) {
   // nop
 }
 
-expected<endpoint_manager_ptr> udp::emplace(const uri& locator) {
-  if (auto err = ep_manager_->emplace(locator))
-    return err;
-  return ep_manager_;
-}
-
 expected<endpoint_manager_ptr> udp::emplace(udp_datagram_socket sock,
                                             uint16_t port) {
   auto guard = make_socket_guard(sock);
@@ -103,6 +97,7 @@ expected<endpoint_manager_ptr> udp::emplace(udp_datagram_socket sock,
   if (auto err = nonblocking(guard.socket(), true))
     return err;
   auto& mpx = mm_.mpx();
+  const std::lock_guard<std::mutex> lock(lock_);
   ep_manager_ = make_endpoint_manager(
     mpx, mm_.system(),
     datagram_transport{guard.release(),

@@ -19,6 +19,7 @@
 #pragma once
 
 #include <map>
+#include <mutex>
 
 #include "caf/detail/net_export.hpp"
 #include "caf/error.hpp"
@@ -50,7 +51,7 @@ public:
 
   void stop() override;
 
-  expected<endpoint_manager_ptr> connect(const uri& locator) override;
+  expected<endpoint_manager_ptr> get_or_connect(const uri& locator) override;
 
   endpoint_manager_ptr peer(const node_id&) override;
 
@@ -70,8 +71,6 @@ public:
     return listening_port_;
   }
 
-  expected<endpoint_manager_ptr> emplace(const uri& locator);
-
   expected<endpoint_manager_ptr> emplace(udp_datagram_socket sock,
                                          uint16_t port);
 
@@ -85,6 +84,8 @@ private:
   proxy_registry proxies_;
 
   uint16_t listening_port_;
+
+  std::mutex lock_;
 };
 
 } // namespace caf::net::backend

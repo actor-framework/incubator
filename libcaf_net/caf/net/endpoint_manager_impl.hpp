@@ -119,10 +119,6 @@ public:
     transport_.handle_error(code);
   }
 
-  error emplace(const uri& locator) override {
-    return transport_.emplace(locator);
-  }
-
 private:
   transport_type transport_;
 

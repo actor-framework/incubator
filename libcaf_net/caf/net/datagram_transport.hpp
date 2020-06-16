@@ -61,6 +61,8 @@ public:
 
   using buffer_cache_type = typename super::buffer_cache_type;
 
+  using dispatcher_type = transport_worker_dispatcher<Factory, ip_endpoint>;
+
   // -- constructors, destructors, and assignment operators --------------------
 
   datagram_transport(udp_datagram_socket handle, factory_type factory)
@@ -162,17 +164,6 @@ public:
       return ptrs;
     }
   };
-
-  error emplace(const uri& locator) override {
-    if (auto ret = this->next_layer_.emplace(*this, locator))
-      return none;
-    else
-      return ret.error();
-  }
-
-  const transport_worker_dispatcher<Factory, ip_endpoint>& next_layer() {
-    return this->next_layer_;
-  }
 
 private:
   // -- utility functions ------------------------------------------------------
