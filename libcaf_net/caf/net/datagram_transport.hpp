@@ -61,8 +61,6 @@ public:
 
   using buffer_cache_type = typename super::buffer_cache_type;
 
-  using dispatcher_type = transport_worker_dispatcher<Factory, ip_endpoint>;
-
   // -- constructors, destructors, and assignment operators --------------------
 
   datagram_transport(udp_datagram_socket handle, factory_type factory)

@@ -128,6 +128,10 @@ public:
     workers_by_timeout_id_.emplace(timeout_id, workers_by_id_.at(id));
   }
 
+  void cancel_timeout(uint64_t timeout_id) {
+    workers_by_timeout_id_.erase(timeout_id);
+  }
+
   template <class Parent>
   void timeout(Parent& parent, std::string tag, uint64_t id) {
     if (auto worker = workers_by_timeout_id_.at(id)) {

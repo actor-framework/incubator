@@ -23,6 +23,29 @@
 #include "caf/byte_buffer.hpp"
 #include "caf/span.hpp"
 
+namespace {
+
+// This is necessary to dispatch the function `id()` to either `object` or
+// `parent`.
+// TODO: This could be done with `CAF_HAS_MEMBER_TRAIT` from `type_traits.hpp`
+// but the macro is undefined at the end of the file.
+template <class T>
+class has_id_member {
+private:
+  template <class U>
+  static auto sfinae(U* x) -> decltype(x->id(), std::true_type());
+
+  template <class U>
+  static auto sfinae(...) -> std::false_type;
+
+  using sfinae_type = decltype(sfinae<T>(nullptr));
+
+public:
+  static constexpr bool value = sfinae_type::value;
+};
+
+} // namespace
+
 namespace caf::net {
 
 /// Implements the interface for transport and application policies and
@@ -65,6 +88,13 @@ public:
     return transport().next_payload_buffer();
   }
 
+  auto id() {
+    if constexpr (has_id_member<Parent>::value)
+      return parent_.id();
+    else
+      return object_.id();
+  }
+
   // -- member functions -------------------------------------------------------
 
   void cancel_timeout(std::string tag, uint64_t id) {
@@ -73,7 +103,8 @@ public:
 
   template <class... Ts>
   uint64_t set_timeout(timestamp tout, std::string tag, Ts&&... xs) {
-    return parent_.set_timeout(tout, std::move(tag), std::forward<Ts>(xs)...);
+    return parent_.set_timeout(tout, std::move(tag), id(),
+                               std::forward<Ts>(xs)...);
   }
 
   /// Convenience function to write a packet consisting of multiple buffers.

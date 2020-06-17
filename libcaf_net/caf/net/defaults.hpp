@@ -44,6 +44,6 @@ CAF_NET_EXPORT extern const uint16_t udp_port;
 namespace caf::defaults::reliability {
 
 /// Maximum number of pending messages in ordering layer.
-CAF_NET_EXPORT extern const size_t max_pending_messages;
+CAF_NET_EXPORT extern const uint16_t max_pending_messages;
 
 } // namespace caf::defaults::reliability

@@ -32,8 +32,6 @@ const uint16_t udp_port = 0;
 
 namespace caf::defaults::reliability {
 
-// TODO: what number is sufficient?
-/// Maximum number of pending messages in ordering layer.
-const size_t max_pending_messages = 10;
+const uint16_t max_pending_messages = 10;
 
 } // namespace caf::defaults::reliability

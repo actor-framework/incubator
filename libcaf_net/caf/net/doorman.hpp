@@ -121,10 +121,6 @@ public:
     CAF_LOG_ERROR("doorman encounterd error: " << err);
   }
 
-  error emplace(const uri&) {
-    return make_error(sec::runtime_error, "function not implemented");
-  }
-
 private:
   net::tcp_accept_socket acceptor_;
 

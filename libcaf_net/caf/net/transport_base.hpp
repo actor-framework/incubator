@@ -147,12 +147,14 @@ public:
     next_layer_.local_actor_down(*this, peer, id, std::move(reason));
   }
 
-  /// Notifies the transport that the timeout identified by `value` plus `id`
-  /// was triggered.
-  /// @param tag The type tag of the timeout.
-  /// @param id The timeout id of the timeout.
-  void timeout(endpoint_manager&, std::string tag, uint64_t id) {
-    next_layer_.timeout(*this, std::move(tag), id);
+  /// Sets a timeout.
+  /// @param tout The timepoint at which the timeout should be triggered.
+  /// @param tag The type of the timeout.
+  /// @param ts Any further information that should be passed after setting the
+  /// timeout.
+  template <class... Ts>
+  uint64_t set_timeout(timestamp tout, std::string tag, Ts&&... ts) {
+    return manager().set_timeout(tout, std::move(tag), std::forward<Ts>(ts)...);
   }
 
   /// Callback for setting a timeout. Will be called after setting a timeout to
@@ -163,6 +165,28 @@ public:
   template <class... Ts>
   void set_timeout(uint64_t timeout_id, Ts&&... ts) {
     next_layer_.set_timeout(timeout_id, std::forward<Ts>(ts)...);
+  }
+
+  /// Resets a previously set timeout.
+  /// @param tag The type of the timeout.
+  /// @param id The id of the previously set timeout.
+  void cancel_timeout(std::string tag, uint64_t id) {
+    manager().cancel_timeout(std::move(tag), id);
+  }
+
+  /// Callback for resetting a timeout. Will be called after cancelling a
+  /// timeout.
+  /// @param timeout_id The id of the previously removed timeout.
+  void cancel_timeout(uint64_t timeout_id) {
+    next_layer_.cancel_timeout(timeout_id);
+  }
+
+  /// Notifies the transport that the timeout identified by `value` plus `id`
+  /// was triggered.
+  /// @param tag The type tag of the timeout.
+  /// @param id The timeout id of the timeout.
+  void timeout(endpoint_manager&, std::string tag, uint64_t id) {
+    next_layer_.timeout(*this, std::move(tag), id);
   }
 
   /// Callback for when an error occurs.
@@ -218,16 +242,25 @@ private:
   }
 
 protected:
+  /// Contains the next layer.
   next_layer_type next_layer_;
+
+  /// The handle which is used to send and receive data.
   handle_type handle_;
 
+  /// Contains all cached header buffers.
   buffer_cache_type header_bufs_;
+
+  /// Contains all cached payload buffers.
   buffer_cache_type payload_bufs_;
 
+  /// The buffer in which received data is stored.
   byte_buffer read_buf_;
 
+  /// Pointer to the endpoint_manager this instance is managed by.
   endpoint_manager* manager_;
 
+  /// Number of reads that should be fulfilled in a single read_event.
   size_t max_consecutive_reads_;
 };
 

@@ -30,6 +30,7 @@
 #include "caf/net/packet_writer_decorator.hpp"
 #include "caf/net/reliability/ordering_header.hpp"
 #include "caf/span.hpp"
+#include "caf/timestamp.hpp"
 
 namespace {
 
@@ -74,7 +75,7 @@ public:
 
   template <class Parent>
   error init(Parent& parent) {
-    max_pending_messages_ = get_or(parent->config(),
+    max_pending_messages_ = get_or(parent.system().config(),
                                    "middleman.max-pending-messages",
                                    defaults::reliability::max_pending_messages);
     return application_.init(parent);
@@ -103,11 +104,12 @@ public:
                         "did not receive enough bytes");
     auto writer = make_packet_writer_decorator(*this, parent);
     ordering_header header;
-    binary_deserializer source(parent.system(), received);
+    binary_deserializer source(writer.system(), received);
     if (auto err = source(header))
       return err;
     if (header.sequence == seq_read_) {
       ++seq_read_;
+      cancel_timeout(writer, seq_read_);
       if (auto err = application_.handle_data(
             writer, make_span(received.data() + ordering_header_size,
                               received.size() - ordering_header_size)))
@@ -140,7 +142,18 @@ public:
   template <class Parent>
   void timeout(Parent& parent, std::string tag, uint64_t id) {
     auto writer = make_packet_writer_decorator(*this, parent);
-    application_.timeout(writer, std::move(tag), id);
+    if (tag_ != tag) {
+      auto writer = make_packet_writer_decorator(*this, parent);
+      application_.timeout(writer, std::move(tag), id);
+    } else {
+      auto seq = timeout_map_.at(id);
+      timeout_map_.erase(id);
+      if (pending_.count(seq) > 0) {
+        seq_read_ = seq;
+        if (auto err = deliver_pending(writer))
+          CAF_LOG_ERROR("deliver_pending has failed" << CAF_ARG(err));
+      }
+    }
   }
 
   void handle_error(sec error) {
@@ -148,18 +161,16 @@ public:
   }
 
 private:
-  template <class Parent>
-  error deliver_pending(Parent& parent) {
-    if (pending_.empty()) {
-      std::cout << "no pending messages" << std::endl;
+  template <class Writer>
+  error deliver_pending(Writer& writer) {
+    if (pending_.empty())
       return none;
-    }
-    std::cout << "deliver " << pending_.count(seq_read_) << " pending messages"
-              << std::endl;
-    // TODO: cant this be done more efficiently?
     while (pending_.count(seq_read_) > 0) {
       auto& buf = pending_[seq_read_];
-      auto err = application_.handle_data(parent, make_span(buf));
+      auto err = application_.handle_data(
+        writer, make_span(buf.data() + ordering_header_size,
+                          buf.size() - ordering_header_size));
+      cancel_timeout(writer, seq_read_);
       pending_.erase(seq_read_++);
       if (err)
         return err;
@@ -167,20 +178,29 @@ private:
     return none;
   }
 
-  template <class Parent>
-  error add_pending(Parent& parent, span<const byte> bytes, sequence_type seq) {
-    std::cout << "Added pending message with seq = " << std::to_string(seq)
-              << std::endl;
+  template <class Writer>
+  error add_pending(Writer& writer, span<const byte> bytes, sequence_type seq) {
     pending_[seq] = byte_buffer(bytes.begin(), bytes.end());
-    // TODO: timeouts should be used to deliver pending packets every `x`
-    // milliseconds.
-    // if (use_timeouts)
-    //   parent->set_timeout(pending_to, ordering_atom::value, seq);
+    auto when = make_timestamp() + pending_to_;
+    auto timeout_id = writer.set_timeout(when, to_string(tag_));
+    timeout_map_.emplace(timeout_id, seq);
     if (pending_.size() > max_pending_messages_) {
       seq_read_ = pending_.begin()->first;
-      return deliver_pending(parent);
+      return deliver_pending(writer);
     }
     return none;
+  }
+
+  template <class Writer>
+  void cancel_timeout(Writer& writer, sequence_type seq) {
+    if (pending_.size() == 0)
+      return;
+    auto p = std::find_if(timeout_map_.begin(), timeout_map_.end(),
+                          [&](const auto& p) { return p.second == seq; });
+    if (p != timeout_map_.end()) {
+      writer.cancel_timeout(to_string(tag_), p->first);
+      timeout_map_.erase(p->first);
+    }
   }
 
   Application application_;
@@ -194,6 +214,10 @@ private:
   std::chrono::milliseconds pending_to_;
 
   std::map<sequence_type, byte_buffer, sequence_comparator> pending_;
+
+  std::unordered_map<uint64_t, sequence_type> timeout_map_;
+
+  static constexpr string_view tag_ = "ordering";
 };
 
 } // namespace caf::net::reliability
