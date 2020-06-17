@@ -105,6 +105,12 @@ public:
     application_.timeout(writer, std::move(tag), id);
   }
 
+  template <class Parent, class... Ts>
+  void write_packet(Parent& parent, Ts&... buffers) {
+    byte_buffer* bufs[] = {&buffers...};
+    parent.write_packet(id_, make_span(bufs, sizeof...(Ts)));
+  }
+
   void handle_error(sec error) {
     application_.handle_error(error);
   }

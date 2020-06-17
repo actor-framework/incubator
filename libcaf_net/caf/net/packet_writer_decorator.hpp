@@ -28,7 +28,7 @@ namespace caf::net {
 /// Implements the interface for transport and application policies and
 /// dispatches member functions either to `object` or `parent`.
 template <class Object, class Parent>
-class packet_writer_decorator final : public packet_writer {
+class packet_writer_decorator {
 public:
   // -- member types -----------------------------------------------------------
 
@@ -57,11 +57,11 @@ public:
     return parent_.manager();
   }
 
-  byte_buffer next_header_buffer() override {
+  byte_buffer next_header_buffer() {
     return transport().next_header_buffer();
   }
 
-  byte_buffer next_payload_buffer() override {
+  byte_buffer next_payload_buffer() {
     return transport().next_payload_buffer();
   }
 
@@ -76,9 +76,13 @@ public:
     return parent_.set_timeout(tout, std::move(tag), std::forward<Ts>(xs)...);
   }
 
-protected:
-  void write_impl(span<byte_buffer*> buffers) override {
-    parent_.write_packet(object_.id(), buffers);
+  /// Convenience function to write a packet consisting of multiple buffers.
+  /// @param buffers all buffers for the packet. The first buffer is a header
+  ///                buffer, the other buffers are payload buffer.
+  /// @warning this function takes ownership of `buffers`.
+  template <class... Ts>
+  void write_packet(Ts&... buffers) {
+    object_.write_packet(parent_, buffers...);
   }
 
 private:

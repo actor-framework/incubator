@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright 2011-2018 Dominik Charousset                                     *
+ * Copyright 2011-2020 Dominik Charousset                                     *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
  * (at your option) under the terms and conditions of the Boost Software      *
@@ -16,24 +16,24 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#include "caf/net/defaults.hpp"
+#pragma once
 
-namespace caf::defaults::middleman {
+#include <cstdint>
 
-const size_t max_payload_buffers = 100;
+namespace caf::net::reliability {
 
-const size_t max_header_buffers = 10;
+using sequence_type = uint16_t;
 
-const uint16_t tcp_port = 0;
+struct ordering_header {
+  sequence_type sequence;
+};
 
-const uint16_t udp_port = 0;
+constexpr size_t ordering_header_size = sizeof(ordering_header);
 
-} // namespace caf::defaults::middleman
+/// @relates header
+template <class Inspector>
+typename Inspector::result_type inspect(Inspector& f, ordering_header& x) {
+  return f(meta::type_name("reliability::ordering_header"), x.sequence);
+}
 
-namespace caf::defaults::reliability {
-
-// TODO: what number is sufficient?
-/// Maximum number of pending messages in ordering layer.
-const size_t max_pending_messages = 10;
-
-} // namespace caf::defaults::reliability
+} // namespace caf::net::reliability
