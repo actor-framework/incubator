@@ -26,7 +26,6 @@
 #include "caf/byte_buffer.hpp"
 #include "caf/net/defaults.hpp"
 #include "caf/net/endpoint_manager_queue.hpp"
-#include "caf/net/packet_writer.hpp"
 #include "caf/net/packet_writer_decorator.hpp"
 #include "caf/net/reliability/ordering_header.hpp"
 #include "caf/span.hpp"
