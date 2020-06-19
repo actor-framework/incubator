@@ -20,12 +20,12 @@
 
 #include <chrono>
 #include <type_traits>
+#include <unordered_map>
 
-#include "caf/actor_system_config.hpp"
 #include "caf/binary_deserializer.hpp"
 #include "caf/binary_serializer.hpp"
 #include "caf/byte_buffer.hpp"
-#include "caf/net/defaults.hpp"
+#include "caf/logger.hpp"
 #include "caf/net/endpoint_manager_queue.hpp"
 #include "caf/net/packet_writer_decorator.hpp"
 #include "caf/net/reliability/reliability_header.hpp"
@@ -49,9 +49,7 @@ public:
 
   template <class Parent>
   error init(Parent& parent) {
-    retransmit_timeout_ = get_or(parent.system().config(),
-                                 "middleman.retransmit-timeout",
-                                 defaults::reliability::retransmit_timeout);
+    retransmit_timeout_ = std::chrono::milliseconds(40);
     return application_.init(parent);
   }
 
@@ -65,12 +63,12 @@ public:
   template <class Parent, class... Ts>
   void write_packet(Parent& parent, Ts&... buffers) {
     auto hdr = parent.next_header_buffer();
-    binary_serializer sink(&parent.system(), hdr);
+    binary_serializer sink(parent.system(), hdr);
     if (auto err = sink(reliability_header{id_write_, false})) {
       CAF_LOG_ERROR("could not serialize header" << CAF_ARG(err));
       return;
     }
-    add_unacked(parent, hdr, buffers...);
+    add_unacked(parent, id_write_++, hdr, buffers...);
     parent.write_packet(hdr, buffers...);
   }
 
@@ -79,7 +77,7 @@ public:
     if (received.size() < reliability_header_size)
       return sec::unexpected_message;
     reliability_header hdr;
-    binary_deserializer source(&parent.system(), received);
+    binary_deserializer source(parent.system(), received);
     if (auto err = source(hdr))
       return err;
     if (hdr.is_ack) {
@@ -87,14 +85,14 @@ public:
     } else {
       // Send ack.
       auto buf = parent.next_header_buffer();
-      binary_serializer sink(&parent.system(), buf);
+      binary_serializer sink(parent.system(), buf);
       if (auto err = sink(reliability_header{hdr.id, true}))
         return err;
       parent.write_packet(buf);
       auto writer = make_packet_writer_decorator(*this, parent);
       if (auto err = application_.handle_data(
-            make_span(received.data() + reliability_header_size,
-                      received.size() - reliability_header_size)))
+            writer, make_span(received.data() + reliability_header_size,
+                              received.size() - reliability_header_size)))
         return err;
     }
     return none;
@@ -120,10 +118,9 @@ public:
 
   template <class Parent>
   void timeout(Parent& parent, std::string tag, uint64_t timeout_id) {
-    auto writer = make_packet_writer_decorator(*this, parent);
     if (tag_ != tag) {
       auto writer = make_packet_writer_decorator(*this, parent);
-      application_.timeout(writer, std::move(tag));
+      application_.timeout(writer, std::move(tag), timeout_id);
     } else {
       auto retransmit_id = timeouts_.at(timeout_id);
       if (unacked_.count(retransmit_id) > 0) {
@@ -142,6 +139,7 @@ public:
   }
 
 private:
+  // Inserts variadic templates `bufs` into a single buffer `buf`.
   template <class... Ts>
   void insert(byte_buffer& buf, Ts&... bufs) {
     static_assert((std::is_same_v<byte, typename Ts::value_type> && ...));

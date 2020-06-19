@@ -29,7 +29,7 @@ struct reliability_header {
   bool is_ack;
 };
 
-constexpr size_t reliability_header_size = sizeof(reliability_header);
+constexpr size_t reliability_header_size = sizeof(id_type) + sizeof(bool);
 
 /// @relates header
 template <class Inspector>

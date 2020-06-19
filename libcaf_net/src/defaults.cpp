@@ -38,7 +38,4 @@ namespace caf::defaults::reliability {
 
 const uint16_t max_pending_messages = 10;
 
-const std::chrono::milliseconds retransmit_timeout
-  = std::chrono::milliseconds(40);
-
 } // namespace caf::defaults::reliability
