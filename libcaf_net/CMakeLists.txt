@@ -152,4 +152,5 @@ caf_incubator_add_test_suites(caf-net-test
   net.backend.tcp
   net.backend.udp
   net.reliability.ordering
+  net.reliability.reliability
 )

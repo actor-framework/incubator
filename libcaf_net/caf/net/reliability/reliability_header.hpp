@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright 2011-2018 Dominik Charousset                                     *
+ * Copyright 2011-2020 Dominik Charousset                                     *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
  * (at your option) under the terms and conditions of the Boost Software      *
@@ -16,29 +16,25 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#include <chrono>
-#include <cstddef>
+#pragma once
+
 #include <cstdint>
 
-#include "caf/net/defaults.hpp"
+namespace caf::net::reliability {
 
-namespace caf::defaults::middleman {
+using id_type = uint16_t;
 
-const size_t max_payload_buffers = 100;
+struct reliability_header {
+  id_type id;
+  bool is_ack;
+};
 
-const size_t max_header_buffers = 10;
+constexpr size_t reliability_header_size = sizeof(reliability_header);
 
-const uint16_t tcp_port = 0;
+/// @relates header
+template <class Inspector>
+typename Inspector::result_type inspect(Inspector& f, reliability_header& x) {
+  return f(meta::type_name("reliability::reliability_header"), x.id, x.is_ack);
+}
 
-const uint16_t udp_port = 0;
-
-} // namespace caf::defaults::middleman
-
-namespace caf::defaults::reliability {
-
-const uint16_t max_pending_messages = 10;
-
-const std::chrono::milliseconds retransmit_timeout
-  = std::chrono::milliseconds(40);
-
-} // namespace caf::defaults::reliability
+} // namespace caf::net::reliability

@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 
@@ -45,5 +46,8 @@ namespace caf::defaults::reliability {
 
 /// Maximum number of pending messages in ordering layer.
 CAF_NET_EXPORT extern const uint16_t max_pending_messages;
+
+/// Maximum number of pending messages in ordering layer.
+CAF_NET_EXPORT extern const std::chrono::milliseconds retransmit_timeout;
 
 } // namespace caf::defaults::reliability
