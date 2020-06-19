@@ -30,6 +30,7 @@
 #include "caf/net/packet_writer_decorator.hpp"
 #include "caf/net/reliability/reliability_header.hpp"
 #include "caf/span.hpp"
+#include "caf/string_view.hpp"
 #include "caf/timestamp.hpp"
 
 namespace caf::net::reliability {
@@ -41,7 +42,8 @@ class reliability {
 public:
   // -- constructors, destructors, and assignment operators --------------------
 
-  reliability(Application application) : application_(std::move(application)) {
+  explicit reliability(Application application)
+    : application_(std::move(application)), retransmit_timeout_(40) {
     // nop
   }
 
@@ -49,7 +51,6 @@ public:
 
   template <class Parent>
   error init(Parent& parent) {
-    retransmit_timeout_ = std::chrono::milliseconds(40);
     return application_.init(parent);
   }
 
@@ -83,6 +84,7 @@ public:
     if (hdr.is_ack) {
       remove_unacked(parent, hdr.id);
     } else {
+      // TODO: Piggyback and/or batch ACKs
       // Send ack.
       auto buf = parent.next_header_buffer();
       binary_serializer sink(parent.system(), buf);
@@ -123,6 +125,7 @@ public:
       application_.timeout(writer, std::move(tag), timeout_id);
     } else {
       auto retransmit_id = timeouts_.at(timeout_id);
+      timeouts_.erase(timeout_id);
       if (unacked_.count(retransmit_id) > 0) {
         // Retransmit the packet.
         auto& packet = unacked_[retransmit_id];
@@ -139,7 +142,8 @@ public:
   }
 
 private:
-  // Inserts variadic templates `bufs` into a single buffer `buf`.
+  // Inserts variadic template `bufs` into a single buffer `buf`.
+  // Necessary for saving unacked packets until they are ACKed.
   template <class... Ts>
   void insert(byte_buffer& buf, Ts&... bufs) {
     static_assert((std::is_same_v<byte, typename Ts::value_type> && ...));
