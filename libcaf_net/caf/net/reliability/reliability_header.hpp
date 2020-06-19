@@ -24,6 +24,7 @@ namespace caf::net::reliability {
 
 using id_type = uint16_t;
 
+/// The header of a reliability message.
 struct reliability_header {
   id_type id;
   bool is_ack;
@@ -31,7 +32,7 @@ struct reliability_header {
 
 constexpr size_t reliability_header_size = sizeof(id_type) + sizeof(bool);
 
-/// @relates header
+/// @relates reliability_header
 template <class Inspector>
 typename Inspector::result_type inspect(Inspector& f, reliability_header& x) {
   return f(meta::type_name("reliability::reliability_header"), x.id, x.is_ack);

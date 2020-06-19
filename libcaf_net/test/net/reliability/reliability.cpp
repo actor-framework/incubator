@@ -22,8 +22,6 @@
 
 #include <deque>
 #include <initializer_list>
-#include <string>
-#include <vector>
 
 #include "caf/net/test/host_fixture.hpp"
 #include "caf/test/dsl.hpp"
@@ -35,39 +33,20 @@
 #include "caf/net/endpoint_manager_queue.hpp"
 #include "caf/net/reliability/reliability_header.hpp"
 #include "caf/net/transport_worker.hpp"
+#include "caf/string_view.hpp"
 #include "caf/timestamp.hpp"
 
 using namespace caf;
 using namespace caf::net;
 using namespace std::literals::string_literals;
 
-using message_buffer = std::vector<byte_buffer>;
-
 namespace {
 
 constexpr string_view hello_test = "hello test!";
 
-struct fixture : test_coordinator_fixture<>, host_fixture {
-  fixture() {
-    // nop
-  }
-
-  void check_message(byte_buffer& buf, reliability::id_type id) {
-    reliability::reliability_header hdr;
-    caf::message msg;
-    binary_deserializer source(sys, buf);
-    if (auto err = source(hdr, msg))
-      CAF_FAIL("could not deserialize message " << CAF_ARG(err));
-    CAF_CHECK_EQUAL(hdr.id, id);
-    CAF_CHECK(!hdr.is_ack);
-    auto received_str = msg.get_as<std::string>(0);
-    CAF_CHECK_EQUAL(string_view{received_str}, hello_test);
-  }
-};
-
 class dummy_application {
 public:
-  dummy_application(byte_buffer& received_data)
+  explicit dummy_application(byte_buffer& received_data)
     : received_data_(received_data) {
     // nop
   }
@@ -193,17 +172,37 @@ private:
   byte_buffer& last_packet_;
 };
 
+struct fixture : test_coordinator_fixture<>, host_fixture {
+  using reliability_type = reliability::reliability<dummy_application>;
+
+  fixture()
+    : trans{sys, reliability_type{dummy_application{received_data}},
+            last_packet} {
+    trans.init();
+  }
+
+  void check_message(byte_buffer& buf, reliability::id_type id) {
+    reliability::reliability_header hdr;
+    caf::message msg;
+    binary_deserializer source(sys, buf);
+    if (auto err = source(hdr, msg))
+      CAF_FAIL("could not deserialize message " << CAF_ARG(err));
+    CAF_CHECK_EQUAL(hdr.id, id);
+    CAF_CHECK(!hdr.is_ack);
+    auto received_str = msg.get_as<std::string>(0);
+    CAF_CHECK_EQUAL(string_view{received_str}, hello_test);
+  }
+
+  dummy_transport<reliability_type> trans;
+  byte_buffer last_packet;
+  byte_buffer received_data;
+};
+
 } // namespace
 
 CAF_TEST_FIXTURE_SCOPE(reliability_tests, fixture)
 
 CAF_TEST(timeout) {
-  using reliability_type = reliability::reliability<dummy_application>;
-  byte_buffer last_packet;
-  byte_buffer received_data;
-  dummy_transport<reliability_type> trans{
-    sys, reliability_type{dummy_application{received_data}}, last_packet};
-  trans.init();
   trans.write_message();
   check_message(last_packet, 0);
   last_packet.clear();
@@ -212,12 +211,6 @@ CAF_TEST(timeout) {
 }
 
 CAF_TEST(ACK cancels timeout) {
-  using reliability_type = reliability::reliability<dummy_application>;
-  byte_buffer last_packet;
-  byte_buffer received_data;
-  dummy_transport<reliability_type> trans{
-    sys, reliability_type{dummy_application{received_data}}, last_packet};
-  trans.init();
   trans.write_message();
   check_message(last_packet, 0);
   last_packet.clear();
@@ -230,12 +223,6 @@ CAF_TEST(ACK cancels timeout) {
 }
 
 CAF_TEST(handle_data leads to ACK) {
-  using reliability_type = reliability::reliability<dummy_application>;
-  byte_buffer last_packet;
-  byte_buffer received_data;
-  dummy_transport<reliability_type> trans{
-    sys, reliability_type{dummy_application{received_data}}, last_packet};
-  trans.init();
   byte_buffer buf;
   binary_serializer sink(sys, buf);
   if (auto err = sink(reliability::reliability_header{1337, false},
