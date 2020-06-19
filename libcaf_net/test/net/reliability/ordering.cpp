@@ -31,8 +31,13 @@
 #include "caf/binary_deserializer.hpp"
 #include "caf/binary_serializer.hpp"
 #include "caf/byte_buffer.hpp"
+#include "caf/detail/make_unique.hpp"
+#include "caf/mailbox_element.hpp"
+#include "caf/message.hpp"
+#include "caf/net/endpoint_manager_queue.hpp"
 #include "caf/net/reliability/ordering_header.hpp"
 #include "caf/net/transport_worker.hpp"
+#include "caf/string_view.hpp"
 #include "caf/timestamp.hpp"
 
 using namespace caf;
@@ -42,6 +47,8 @@ using namespace std::literals::string_literals;
 using message_buffer = std::vector<byte_buffer>;
 
 namespace {
+
+constexpr string_view hello_test = "hello test!";
 
 struct fixture : test_coordinator_fixture<>, host_fixture {
   fixture() : all_messages_received(false) {
@@ -53,7 +60,7 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     if (from > to)
       CAF_FAIL("`from` has to be less than `to`");
     for (auto i = to; i >= from; --i)
-      messages.emplace_back(make_message(i));
+      messages.emplace_back(make_ordering_message(i));
     return messages;
   }
 
@@ -62,11 +69,11 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     if (from > to)
       CAF_FAIL("`from` has to be less than `to`");
     for (auto i = from; i <= to; ++i)
-      messages.emplace_back(make_message(i));
+      messages.emplace_back(make_ordering_message(i));
     return messages;
   }
 
-  byte_buffer make_message(int seq) {
+  byte_buffer make_ordering_message(int seq) {
     byte_buffer buf;
     binary_serializer sink(sys, buf);
     reliability::ordering_header hdr{reliability::sequence_type(seq)};
@@ -75,19 +82,48 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
     return buf;
   }
 
+  std::unique_ptr<endpoint_manager_queue::message> make_message() {
+    using message_type = endpoint_manager_queue::message;
+    auto msg = caf::make_message(to_string(hello_test));
+    auto elem = make_mailbox_element(nullptr, make_message_id(), {}, msg);
+    return detail::make_unique<message_type>(std::move(elem), nullptr);
+  }
+
+  void check_message(reliability::sequence_type seq) {
+    reliability::ordering_header hdr;
+    caf::message received_msg;
+    binary_deserializer source(sys, last_message);
+    if (auto err = source(hdr, received_msg))
+      CAF_FAIL("could not deserialize message " << CAF_ARG(err));
+    CAF_CHECK_EQUAL(hdr.sequence, seq);
+    auto received_str = received_msg.get_as<std::string>(0);
+    CAF_CHECK_EQUAL(string_view{received_str}, hello_test);
+  }
+
   bool all_messages_received;
+  byte_buffer last_message;
 };
 
 class dummy_application {
 public:
-  dummy_application(bool& success, uint16_t from, uint16_t to,
-                    std::initializer_list<uint8_t> missing)
+  dummy_application(bool& success, uint16_t from, uint16_t to)
     : success_(success), sequence_(from), sequence_end_(to) {
-    missing_.insert(missing_.end(), missing.begin(), missing.end());
+    // nop
   }
 
   template <class Parent>
   error init(Parent&) {
+    return none;
+  }
+
+  template <class Parent>
+  error write_message(Parent& parent,
+                      std::unique_ptr<endpoint_manager_queue::message> ptr) {
+    byte_buffer buf;
+    binary_serializer sink(nullptr, buf);
+    if (auto err = sink(ptr->msg->content()))
+      return err;
+    parent.write_packet(buf);
     return none;
   }
 
@@ -101,10 +137,6 @@ public:
     CAF_CHECK_EQUAL(res, sequence_);
     success_ = (res == sequence_end_);
     ++sequence_;
-    if (std::find_if(missing_.begin(), missing_.end(),
-                     [&](const auto& val) { return val == sequence_; })
-        != missing_.end())
-      ++sequence_;
     return none;
   }
 
@@ -117,7 +149,6 @@ private:
   bool& success_;
   uint8_t sequence_;
   uint8_t sequence_end_;
-  std::vector<uint8_t> missing_;
 };
 
 template <class Application>
@@ -127,8 +158,12 @@ public:
 
   using application_type = Application;
 
-  dummy_transport(actor_system& sys, Application application)
-    : sys_(sys), worker_(std::move(application)), timeout_id_(0) {
+  dummy_transport(actor_system& sys, Application application,
+                  byte_buffer& last_packet)
+    : sys_(sys),
+      worker_(std::move(application)),
+      timeout_id_(0),
+      last_packet_(last_packet) {
     // nop
   }
 
@@ -136,14 +171,18 @@ public:
     CAF_REQUIRE_EQUAL(worker_.init(*this), none);
   }
 
-  void pass(const byte_buffer& msg) {
+  void write_message(const byte_buffer& msg) {
     if (auto err = worker_.handle_data(*this, make_span(msg)))
       CAF_FAIL("handle_data failed" << CAF_ARG(err));
   }
 
-  void pass(const message_buffer& messages) {
+  void write_message(const message_buffer& messages) {
     for (auto& msg : messages)
-      pass(msg);
+      write_message(msg);
+  }
+
+  void write_message(std::unique_ptr<endpoint_manager_queue::message> ptr) {
+    worker_.write_message(*this, std::move(ptr));
   }
 
   actor_system& system() {
@@ -163,8 +202,10 @@ public:
   }
 
   template <class IdType>
-  void write_packet(IdType, span<byte_buffer>) {
-    // nop
+  void write_packet(IdType, span<byte_buffer*> bufs) {
+    last_packet_.clear();
+    for (const auto buf : bufs)
+      last_packet_.insert(last_packet_.end(), buf->begin(), buf->end());
   }
 
   template <class... Ts>
@@ -194,15 +235,16 @@ private:
   transport_worker<Application> worker_;
   uint64_t timeout_id_;
   std::deque<std::pair<std::string, uint64_t>> timeouts_;
+  byte_buffer& last_packet_;
 };
 
 #define TEST_DELIVER_PENDING_UNORDERED(from, to)                               \
   using ordering_type = reliability::ordering<dummy_application>;              \
   dummy_transport<ordering_type> trans{                                        \
-    sys,                                                                       \
-    ordering_type{dummy_application{all_messages_received, from, to, {}}}};    \
+    sys, ordering_type{dummy_application{all_messages_received, from, to}},    \
+    last_message};                                                             \
   trans.init();                                                                \
-  trans.pass(make_unordered_message_sequence(from, to));                       \
+  trans.write_message(make_unordered_message_sequence(from, to));              \
   CAF_CHECK(all_messages_received)
 
 } // namespace
@@ -214,9 +256,10 @@ CAF_TEST(ordered packets) {
   uint16_t from = 0;
   uint16_t to = 3;
   dummy_transport<ordering_type> trans{
-    sys, ordering_type{dummy_application{all_messages_received, from, to, {}}}};
+    sys, ordering_type{dummy_application{all_messages_received, from, to}},
+    last_message};
   trans.init();
-  trans.pass(make_ordered_message_sequence(from, to));
+  trans.write_message(make_ordered_message_sequence(from, to));
   CAF_CHECK(all_messages_received);
 }
 
@@ -236,10 +279,11 @@ CAF_TEST(max pending) {
 CAF_TEST(simple timeout) {
   using ordering_type = reliability::ordering<dummy_application>;
   dummy_transport<ordering_type> trans{
-    sys, ordering_type{dummy_application{all_messages_received, 1, 1, {}}}};
+    sys, ordering_type{dummy_application{all_messages_received, 1, 1}},
+    last_message};
   trans.init();
-  auto msg = make_message(1);
-  trans.pass(msg);
+  auto msg = make_ordering_message(1);
+  trans.write_message(msg);
   CAF_CHECK(!trans.timeouts_empty());
   trans.trigger_timeout();
   CAF_CHECK(trans.timeouts_empty());
@@ -249,17 +293,31 @@ CAF_TEST(simple timeout) {
 CAF_TEST(cancel timeout) {
   using ordering_type = reliability::ordering<dummy_application>;
   dummy_transport<ordering_type> trans{
-    sys, ordering_type{dummy_application{all_messages_received, 0, 4, {}}}};
+    sys, ordering_type{dummy_application{all_messages_received, 0, 4}},
+    last_message};
   trans.init();
   auto first_batch = make_ordered_message_sequence(0, 1);
   auto second_batch = make_ordered_message_sequence(3, 4);
-  auto last_message = make_message(2);
-  trans.pass(first_batch);
-  trans.pass(second_batch);
+  auto last_message = make_ordering_message(2);
+  trans.write_message(first_batch);
+  trans.write_message(second_batch);
   CAF_CHECK(!trans.timeouts_empty());
-  trans.pass(last_message);
+  trans.write_message(last_message);
   CAF_CHECK(trans.timeouts_empty());
   CAF_CHECK(all_messages_received);
+}
+
+CAF_TEST(write_message) {
+  using ordering_type = reliability::ordering<dummy_application>;
+  dummy_transport<ordering_type> trans{
+    sys, ordering_type{dummy_application{all_messages_received, 0, 4}},
+    last_message};
+  trans.init();
+  for (reliability::sequence_type i = 0; i < 10; ++i) {
+    auto msg = make_message();
+    trans.write_message(std::move(msg));
+    check_message(i);
+  }
 }
 
 CAF_TEST_FIXTURE_SCOPE_END()

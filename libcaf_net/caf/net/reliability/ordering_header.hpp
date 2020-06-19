@@ -24,13 +24,14 @@ namespace caf::net::reliability {
 
 using sequence_type = uint16_t;
 
+/// The header of a ordering message.
 struct ordering_header {
   sequence_type sequence;
 };
 
-constexpr size_t ordering_header_size = sizeof(ordering_header);
+constexpr size_t ordering_header_size = sizeof(sequence_type);
 
-/// @relates header
+/// @relates ordering_header
 template <class Inspector>
 typename Inspector::result_type inspect(Inspector& f, ordering_header& x) {
   return f(meta::type_name("reliability::ordering_header"), x.sequence);

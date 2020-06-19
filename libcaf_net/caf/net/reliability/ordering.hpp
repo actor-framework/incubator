@@ -91,9 +91,11 @@ public:
   template <class Parent, class... Ts>
   void write_packet(Parent& parent, Ts&... buffers) {
     auto hdr = parent.next_header_buffer();
-    binary_serializer sink(&parent.system(), hdr);
-    if (auto err = sink(ordering_header{seq_write_++}))
+    binary_serializer sink(parent.system(), hdr);
+    if (auto err = sink(ordering_header{seq_write_++})) {
       CAF_LOG_ERROR("could not serialize header" << CAF_ARG(err));
+      return;
+    }
     parent.write_packet(hdr, buffers...);
   }
 
