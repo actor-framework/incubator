@@ -23,8 +23,8 @@
 #include <vector>
 
 #include "caf/actor_control_block.hpp"
-#include "caf/fwd.hpp"
 #include "caf/detail/net_export.hpp"
+#include "caf/fwd.hpp"
 #include "caf/mailbox_element.hpp"
 
 namespace caf::net::basp {
