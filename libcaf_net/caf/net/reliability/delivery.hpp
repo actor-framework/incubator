@@ -28,7 +28,7 @@
 #include "caf/logger.hpp"
 #include "caf/net/endpoint_manager_queue.hpp"
 #include "caf/net/packet_writer_decorator.hpp"
-#include "caf/net/reliability/reliability_header.hpp"
+#include "caf/net/reliability/delivery_header.hpp"
 #include "caf/span.hpp"
 #include "caf/string_view.hpp"
 #include "caf/timestamp.hpp"
@@ -38,11 +38,11 @@ namespace caf::net::reliability {
 /// Implements an application protocol that ensures reliable communication for
 /// unreliable protocols.
 template <class Application>
-class reliability {
+class delivery {
 public:
   // -- constructors, destructors, and assignment operators --------------------
 
-  explicit reliability(Application application)
+  explicit delivery(Application application)
     : application_(std::move(application)), retransmit_timeout_(40) {
     // nop
   }
@@ -65,7 +65,7 @@ public:
   void write_packet(Parent& parent, Ts&... buffers) {
     auto hdr = parent.next_header_buffer();
     binary_serializer sink(parent.system(), hdr);
-    if (auto err = sink(reliability_header{id_write_, false})) {
+    if (auto err = sink(delivery_header{id_write_, false})) {
       CAF_LOG_ERROR("could not serialize header" << CAF_ARG(err));
       return;
     }
@@ -75,9 +75,9 @@ public:
 
   template <class Parent>
   error handle_data(Parent& parent, span<const byte> received) {
-    if (received.size() < reliability_header_size)
+    if (received.size() < delivery_header_size)
       return sec::unexpected_message;
-    reliability_header hdr;
+    delivery_header hdr;
     binary_deserializer source(parent.system(), received);
     if (auto err = source(hdr))
       return err;
@@ -88,13 +88,13 @@ public:
       // Send ack.
       auto buf = parent.next_header_buffer();
       binary_serializer sink(parent.system(), buf);
-      if (auto err = sink(reliability_header{hdr.id, true}))
+      if (auto err = sink(delivery_header{hdr.id, true}))
         return err;
       parent.write_packet(buf);
       auto writer = make_packet_writer_decorator(*this, parent);
       if (auto err = application_.handle_data(
-            writer, make_span(received.data() + reliability_header_size,
-                              received.size() - reliability_header_size)))
+            writer, make_span(received.data() + delivery_header_size,
+                              received.size() - delivery_header_size)))
         return err;
     }
     return none;
@@ -182,7 +182,7 @@ private:
 
   std::unordered_map<uint64_t, id_type> timeouts_;
 
-  static constexpr string_view tag_ = "reliability";
+  static constexpr string_view tag_ = "delivery";
 };
 
 } // namespace caf::net::reliability

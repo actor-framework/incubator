@@ -16,9 +16,9 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#define CAF_SUITE net.reliability.reliability
+#define CAF_SUITE net.reliability.delivery
 
-#include "caf/net/reliability/reliability.hpp"
+#include "caf/net/reliability/delivery.hpp"
 
 #include <deque>
 #include <initializer_list>
@@ -31,7 +31,7 @@
 #include "caf/byte_buffer.hpp"
 #include "caf/mailbox_element.hpp"
 #include "caf/net/endpoint_manager_queue.hpp"
-#include "caf/net/reliability/reliability_header.hpp"
+#include "caf/net/reliability/delivery_header.hpp"
 #include "caf/net/transport_worker.hpp"
 #include "caf/string_view.hpp"
 #include "caf/timestamp.hpp"
@@ -173,7 +173,7 @@ private:
 };
 
 struct fixture : test_coordinator_fixture<>, host_fixture {
-  using reliability_type = reliability::reliability<dummy_application>;
+  using reliability_type = reliability::delivery<dummy_application>;
 
   fixture()
     : trans{sys, reliability_type{dummy_application{received_data}},
@@ -182,7 +182,7 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   }
 
   void check_message(byte_buffer& buf, reliability::id_type id) {
-    reliability::reliability_header hdr;
+    reliability::delivery_header hdr;
     caf::message msg;
     binary_deserializer source(sys, buf);
     if (auto err = source(hdr, msg))
@@ -200,7 +200,7 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
 
 } // namespace
 
-CAF_TEST_FIXTURE_SCOPE(reliability_tests, fixture)
+CAF_TEST_FIXTURE_SCOPE(delivery_tests, fixture)
 
 CAF_TEST(timeout) {
   trans.write_message();
@@ -216,7 +216,7 @@ CAF_TEST(ACK cancels timeout) {
   last_packet.clear();
   byte_buffer ack;
   binary_serializer sink(sys, ack);
-  if (auto err = sink(reliability::reliability_header{0, true}))
+  if (auto err = sink(reliability::delivery_header{0, true}))
     CAF_FAIL("could not serialize ack " << CAF_ARG(err));
   trans.handle_data(ack);
   CAF_CHECK(trans.timeouts_empty());
@@ -225,12 +225,12 @@ CAF_TEST(ACK cancels timeout) {
 CAF_TEST(handle_data leads to ACK) {
   byte_buffer buf;
   binary_serializer sink(sys, buf);
-  if (auto err = sink(reliability::reliability_header{1337, false},
+  if (auto err = sink(reliability::delivery_header{1337, false},
                       make_message(to_string(hello_test))))
     CAF_FAIL("could not serialize message" << CAF_ARG(err));
   CAF_MESSAGE("sending message");
   trans.handle_data(buf);
-  reliability::reliability_header hdr;
+  reliability::delivery_header hdr;
   binary_deserializer source(sys, last_packet);
   if (auto err = source(hdr))
     CAF_FAIL("could not deserialize header " << err);
