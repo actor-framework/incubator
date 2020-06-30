@@ -24,18 +24,18 @@ namespace caf::net::reliability {
 
 using id_type = uint16_t;
 
-/// The header of a reliability message.
-struct reliability_header {
+/// The header of a delivery message.
+struct delivery_header {
   id_type id;
   bool is_ack;
 };
 
-constexpr size_t reliability_header_size = sizeof(id_type) + sizeof(bool);
+constexpr size_t delivery_header_size = sizeof(id_type) + sizeof(bool);
 
-/// @relates reliability_header
+/// @relates delivery_header
 template <class Inspector>
-typename Inspector::result_type inspect(Inspector& f, reliability_header& x) {
-  return f(meta::type_name("reliability::reliability_header"), x.id, x.is_ack);
+typename Inspector::result_type inspect(Inspector& f, delivery_header& x) {
+  return f(meta::type_name("delivery::delivery_header"), x.id, x.is_ack);
 }
 
 } // namespace caf::net::reliability
