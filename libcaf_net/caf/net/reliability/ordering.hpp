@@ -90,7 +90,7 @@ public:
   template <class Parent, class... Ts>
   void write_packet(Parent& parent, Ts&... buffers) {
     auto hdr = parent.next_header_buffer();
-    binary_serializer sink(&parent.system(), hdr);
+    binary_serializer sink(parent.system(), hdr);
     if (auto err = sink(ordering_header{seq_write_++}))
       CAF_LOG_ERROR("could not serialize header" << CAF_ARG(err));
     parent.write_packet(hdr, buffers...);
@@ -180,7 +180,7 @@ private:
   template <class Writer>
   error add_pending(Writer& writer, span<const byte> bytes, sequence_type seq) {
     pending_[seq] = byte_buffer(bytes.begin(), bytes.end());
-    auto when = make_timestamp() + pending_to_;
+    auto when = writer.system().clock().now() + pending_to_;
     auto timeout_id = writer.set_timeout(when, to_string(tag_));
     timeout_map_.emplace(timeout_id, seq);
     if (pending_.size() > max_pending_messages_) {

@@ -28,6 +28,7 @@
 #include "caf/net/test/host_fixture.hpp"
 #include "caf/test/dsl.hpp"
 
+#include "caf/actor_clock.hpp"
 #include "caf/binary_deserializer.hpp"
 #include "caf/binary_serializer.hpp"
 #include "caf/byte_buffer.hpp"
@@ -168,7 +169,7 @@ public:
   }
 
   template <class... Ts>
-  uint64_t set_timeout(timestamp, std::string tag, Ts&&...) {
+  uint64_t set_timeout(actor_clock::time_point, std::string tag, Ts&&...) {
     timeouts_.emplace_back(tag, timeout_id_);
     return timeout_id_++;
   }

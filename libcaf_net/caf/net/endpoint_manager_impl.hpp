@@ -20,6 +20,7 @@
 
 #include "caf/abstract_actor.hpp"
 #include "caf/actor_cast.hpp"
+#include "caf/actor_clock.hpp"
 #include "caf/actor_system.hpp"
 #include "caf/detail/overload.hpp"
 #include "caf/net/endpoint_manager.hpp"

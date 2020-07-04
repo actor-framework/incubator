@@ -22,6 +22,8 @@
 #include "caf/error.hpp"
 #include "caf/net/basp/application.hpp"
 #include "caf/net/datagram_adaptor.hpp"
+#include "caf/net/reliability/delivery.hpp"
+#include "caf/net/reliability/ordering.hpp"
 #include "caf/proxy_registry.hpp"
 
 namespace caf::net::basp {
@@ -30,7 +32,11 @@ namespace caf::net::basp {
 /// @relates transport_worker_dispatcher
 class CAF_NET_EXPORT datagram_application_factory {
 public:
-  using application_type = datagram_adaptor<basp::application>;
+  using ordering_type = reliability::ordering<basp::application>;
+
+  using delivery_type = reliability::delivery<ordering_type>;
+
+  using application_type = delivery_type;
 
   datagram_application_factory(proxy_registry& proxies) : proxies_(proxies) {
     // nop
@@ -42,7 +48,7 @@ public:
   }
 
   application_type make() const {
-    return application_type{basp::application{proxies_}};
+    return delivery_type{ordering_type{basp::application{proxies_}}};
   }
 
 private:
