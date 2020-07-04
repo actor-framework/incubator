@@ -20,6 +20,7 @@
 
 #include "caf/net/packet_writer.hpp"
 
+#include "caf/actor_clock.hpp"
 #include "caf/byte_buffer.hpp"
 #include "caf/span.hpp"
 
@@ -102,7 +103,8 @@ public:
   }
 
   template <class... Ts>
-  uint64_t set_timeout(timestamp tout, std::string tag, Ts&&... xs) {
+  uint64_t
+  set_timeout(actor_clock::time_point tout, std::string tag, Ts&&... xs) {
     return parent_.set_timeout(tout, std::move(tag), id(),
                                std::forward<Ts>(xs)...);
   }

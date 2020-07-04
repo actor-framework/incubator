@@ -18,12 +18,14 @@
 
 #pragma once
 
+#include "caf/actor_clock.hpp"
 #include "caf/byte_buffer.hpp"
 #include "caf/defaults.hpp"
 #include "caf/detail/overload.hpp"
 #include "caf/fwd.hpp"
 #include "caf/logger.hpp"
 #include "caf/net/defaults.hpp"
+#include "caf/net/endpoint_manager_impl.hpp"
 #include "caf/net/receive_policy.hpp"
 
 namespace caf::net {
@@ -96,7 +98,7 @@ public:
   /// Initializes this transport.
   /// @param parent The `endpoint_manager` that manages this transport.
   /// @returns `error` on failure, none on success.
-  virtual error init(endpoint_manager& parent) {
+  virtual error init(endpoint_manager_impl<transport_type>& parent) {
     CAF_LOG_TRACE("");
     manager_ = &parent;
     auto& cfg = system().config();
@@ -153,8 +155,13 @@ public:
   /// @param ts Any further information that should be passed after setting the
   /// timeout.
   template <class... Ts>
-  uint64_t set_timeout(timestamp tout, std::string tag, Ts&&... ts) {
-    return manager().set_timeout(tout, std::move(tag), std::forward<Ts>(ts)...);
+  uint64_t
+  set_timeout(actor_clock::time_point tout, std::string tag, Ts&&... ts) {
+    using endpoint_manager_impl_type = endpoint_manager_impl<transport_type>;
+    if (auto ptr = reinterpret_cast<endpoint_manager_impl_type*>(manager_))
+      return ptr->set_timeout(tout, std::move(tag), std::forward<Ts>(ts)...);
+    CAF_LOG_ERROR("could not set timeout");
+    return 0;
   }
 
   /// Callback for setting a timeout. Will be called after setting a timeout to
@@ -171,7 +178,9 @@ public:
   /// @param tag The type of the timeout.
   /// @param id The id of the previously set timeout.
   void cancel_timeout(std::string tag, uint64_t id) {
-    manager().cancel_timeout(std::move(tag), id);
+    using endpoint_manager_impl_type = endpoint_manager_impl<transport_type>;
+    if (auto ptr = reinterpret_cast<endpoint_manager_impl_type*>(manager_))
+      ptr->cancel_timeout(std::move(tag), id);
   }
 
   /// Callback for resetting a timeout. Will be called after cancelling a
@@ -258,7 +267,7 @@ protected:
   byte_buffer read_buf_;
 
   /// Pointer to the endpoint_manager this instance is managed by.
-  endpoint_manager* manager_;
+  endpoint_manager_impl<transport_type>* manager_;
 
   /// Number of reads that should be fulfilled in a single read_event.
   size_t max_consecutive_reads_;

@@ -184,8 +184,8 @@ private:
   template <class Parent>
   error add_pending(Parent& parent, span<const byte> bytes, sequence_type seq) {
     pending_[seq] = byte_buffer(bytes.begin(), bytes.end());
-    auto when = make_timestamp() + pending_to_;
-    auto timeout_id = parent.set_timeout(when, to_string(tag_));
+    auto when = writer.system().clock().now() + pending_to_;
+    auto timeout_id = writer.set_timeout(when, to_string(tag_));
     timeout_map_.emplace(timeout_id, seq);
     if (pending_.size() > max_pending_messages_) {
       seq_read_ = pending_.begin()->first;

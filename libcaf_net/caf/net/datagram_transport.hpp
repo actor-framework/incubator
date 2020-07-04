@@ -70,7 +70,7 @@ public:
 
   // -- public member functions ------------------------------------------------
 
-  error init(endpoint_manager& manager) override {
+  error init(endpoint_manager_impl<typename super::transport_type>& manager) override {
     CAF_LOG_TRACE("");
     if (auto err = super::init(manager))
       return err;

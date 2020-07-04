@@ -130,7 +130,7 @@ public:
         // Retransmit the packet.
         auto& packet = unacked_[retransmit_id];
         parent.write_packet(packet);
-        auto when = make_timestamp() + retransmit_timeout_;
+        auto when = parent.system().clock().now() + retransmit_timeout_;
         auto timeout_id = parent.set_timeout(when, to_string(tag_));
         timeouts_.emplace(timeout_id, retransmit_id);
       }
@@ -155,7 +155,7 @@ private:
     auto buf = parent.next_payload_buffer();
     insert(buf, buffers...);
     unacked_.emplace(retransmit_id, std::move(buf));
-    auto when = make_timestamp() + retransmit_timeout_;
+    auto when = parent.system().clock().now() + retransmit_timeout_;
     auto timeout_id = parent.set_timeout(when, to_string(tag_));
     timeouts_.emplace(timeout_id, retransmit_id);
   }
