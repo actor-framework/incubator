@@ -21,9 +21,12 @@
 #include "caf/abstract_actor.hpp"
 #include "caf/actor_cast.hpp"
 #include "caf/actor_clock.hpp"
+#include "caf/actor_config.hpp"
 #include "caf/actor_system.hpp"
 #include "caf/detail/overload.hpp"
+#include "caf/make_actor.hpp"
 #include "caf/net/endpoint_manager.hpp"
+#include "caf/net/timeout_proxy.hpp"
 
 namespace caf::net {
 
@@ -42,12 +45,15 @@ public:
 
   endpoint_manager_impl(const multiplexer_ptr& parent, actor_system& sys,
                         Transport trans)
-    : super(trans.handle(), parent, sys), transport_(std::move(trans)) {
+    : super(trans.handle(), parent, sys),
+      transport_(std::move(trans)),
+      next_timeout_id_(0) {
     // nop
   }
 
   ~endpoint_manager_impl() override {
-    // nop
+    auto proxy = actor_cast<timeout_proxy*>(this->timeout_proxy_);
+    proxy->kill_proxy(nullptr, exit_reason::normal);
   }
 
   // -- properties -------------------------------------------------------------
@@ -83,6 +89,11 @@ public:
 
   error init() override {
     this->register_reading();
+    auto& sys = this->sys_;
+    actor_config cfg;
+    cfg.add_flag(abstract_actor::is_hidden_flag);
+    this->timeout_proxy_ = make_actor<timeout_proxy, actor>(
+      sys.next_actor_id(), sys.node(), &sys, cfg, this);
     return transport_.init(*this);
   }
 
