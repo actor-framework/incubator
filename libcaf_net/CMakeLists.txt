@@ -63,6 +63,7 @@ add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
   src/socket.cpp
   src/socket_manager.cpp
   src/stream_socket.cpp
+  src/timeout_proxy.cpp
   src/tcp_accept_socket.cpp
   src/tcp_stream_socket.cpp
   src/udp_datagram_socket.cpp

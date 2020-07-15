@@ -20,7 +20,7 @@
 
 #include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/basp/application.hpp"
-#include "caf/net/basp/datagram_application_factory.hpp"
+#include "caf/net/basp/application_factory.hpp"
 #include "caf/net/datagram_transport.hpp"
 #include "caf/net/make_endpoint_manager.hpp"
 #include "caf/net/middleman.hpp"
@@ -97,7 +97,7 @@ expected<endpoint_manager_ptr> udp::emplace(udp_datagram_socket sock,
   ep_manager_ = make_endpoint_manager(
     mpx, mm_.system(),
     datagram_transport{guard.release(),
-                       basp::datagram_application_factory{proxies_}});
+                       basp::application_factory{proxies_}});
   if (auto err = ep_manager_->init()) {
     CAF_LOG_ERROR("mgr->init() failed: " << err);
     return err;

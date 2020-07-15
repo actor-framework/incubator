@@ -20,6 +20,7 @@
 
 #include "caf/intrusive/inbox_result.hpp"
 #include "caf/net/multiplexer.hpp"
+#include "caf/net/timeout_proxy.hpp"
 #include "caf/sec.hpp"
 #include "caf/send.hpp"
 
