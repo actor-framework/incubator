@@ -24,6 +24,7 @@
 
 #include "caf/actor.hpp"
 #include "caf/actor_clock.hpp"
+#include "caf/actor_config.hpp"
 #include "caf/detail/net_export.hpp"
 #include "caf/fwd.hpp"
 #include "caf/intrusive/drr_queue.hpp"
@@ -32,6 +33,7 @@
 #include "caf/mailbox_element.hpp"
 #include "caf/net/endpoint_manager_queue.hpp"
 #include "caf/net/socket_manager.hpp"
+#include "caf/net/timeout_proxy.hpp"
 #include "caf/variant.hpp"
 
 namespace caf::net {
@@ -86,8 +88,10 @@ protected:
   /// Stores control events and outbound messages.
   endpoint_manager_queue::type queue_;
 
+  actor_config cfg_;
+
   /// Stores a proxy for interacting with the actor clock.
-  actor timeout_proxy_;
+  timeout_proxy<endpoint_manager> timeout_proxy_;
 };
 
 using endpoint_manager_ptr = intrusive_ptr<endpoint_manager>;

@@ -19,25 +19,43 @@
 #pragma once
 
 #include "caf/actor_proxy.hpp"
-#include "caf/net/endpoint_manager.hpp"
+#include "caf/actor_system.hpp"
+#include "caf/expected.hpp"
+#include "caf/logger.hpp"
 
 namespace caf::net {
 
 /// Implements a simple proxy forwarding timeouts to a manager.
+template <class Destination>
 class timeout_proxy : public actor_proxy {
 public:
   using super = actor_proxy;
 
-  timeout_proxy(actor_config& cfg, endpoint_manager_ptr dst);
+  timeout_proxy(actor_config& cfg, Destination& dst) : super(cfg), dst_(dst) {
+    dst_.enqueue_event(node(), id());
+  }
 
-  ~timeout_proxy() override;
+  ~timeout_proxy() override{
+    // nop
+  };
 
-  void enqueue(mailbox_element_ptr what, execution_unit* context) override;
+  void enqueue(mailbox_element_ptr msg, execution_unit*) override {
+    CAF_PUSH_AID(0);
+    CAF_ASSERT(msg != nullptr);
+    if (msg->content().match_elements<timeout_msg>()) {
+      auto tout = msg->content().get_as<timeout_msg>(0);
+      dst_.enqueue_event(tout.type, tout.timeout_id);
+    } else {
+      CAF_LOG_ERROR("timeout_proxy received wrong message");
+    }
+  }
 
-  void kill_proxy(execution_unit* ctx, error rsn) override;
+  void kill_proxy(execution_unit* ctx, error rsn) override {
+    cleanup(std::move(rsn), ctx);
+  }
 
 private:
-  endpoint_manager_ptr dst_;
+  Destination& dst_;
 };
 
 } // namespace caf::net

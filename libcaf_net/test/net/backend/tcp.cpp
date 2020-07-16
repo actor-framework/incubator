@@ -137,6 +137,7 @@ CAF_TEST(doorman accept) {
     run();
   }
   CAF_CHECK_EQUAL(earth.mpx->num_socket_managers(), 3);
+  while(handle_io_event());
 }
 
 CAF_TEST(connect) {

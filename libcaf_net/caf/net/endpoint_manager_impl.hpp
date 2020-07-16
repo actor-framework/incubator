@@ -52,8 +52,7 @@ public:
   }
 
   ~endpoint_manager_impl() override {
-    auto proxy = actor_cast<timeout_proxy*>(this->timeout_proxy_);
-    proxy->kill_proxy(nullptr, exit_reason::normal);
+    // nop
   }
 
   // -- properties -------------------------------------------------------------
@@ -89,11 +88,6 @@ public:
 
   error init() override {
     this->register_reading();
-    auto& sys = this->sys_;
-    actor_config cfg;
-    cfg.add_flag(abstract_actor::is_hidden_flag);
-    this->timeout_proxy_ = make_actor<timeout_proxy, actor>(
-      sys.next_actor_id(), sys.node(), &sys, cfg, this);
     return transport_.init(*this);
   }
 
