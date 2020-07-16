@@ -18,6 +18,7 @@
 
 #include "caf/net/endpoint_manager.hpp"
 
+#include "caf/actor_config.hpp"
 #include "caf/intrusive/inbox_result.hpp"
 #include "caf/net/multiplexer.hpp"
 #include "caf/net/timeout_proxy.hpp"
@@ -28,12 +29,16 @@ namespace caf::net {
 
 endpoint_manager::endpoint_manager(socket handle, const multiplexer_ptr& parent,
                                    actor_system& sys)
-  : super(handle, parent), sys_(sys), queue_(unit, unit, unit) {
+  : super(handle, parent),
+    sys_(sys),
+    queue_(unit, unit, unit),
+    timeout_proxy_{cfg_, *this} {
   queue_.try_block();
 }
 
 endpoint_manager::~endpoint_manager() {
-  // nop
+  /*auto proxy = actor_cast<timeout_proxy<endpoint_manager>*>(timeout_proxy_);
+  proxy->kill_proxy(nullptr, exit_reason::normal);*/
 }
 
 endpoint_manager_queue::message_ptr endpoint_manager::next_message() {
