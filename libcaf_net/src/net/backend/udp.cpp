@@ -96,8 +96,7 @@ expected<endpoint_manager_ptr> udp::emplace(udp_datagram_socket sock,
   const std::lock_guard<std::mutex> lock(lock_);
   ep_manager_ = make_endpoint_manager(
     mpx, mm_.system(),
-    datagram_transport{guard.release(),
-                       basp::application_factory{proxies_}});
+    datagram_transport{guard.release(), basp::application_factory{proxies_}});
   if (auto err = ep_manager_->init()) {
     CAF_LOG_ERROR("mgr->init() failed: " << err);
     return err;
