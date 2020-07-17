@@ -114,16 +114,12 @@ public:
         auto& front = this->write_queue_.front();
         auto& is_header = front.first;
         auto& buf = front.second;
-        written_ = 0;
-        buf.clear();
-        if (is_header) {
-          if (this->header_bufs_.size() < this->header_bufs_.capacity())
-            this->header_bufs_.emplace_back(std::move(buf));
-        } else if (this->payload_bufs_.size()
-                   < this->payload_bufs_.capacity()) {
-          this->payload_bufs_.emplace_back(std::move(buf));
-        }
+        if (is_header)
+          this->recycle_header_buffer(buf);
+        else
+          this->recycle_payload_buffer(buf);
         write_queue_.pop_front();
+        written_ = 0;
       };
       // Write buffers from the write_queue_ for as long as possible.
       while (!write_queue_.empty()) {
@@ -135,10 +131,8 @@ public:
         if (auto num_bytes = get_if<size_t>(&write_ret)) {
           CAF_LOG_DEBUG(CAF_ARG(this->handle_.id) << CAF_ARG(*num_bytes));
           written_ += *num_bytes;
-          if (written_ >= buf.size()) {
+          if (written_ >= buf.size())
             recycle();
-            written_ = 0;
-          }
         } else {
           auto err = get<sec>(write_ret);
           if (err != sec::unavailable_or_would_block) {
