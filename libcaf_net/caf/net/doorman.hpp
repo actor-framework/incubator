@@ -78,8 +78,10 @@ public:
     auto child = make_endpoint_manager(
       mpx, parent.system(),
       stream_transport<application_type>{*x, factory_.make()});
-    if (auto err = child->init())
+    if (auto err = child->init()) {
+      CAF_LOG_ERROR("child->init() failed" << err);
       return false;
+    }
     return true;
   }
 

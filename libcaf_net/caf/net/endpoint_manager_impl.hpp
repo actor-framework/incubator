@@ -19,6 +19,7 @@
 #pragma once
 
 #include "caf/abstract_actor.hpp"
+#include "caf/actor.hpp"
 #include "caf/actor_cast.hpp"
 #include "caf/actor_clock.hpp"
 #include "caf/actor_config.hpp"
@@ -51,9 +52,7 @@ public:
     // nop
   }
 
-  ~endpoint_manager_impl() override {
-    // nop
-  }
+  ~endpoint_manager_impl() = default;
 
   // -- properties -------------------------------------------------------------
 
@@ -88,7 +87,15 @@ public:
 
   error init() override {
     this->register_reading();
+    actor_config cfg;
+    this->timeout_proxy_ = make_actor<timeout_proxy, actor>(
+      invalid_actor_id, node_id{}, &this->system(), cfg, this);
     return transport_.init(*this);
+  }
+
+  void shutdown() override {
+    auto proxy = actor_cast<timeout_proxy*>(timeout_proxy_);
+    proxy->kill_proxy(nullptr, exit_reason::normal);
   }
 
   bool handle_read_event() override {
@@ -137,6 +144,9 @@ private:
 
   /// Stores the id for the next timeout.
   uint64_t next_timeout_id_;
+
+  /// Stores a proxy for interacting with the actor clock.
+  actor timeout_proxy_;
 };
 
 } // namespace caf::net
