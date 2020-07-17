@@ -239,6 +239,20 @@ public:
     return next_buffer_impl(payload_bufs_);
   }
 
+  /// Caches the passed header_buffer `buf` in the header_buffer_cache.
+  /// @returns `true` if the buffer was cached, `false` if not.
+  /// @warning this function takes ownership of `buffers`.
+  bool recycle_header_buffer(byte_buffer& buf) {
+    return recycle_buffer_impl(buf, header_bufs_);
+  }
+
+  /// Caches the passed payload_buffer `buf` in the payload_buffer_cache.
+  /// @returns `true` if the buffer was cached, `false` if not.
+  /// @warning this function takes ownership of `buf`.
+  bool recycle_payload_buffer(byte_buffer& buf) {
+    return recycle_buffer_impl(buf, payload_bufs_);
+  }
+
 private:
   // -- utility functions ------------------------------------------------------
 
@@ -248,6 +262,15 @@ private:
     auto buf = std::move(cache.back());
     cache.pop_back();
     return buf;
+  }
+
+  static bool recycle_buffer_impl(byte_buffer& buf, buffer_cache_type& cache) {
+    if (cache.size() < cache.capacity()) {
+      buf.clear();
+      cache.emplace_back(std::move(buf));
+      return true;
+    }
+    return false;
   }
 
 protected:
@@ -271,6 +294,6 @@ protected:
 
   /// Number of reads that should be fulfilled in a single read_event.
   size_t max_consecutive_reads_;
-};
+}; // namespace caf::net
 
 } // namespace caf::net

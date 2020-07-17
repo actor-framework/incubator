@@ -75,7 +75,7 @@ public:
     CAF_LOG_TRACE("");
     if (auto err = super::init(manager))
       return err;
-    prepare_next_read();
+    this->read_buf_.resize(max_datagram_size);
     return none;
   }
 
@@ -86,13 +86,12 @@ public:
       if (auto res = get_if<std::pair<size_t, ip_endpoint>>(&ret)) {
         auto& [num_bytes, ep] = *res;
         CAF_LOG_DEBUG("received " << num_bytes << " bytes");
-        this->read_buf_.resize(num_bytes);
-        if (auto err = this->next_layer_.handle_data(*this, this->read_buf_,
-                                                     std::move(ep))) {
+        if (auto err = this->next_layer_.handle_data(
+              *this, make_span(this->read_buf_.data(), num_bytes),
+              std::move(ep))) {
           CAF_LOG_ERROR("handle_data failed: " << err);
           return false;
         }
-        prepare_next_read();
       } else {
         auto err = get<sec>(ret);
         if (err == sec::unavailable_or_would_block) {
@@ -110,6 +109,38 @@ public:
   bool handle_write_event(endpoint_manager& manager) override {
     CAF_LOG_TRACE(CAF_ARG2("handle", this->handle_.id)
                   << CAF_ARG2("queue-size", packet_queue_.size()));
+    auto drain_write_queue = [this]() -> error_code<sec> {
+      // Helper function to sort empty buffers back into the right caches.
+      auto recycle = [&]() {
+        auto& buffers = packet_queue_.front().bytes;
+        auto it = buffers.begin();
+        this->recycle_header_buffer(*it++);
+        while (it != buffers.end() && this->recycle_payload_buffer(*it++))
+          ;
+        packet_queue_.pop_front();
+      };
+      // Write as many datagrams as possible.
+      while (!packet_queue_.empty()) {
+        auto& packet = packet_queue_.front();
+        auto ptrs = packet.get_buffer_ptrs();
+        auto write_ret = write(this->handle_, ptrs, packet.id);
+        if (auto num_bytes = get_if<size_t>(&write_ret)) {
+          CAF_LOG_DEBUG(CAF_ARG2("handle", this->handle_.id)
+                        << CAF_ARG(*num_bytes));
+          CAF_LOG_WARNING_IF(*num_bytes < packet.size,
+                             "packet was not sent completely");
+          recycle();
+        } else {
+          auto err = get<sec>(write_ret);
+          if (err != sec::unavailable_or_would_block) {
+            CAF_LOG_ERROR("write failed" << CAF_ARG(err));
+            this->next_layer_.handle_error(err);
+          }
+          return err;
+        }
+      }
+      return none;
+    };
     auto fetch_next_message = [&] {
       if (auto msg = manager.next_message()) {
         this->next_layer_.write_message(*this, std::move(msg));
@@ -118,10 +149,11 @@ public:
       return false;
     };
     do {
-      if (auto err = write_some())
+      if (auto err = drain_write_queue())
         return err == sec::unavailable_or_would_block;
     } while (fetch_next_message());
-    return !packet_queue_.empty();
+    CAF_ASSERT(packet_queue_.empty());
+    return false;
   }
 
   // TODO: remove this function. `resolve` should add workers when needed.
@@ -137,8 +169,6 @@ public:
     CAF_ASSERT(!buffers.empty());
     if (packet_queue_.empty())
       this->manager().register_writing();
-    // By convention, the first buffer is a header buffer. Every other buffer is
-    // a payload buffer.
     packet_queue_.emplace_back(id, buffers);
   }
 
@@ -158,6 +188,7 @@ public:
 
     std::vector<byte_buffer*> get_buffer_ptrs() {
       std::vector<byte_buffer*> ptrs;
+      ptrs.reserve(bytes.size());
       for (auto& buf : bytes)
         ptrs.emplace_back(&buf);
       return ptrs;
@@ -165,52 +196,6 @@ public:
   };
 
 private:
-  // -- utility functions ------------------------------------------------------
-
-  void prepare_next_read() {
-    this->read_buf_.resize(max_datagram_size);
-  }
-
-  error write_some() {
-    // Helper function to sort empty buffers back into the right caches.
-    auto recycle = [&]() {
-      auto& front = packet_queue_.front();
-      auto& bufs = front.bytes;
-      auto it = bufs.begin();
-      if (this->header_bufs_.size() < this->header_bufs_.capacity()) {
-        it->clear();
-        this->header_bufs_.emplace_back(std::move(*it++));
-      }
-      for (; it != bufs.end()
-             && this->payload_bufs_.size() < this->payload_bufs_.capacity();
-           ++it) {
-        it->clear();
-        this->payload_bufs_.emplace_back(std::move(*it));
-      }
-      packet_queue_.pop_front();
-    };
-    // Write as many bytes as possible.
-    while (!packet_queue_.empty()) {
-      auto& packet = packet_queue_.front();
-      auto ptrs = packet.get_buffer_ptrs();
-      auto write_ret = write(this->handle_, ptrs, packet.id);
-      if (auto num_bytes = get_if<size_t>(&write_ret)) {
-        CAF_LOG_DEBUG(CAF_ARG(this->handle_.id) << CAF_ARG(*num_bytes));
-        CAF_LOG_WARNING_IF(*num_bytes < packet.size,
-                           "packet was not sent completely");
-        recycle();
-      } else {
-        auto err = get<sec>(write_ret);
-        if (err != sec::unavailable_or_would_block) {
-          CAF_LOG_ERROR("write failed" << CAF_ARG(err));
-          this->next_layer_.handle_error(err);
-        }
-        return err;
-      }
-    }
-    return none;
-  }
-
   std::deque<packet> packet_queue_;
 };
 
