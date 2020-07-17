@@ -65,6 +65,7 @@ add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
   src/stream_socket.cpp
   src/tcp_accept_socket.cpp
   src/tcp_stream_socket.cpp
+  src/timeout_proxy.cpp
   src/udp_datagram_socket.cpp
   src/worker.cpp
 )
