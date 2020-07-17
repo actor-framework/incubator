@@ -20,8 +20,8 @@
 
 #include "caf/detail/net_export.hpp"
 #include "caf/error.hpp"
-#include "caf/net/datagram_adaptor.hpp"
 #include "caf/net/basp/application.hpp"
+#include "caf/net/datagram_adaptor.hpp"
 #include "caf/proxy_registry.hpp"
 
 namespace caf::net::basp {
