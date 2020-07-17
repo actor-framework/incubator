@@ -236,6 +236,7 @@ void multiplexer::shutdown() {
         auto& fd = pollset_[index_of(mgr)];
         fd.events &= ~input_mask;
       }
+      mgr->shutdown();
       if (mgr->mask() == operation::none)
         del(i);
       else

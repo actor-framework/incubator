@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright 2011-2019 Dominik Charousset                                     *
+ * Copyright 2011-2020 Dominik Charousset                                     *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
  * (at your option) under the terms and conditions of the Boost Software      *
@@ -16,59 +16,36 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#include "caf/net/socket_manager.hpp"
+#include "caf/net/timeout_proxy.hpp"
 
-#include "caf/config.hpp"
-#include "caf/net/multiplexer.hpp"
+#include "caf/logger.hpp"
 
 namespace caf::net {
 
-socket_manager::socket_manager(socket handle, const multiplexer_ptr& parent)
-  : handle_(handle), mask_(operation::none), parent_(parent) {
-  CAF_ASSERT(parent != nullptr);
-  CAF_ASSERT(handle_ != invalid_socket);
+timeout_proxy::timeout_proxy(actor_config& cfg, endpoint_manager_ptr dst)
+  : super(cfg), dst_(std::move(dst)) {
+  CAF_ASSERT(dst_);
 }
 
-socket_manager::~socket_manager() {
-  close(handle_);
-}
-
-bool socket_manager::mask_add(operation flag) noexcept {
-  CAF_ASSERT(flag != operation::none);
-  auto x = mask();
-  if ((x & flag) == flag)
-    return false;
-  mask_ = x | flag;
-  return true;
-}
-
-bool socket_manager::mask_del(operation flag) noexcept {
-  CAF_ASSERT(flag != operation::none);
-  auto x = mask();
-  if ((x & flag) == operation::none)
-    return false;
-  mask_ = x & ~flag;
-  return true;
-}
-
-void socket_manager::register_reading() {
-  if ((mask() & operation::read) == operation::read)
-    return;
-  auto ptr = parent_.lock();
-  if (ptr != nullptr)
-    ptr->register_reading(this);
-}
-
-void socket_manager::register_writing() {
-  if ((mask() & operation::write) == operation::write)
-    return;
-  auto ptr = parent_.lock();
-  if (ptr != nullptr)
-    ptr->register_writing(this);
-}
-
-void socket_manager::shutdown() {
+timeout_proxy::~timeout_proxy() {
   // nop
+}
+
+void timeout_proxy::enqueue(mailbox_element_ptr msg, execution_unit*) {
+  CAF_PUSH_AID(0);
+  CAF_ASSERT(msg != nullptr);
+  if (!dst_)
+    return;
+  if (msg->content().match_elements<timeout_msg>()) {
+    auto tout = msg->content().get_as<timeout_msg>(0);
+    dst_->enqueue_event(tout.type, tout.timeout_id);
+  } else {
+    CAF_LOG_ERROR("timeout_proxy received wrong message");
+  }
+}
+
+void timeout_proxy::kill_proxy(execution_unit*, error) {
+  dst_.reset();
 }
 
 } // namespace caf::net

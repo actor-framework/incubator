@@ -76,6 +76,8 @@ public:
 
   void register_writing();
 
+  virtual void shutdown();
+
   // -- pure virtual member functions ------------------------------------------
 
   /// Called whenever the socket received new data.

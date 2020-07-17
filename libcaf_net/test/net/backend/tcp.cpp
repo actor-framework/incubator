@@ -124,20 +124,16 @@ CAF_TEST(doorman accept) {
   auto backend = earth.mm.backend("tcp");
   CAF_CHECK(backend);
   uri::authority_type auth;
-  auth.host = "localhost"s;
+  auth.host = "127.0.0.1"s;
   auth.port = backend->port();
-  CAF_MESSAGE("trying to connect to earth at " << CAF_ARG(auth));
+  CAF_MESSAGE("connecting to earth at " << CAF_ARG(auth));
   auto sock = make_connected_tcp_stream_socket(auth);
   CAF_CHECK(sock);
   auto guard = make_socket_guard(*sock);
-  int runs = 0;
-  while (earth.mpx->num_socket_managers() < 3) {
-    if (++runs >= 5)
-      CAF_FAIL("doorman did not create endpoint_manager");
-    run();
-  }
+  while (handle_io_event())
+    ;
   CAF_CHECK_EQUAL(earth.mpx->num_socket_managers(), 3);
-  while(handle_io_event());
+  CAF_MESSAGE("connecting succeeded.");
 }
 
 CAF_TEST(connect) {

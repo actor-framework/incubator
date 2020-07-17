@@ -27,7 +27,6 @@
 #include "caf/net/middleman_backend.hpp"
 #include "caf/net/multiplexer.hpp"
 #include "caf/raise_error.hpp"
-#include "caf/sec.hpp"
 #include "caf/send.hpp"
 #include "caf/uri.hpp"
 
@@ -76,7 +75,7 @@ void middleman::init(actor_system_config& cfg) {
     CAF_RAISE_ERROR("mpx->init() failed");
   }
   if (auto node_uri = get_if<uri>(&cfg, "middleman.this-node")) {
-    auto this_node = make_node_id(std::move(*node_uri));
+    auto this_node = make_node_id(*node_uri);
     sys_.node_.swap(this_node);
   } else {
     CAF_RAISE_ERROR("no valid entry for middleman.this-node found");
