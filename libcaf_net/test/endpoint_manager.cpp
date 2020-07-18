@@ -37,6 +37,7 @@
 
 using namespace caf;
 using namespace caf::net;
+using namespace std::chrono_literals;
 
 namespace {
 
@@ -47,7 +48,7 @@ string_view hello_manager{"hello manager!"};
 string_view hello_test{"hello test!"};
 
 struct fixture : test_coordinator_fixture<>, host_fixture {
-  fixture() {
+  fixture() : timeout_set(false), timeout_triggered(false) {
     mpx = std::make_shared<multiplexer>();
     mpx->set_thread_id();
     if (auto err = mpx->init())
@@ -61,6 +62,10 @@ struct fixture : test_coordinator_fixture<>, host_fixture {
   }
 
   multiplexer_ptr mpx;
+
+  bool timeout_set;
+
+  bool timeout_triggered;
 };
 
 class dummy_application {
@@ -71,8 +76,13 @@ class dummy_transport {
 public:
   using application_type = dummy_application;
 
-  dummy_transport(stream_socket handle, byte_buffer_ptr data)
-    : handle_(handle), data_(data), read_buf_(1024) {
+  dummy_transport(stream_socket handle, byte_buffer_ptr data, bool& timeout_set,
+                  bool& timeout_triggered)
+    : handle_(handle),
+      data_(data),
+      read_buf_(1024),
+      timeout_set_(timeout_set),
+      timeout_triggered_(timeout_triggered) {
     // nop
   }
 
@@ -131,8 +141,16 @@ public:
   }
 
   template <class Manager>
-  void timeout(Manager&, const std::string&, uint64_t) {
-    // nop
+  void timeout(Manager&, const std::string& tag, uint64_t timeout_id) {
+    CAF_MESSAGE("timeout triggered " << CAF_ARG(tag) << " "
+                                     << CAF_ARG(timeout_id));
+    timeout_triggered_ = true;
+  }
+
+  template <class... Ts>
+  void set_timeout(uint64_t timeout_id, Ts&&...) {
+    CAF_MESSAGE("timeout set " << CAF_ARG(timeout_id));
+    timeout_set_ = true;
   }
 
   template <class Parent>
@@ -153,6 +171,10 @@ private:
   byte_buffer read_buf_;
 
   byte_buffer buf_;
+
+  bool& timeout_set_;
+
+  bool& timeout_triggered_;
 };
 
 } // namespace
@@ -167,8 +189,9 @@ CAF_TEST(send and receive) {
   CAF_CHECK_EQUAL(read(sockets.second, read_buf),
                   sec::unavailable_or_would_block);
   auto guard = detail::make_scope_guard([&] { close(sockets.second); });
-  auto mgr = make_endpoint_manager(mpx, sys,
-                                   dummy_transport{sockets.first, buf});
+  auto mgr = make_endpoint_manager(
+    mpx, sys,
+    dummy_transport{sockets.first, buf, timeout_set, timeout_triggered});
   CAF_CHECK_EQUAL(mgr->mask(), operation::none);
   CAF_CHECK_EQUAL(mgr->init(), none);
   CAF_CHECK_EQUAL(mgr->mask(), operation::read_write);
@@ -191,8 +214,9 @@ CAF_TEST(resolve and proxy communication) {
   auto sockets = unbox(make_stream_socket_pair());
   CAF_CHECK_EQUAL(nonblocking(sockets.second, true), none);
   auto guard = detail::make_scope_guard([&] { close(sockets.second); });
-  auto mgr = make_endpoint_manager(mpx, sys,
-                                   dummy_transport{sockets.first, buf});
+  auto mgr = make_endpoint_manager(
+    mpx, sys,
+    dummy_transport{sockets.first, buf, timeout_set, timeout_triggered});
   CAF_CHECK_EQUAL(mgr->init(), none);
   CAF_CHECK_EQUAL(mgr->mask(), operation::read_write);
   run();
@@ -221,6 +245,57 @@ CAF_TEST(resolve and proxy communication) {
     CAF_CHECK_EQUAL(msg.get_as<std::string>(0), "hello proxy!");
   else
     CAF_ERROR("expected a string, got: " << to_string(msg));
+}
+
+CAF_TEST(timeout) {
+  byte_buffer read_buf(1024);
+  auto buf = std::make_shared<byte_buffer>();
+  auto sockets = unbox(make_stream_socket_pair());
+  CAF_CHECK_EQUAL(nonblocking(sockets.second, true), none);
+  auto guard = detail::make_scope_guard([&] { close(sockets.second); });
+  auto mgr = make_endpoint_manager(
+    mpx, sys,
+    dummy_transport{sockets.first, buf, timeout_set, timeout_triggered});
+  CAF_CHECK_EQUAL(mgr->init(), none);
+  auto& mgr_impl
+    = *reinterpret_cast<endpoint_manager_impl<dummy_transport>*>(mgr.get());
+  auto when = sys.clock().now();
+  mgr_impl.set_timeout(when, "dummy");
+  CAF_CHECK(timeout_set);
+  trigger_timeout();
+  while (handle_io_event())
+    ;
+  CAF_CHECK(timeout_triggered);
+}
+
+CAF_TEST(multiple timeouts) {
+  byte_buffer read_buf(1024);
+  auto buf = std::make_shared<byte_buffer>();
+  auto sockets = unbox(make_stream_socket_pair());
+  CAF_CHECK_EQUAL(nonblocking(sockets.second, true), none);
+  auto guard = detail::make_scope_guard([&] { close(sockets.second); });
+  auto mgr = make_endpoint_manager(
+    mpx, sys,
+    dummy_transport{sockets.first, buf, timeout_set, timeout_triggered});
+  CAF_CHECK_EQUAL(mgr->init(), none);
+  auto& mgr_impl
+    = *reinterpret_cast<endpoint_manager_impl<dummy_transport>*>(mgr.get());
+  auto when = sys.clock().now();
+  for (int i = 0; i < 10; ++i) {
+    mgr_impl.set_timeout(when, "dummy");
+    CAF_CHECK(timeout_set);
+    timeout_set = false;
+    when += 10s;
+  }
+  CAF_MESSAGE("triggering timeouts");
+  advance_time(1s);
+  for (int i = 0; i < 10; ++i) {
+    while (handle_io_event())
+      ;
+    CAF_CHECK(timeout_triggered);
+    timeout_triggered = false;
+    advance_time(10s);
+  }
 }
 
 CAF_TEST_FIXTURE_SCOPE_END()

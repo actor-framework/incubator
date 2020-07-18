@@ -94,8 +94,9 @@ public:
   }
 
   void shutdown() override {
-    auto proxy = actor_cast<timeout_proxy*>(timeout_proxy_);
-    proxy->kill_proxy(nullptr, exit_reason::normal);
+    auto act = actor_cast<timeout_proxy*>(timeout_proxy_);
+    CAF_ASSERT(act);
+    act->kill_proxy(nullptr, exit_reason::normal);
   }
 
   bool handle_read_event() override {
