@@ -238,8 +238,9 @@ private:
         return none;
       }
       case connection_state::await_handshake_payload: {
-        if (auto err = handle_handshake(parent, hdr_, bytes))
+        if (auto err = handle_handshake(parent, hdr_, bytes)) {
           return err;
+        }
         state_ = connection_state::await_header;
         return none;
       }

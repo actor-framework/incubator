@@ -45,6 +45,7 @@ public:
 
   template <class Parent>
   error handle_data(Parent& parent, span<const byte> received) {
+    CAF_ASSERT(received.size() >= basp::header_size);
     if (auto err = application_.handle_data(
           parent, make_span(received.data(), basp::header_size)))
       return err;
