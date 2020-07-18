@@ -20,13 +20,14 @@
 
 #include "caf/actor_config.hpp"
 #include "caf/actor_proxy.hpp"
+#include "caf/detail/net_export.hpp"
 #include "caf/mailbox_element.hpp"
 #include "caf/net/endpoint_manager.hpp"
 
 namespace caf::net {
 
 /// Implements a simple proxy forwarding timeouts to a manager.
-class timeout_proxy : public actor_proxy {
+class CAF_NET_EXPORT timeout_proxy : public actor_proxy {
 public:
   using super = actor_proxy;
 
