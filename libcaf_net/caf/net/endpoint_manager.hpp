@@ -27,6 +27,7 @@
 #include "caf/intrusive/drr_queue.hpp"
 #include "caf/intrusive/fifo_inbox.hpp"
 #include "caf/intrusive/singly_linked.hpp"
+#include "caf/intrusive_ptr.hpp"
 #include "caf/mailbox_element.hpp"
 #include "caf/net/endpoint_manager_queue.hpp"
 #include "caf/net/socket_manager.hpp"
