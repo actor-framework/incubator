@@ -72,6 +72,10 @@ public:
   // -- member functions -------------------------------------------------------
 
   bool handle_read_event(endpoint_manager&) override {
+    auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::system_clock::now().time_since_epoch());
+    std::cout << "stream_trans.write_event: " << std::to_string(ts.count())
+              << ", ";
     CAF_LOG_TRACE(CAF_ARG2("handle", this->handle().id));
     for (size_t reads = 0; reads < this->max_consecutive_reads_; ++reads) {
       auto buf = this->read_buf_.data() + this->collected_;
@@ -84,12 +88,15 @@ public:
                       << CAF_ARG(this->handle_.id) << CAF_ARG(*num_bytes));
         this->collected_ += *num_bytes;
         if (this->collected_ >= this->read_threshold_) {
+          auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch());
+          std::cout << "stream_trans.handle_data: "
+                    << std::to_string(ts.count()) << ", ";
           if (auto err = this->next_layer_.handle_data(
                 *this, make_span(this->read_buf_))) {
             CAF_LOG_ERROR("handle_data failed: " << CAF_ARG(err));
             return false;
           }
-          this->prepare_next_read();
         }
       } else {
         auto err = get<sec>(ret);

@@ -252,6 +252,10 @@ private:
           return handle(parent, hdr_, byte_span{});
         next_read_size = hdr_.payload_len;
         state_ = connection_state::await_payload;
+        auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::system_clock::now().time_since_epoch());
+        std::cout << "basp.handle_header: " << std::to_string(ts.count())
+                  << ", ";
         return none;
       }
       case connection_state::await_payload: {
@@ -348,6 +352,9 @@ private:
       handler f{queue_.get(), &proxies_, system_, node_id{}, hdr, payload};
       f.handle_remote_message(&executor_);
     }
+    auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::system_clock::now().time_since_epoch());
+    std::cout << "basp.handle_payload: " << std::to_string(ts.count()) << ", ";
     return none;
   }
 
