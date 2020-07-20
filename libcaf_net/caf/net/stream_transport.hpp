@@ -146,16 +146,27 @@ public:
     };
     auto fetch_next_message = [&] {
       if (auto msg = manager.next_message()) {
+        auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::system_clock::now().time_since_epoch());
+        std::cout << "stream_trans.dequeue: " << std::to_string(ts.count())
+                  << ", ";
         this->next_layer_.write_message(*this, std::move(msg));
         return true;
       }
       return false;
     };
+    auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::system_clock::now().time_since_epoch());
+    std::cout << "stream_trans.handle_write_event: "
+              << std::to_string(ts.count()) << ", ";
     do {
       if (auto err = drain_write_queue())
         return err == sec::unavailable_or_would_block;
     } while (fetch_next_message());
     CAF_ASSERT(write_queue_.empty());
+    ts = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::system_clock::now().time_since_epoch());
+    std::cout << "end: " << std::to_string(ts.count()) << ", " << std::endl;
     return false;
   }
 
@@ -170,6 +181,10 @@ public:
     this->write_queue_.emplace_back(true, std::move(*(*i++)));
     while (i != buffers.end())
       this->write_queue_.emplace_back(false, std::move(*(*i++)));
+    auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::system_clock::now().time_since_epoch());
+    std::cout << "stream_trans.write_packet_done: "
+              << std::to_string(ts.count()) << ", ";
   }
 
   void configure_read(receive_policy::config cfg) override {

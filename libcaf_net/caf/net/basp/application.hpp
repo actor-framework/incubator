@@ -87,7 +87,7 @@ public:
     executor_.proxy_registry_ptr(&proxies_);
     // TODO: use `if constexpr` when switching to C++17.
     // Allow unit tests to run the application without endpoint manager.
-    if (!std::is_base_of<test_tag, Parent>::value)
+    if constexpr (!std::is_base_of<test_tag, Parent>::value)
       manager_ = &parent.manager();
     size_t workers;
     if (auto workers_cfg = get_if<size_t>(&system_->config(),
@@ -172,7 +172,7 @@ public:
   }
 
   template <class Parent>
-  static void new_proxy(Parent& parent, actor_id id) {
+  static void new_proxy(Parent& parent, const actor_id& id) {
     auto hdr = parent.next_header_buffer();
     to_bytes(
       header{message_type::monitor_message, 0, static_cast<uint64_t>(id)}, hdr);
@@ -180,7 +180,7 @@ public:
   }
 
   template <class Parent>
-  void local_actor_down(Parent& parent, actor_id id, error reason) {
+  void local_actor_down(Parent& parent, const actor_id& id, error reason) {
     auto payload = parent.next_payload_buffer();
     binary_serializer sink{system(), payload};
     if (auto err = sink(reason))
@@ -266,7 +266,7 @@ private:
   }
 
   template <class Parent>
-  error handle(Parent& parent, header hdr, byte_span payload) {
+  error handle(Parent& parent, const header& hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     switch (hdr.type) {
       case message_type::handshake:
@@ -289,7 +289,7 @@ private:
   }
 
   template <class Parent>
-  error handle_handshake(Parent&, header hdr, byte_span payload) {
+  error handle_handshake(Parent&, const header& hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     if (hdr.type != message_type::handshake)
       return ec::missing_handshake;
@@ -315,7 +315,7 @@ private:
   }
 
   template <class Parent>
-  error handle_actor_message(Parent&, header hdr, byte_span payload) {
+  error handle_actor_message(Parent&, const header& hdr, byte_span payload) {
     auto worker = hub_->pop();
     if (worker != nullptr) {
       CAF_LOG_DEBUG("launch BASP worker for deserializing an actor_message");
@@ -327,7 +327,7 @@ private:
       // the performance hit and deserialize in this thread.
       struct handler : remote_message_handler<handler> {
         handler(message_queue* queue, proxy_registry* proxies,
-                actor_system* system, node_id last_hop, basp::header& hdr,
+                actor_system* system, node_id last_hop, const basp::header& hdr,
                 byte_span payload)
           : queue_(queue),
             proxies_(proxies),
@@ -341,7 +341,7 @@ private:
         proxy_registry* proxies_;
         actor_system* system_;
         node_id last_hop_;
-        basp::header& hdr_;
+        const basp::header& hdr_;
         byte_span payload_;
         uint64_t msg_id_;
       };
@@ -352,8 +352,8 @@ private:
   }
 
   template <class Parent>
-  error
-  handle_resolve_request(Parent& parent, header rec_hdr, byte_span received) {
+  error handle_resolve_request(Parent& parent, const header& rec_hdr,
+                               byte_span received) {
     CAF_LOG_TRACE(CAF_ARG(rec_hdr)
                   << CAF_ARG2("received.size", received.size()));
     CAF_ASSERT(rec_hdr.type == message_type::resolve_request);
@@ -392,8 +392,8 @@ private:
   }
 
   template <class Parent>
-  error
-  handle_resolve_response(Parent&, header received_hdr, byte_span received) {
+  error handle_resolve_response(Parent&, const header& received_hdr,
+                                byte_span received) {
     CAF_LOG_TRACE(CAF_ARG(received_hdr)
                   << CAF_ARG2("received.size", received.size()));
     CAF_ASSERT(received_hdr.type == message_type::resolve_response);
@@ -419,7 +419,7 @@ private:
   }
 
   template <class Parent>
-  error handle_monitor_message(Parent& parent, header received_hdr,
+  error handle_monitor_message(Parent& parent, const header& received_hdr,
                                byte_span received) {
     CAF_LOG_TRACE(CAF_ARG(received_hdr)
                   << CAF_ARG2("received.size", received.size()));
@@ -450,7 +450,8 @@ private:
   }
 
   template <class Parent>
-  error handle_down_message(Parent&, header received_hdr, byte_span received) {
+  error
+  handle_down_message(Parent&, const header& received_hdr, byte_span received) {
     CAF_LOG_TRACE(CAF_ARG(received_hdr)
                   << CAF_ARG2("received.size", received.size()));
     error reason;

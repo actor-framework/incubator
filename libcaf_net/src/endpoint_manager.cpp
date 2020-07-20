@@ -60,9 +60,15 @@ void endpoint_manager::resolve(uri locator, actor listener) {
 
 void endpoint_manager::enqueue(mailbox_element_ptr msg,
                                strong_actor_ptr receiver) {
+  auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+    std::chrono::system_clock::now().time_since_epoch());
+  std::cout << "ep_man.enqueue1: " << std::to_string(ts.count()) << ", ";
   using message_type = endpoint_manager_queue::message;
   auto ptr = new message_type(std::move(msg), std::move(receiver));
   enqueue(ptr);
+  ts = std::chrono::duration_cast<std::chrono::microseconds>(
+    std::chrono::system_clock::now().time_since_epoch());
+  std::cout << "ep_man.enqueue2: " << std::to_string(ts.count()) << ", ";
 }
 
 bool endpoint_manager::enqueue(endpoint_manager_queue::element* ptr) {
