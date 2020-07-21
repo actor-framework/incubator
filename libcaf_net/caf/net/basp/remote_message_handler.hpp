@@ -39,6 +39,10 @@ template <class Subtype>
 class remote_message_handler {
 public:
   void handle_remote_message(execution_unit* ctx) {
+    auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::system_clock::now().time_since_epoch());
+    std::cout << "worker.handle_message: " << std::to_string(ts.count())
+              << ", ";
     // Local variables.
     auto& dref = static_cast<Subtype&>(*this);
     auto& payload = dref.payload_;
@@ -74,6 +78,9 @@ public:
     auto ptr = make_mailbox_element(std::move(src_hdl),
                                     make_message_id(hdr.operation_data),
                                     std::move(fwd_stack), std::move(content));
+    ts = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::system_clock::now().time_since_epoch());
+    std::cout << "worker.pre_enqueue: " << std::to_string(ts.count()) << ", ";
     dref.queue_->push(ctx, dref.msg_id_, std::move(dst_hdl), std::move(ptr));
   }
 };

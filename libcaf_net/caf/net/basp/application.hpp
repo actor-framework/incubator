@@ -252,15 +252,15 @@ private:
           return handle(parent, hdr_, byte_span{});
         next_read_size = hdr_.payload_len;
         state_ = connection_state::await_payload;
-        auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
-          std::chrono::system_clock::now().time_since_epoch());
-        std::cout << "basp.handle_header: " << std::to_string(ts.count())
-                  << ", ";
         return none;
       }
       case connection_state::await_payload: {
         if (bytes.size() != hdr_.payload_len)
           return ec::unexpected_number_of_bytes;
+        auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::system_clock::now().time_since_epoch());
+        std::cout << "basp.handle_payload: " << std::to_string(ts.count())
+                  << ", ";
         state_ = connection_state::await_header;
         return handle(parent, hdr_, bytes);
       }
@@ -320,6 +320,9 @@ private:
 
   template <class Parent>
   error handle_actor_message(Parent&, header hdr, byte_span payload) {
+    auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
+      std::chrono::system_clock::now().time_since_epoch());
+    std::cout << "basp.start_worker: " << std::to_string(ts.count()) << ", ";
     auto worker = hub_->pop();
     if (worker != nullptr) {
       CAF_LOG_DEBUG("launch BASP worker for deserializing an actor_message");
@@ -352,9 +355,6 @@ private:
       handler f{queue_.get(), &proxies_, system_, node_id{}, hdr, payload};
       f.handle_remote_message(&executor_);
     }
-    auto ts = std::chrono::duration_cast<std::chrono::microseconds>(
-      std::chrono::system_clock::now().time_since_epoch());
-    std::cout << "basp.handle_payload: " << std::to_string(ts.count()) << ", ";
     return none;
   }
 
