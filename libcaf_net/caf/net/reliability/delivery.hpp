@@ -51,7 +51,8 @@ public:
 
   template <class Parent>
   error init(Parent& parent) {
-    return application_.init(parent);
+    auto writer = make_packet_writer_decorator(*this, parent);
+    return application_.init(writer);
   }
 
   template <class Parent>
