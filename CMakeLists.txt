@@ -40,17 +40,13 @@ if(APPLE)
   option(CMAKE_MACOSX_RPATH "Use rpaths on macOS and iOS" ON)
 endif()
 
-# -- project-specific CMake settings -------------------------------------------
-
-set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-
 # -- get dependencies ----------------------------------------------------------
 
 if(CAF_INC_ENABLE_STANDALONE_BUILD)
   FetchContent_Declare(
     actor_framework
     GIT_REPOSITORY https://github.com/actor-framework/actor-framework.git
-    GIT_TAG        c5f6c835c
+    GIT_TAG        9caa83be4
   )
   FetchContent_Populate(actor_framework)
   set(CAF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -62,6 +58,16 @@ if(CAF_INC_ENABLE_STANDALONE_BUILD)
   add_subdirectory(${actor_framework_SOURCE_DIR} ${actor_framework_BINARY_DIR})
 else()
   find_package(CAF COMPONENTS core test REQUIRED)
+  message(STATUS "Found CAF version ${CAF_VERSION}: ${CAF_DIR}")
+endif()
+
+# -- set the library version for shared library targets ------------------------
+if(CMAKE_HOST_SYSTEM_NAME MATCHES "OpenBSD")
+  set(CAF_LIB_VERSION "${CAF_VERSION_MAJOR}.${CAF_VERSION_MINOR}"
+      CACHE INTERNAL "The version string used for shared library objects")
+else()
+  set(CAF_LIB_VERSION "${CAF_VERSION}"
+      CACHE INTERNAL "The version string used for shared library objects")
 endif()
 
 # -- sanity checks -------------------------------------------------------------

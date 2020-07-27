@@ -151,7 +151,10 @@ while [ $# -ne 0 ]; do
       set_build_flag $optarg OFF
       ;;
     --caf-root-dir=*)
-      append_cache_entry CAF_ROOT_DIR PATH "$optarg"
+      append_cache_entry CAF_ROOT PATH "$optarg"
+      ;;
+    --with-caf=*)
+      append_cache_entry CAF_ROOT PATH "$optarg"
       ;;
     *)
       echo "Invalid option '$1'. Try $0 --help to see available options."
