@@ -36,6 +36,7 @@ Convenience options:
                               --build-type=Debug
                               --sanitizers=address,undefined
                               --enable-utility-targets
+                              --enable-export-compile-commands
 
 Flags (use --enable-<name> to activate and --disable-<name> to deactivate):
 
@@ -143,6 +144,7 @@ while [ $# -ne 0 ]; do
       CMakeBuildType='Debug'
       append_cache_entry CAF_INC_SANITIZERS STRING 'address,undefined'
       set_build_flag utility-targets ON
+      set_build_flag export-compile-commands ON
       ;;
    --enable-*)
       set_build_flag $optarg ON
