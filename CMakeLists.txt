@@ -11,10 +11,13 @@ include(FetchContent)              # For bundling CAF with the incubator
 include(GNUInstallDirs)            # Sets default install paths
 include(GenerateExportHeader)      # Auto-generates dllexport macros
 
+# -- override CMake defaults for internal cache entries ------------------------
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON
+    CACHE INTERNAL "Write JSON compile commands database")
 # -- general options -----------------------------------------------------------
 
 option(BUILD_SHARED_LIBS "Build shared library targets" ON)
-option(CMAKE_EXPORT_COMPILE_COMMANDS "Write JSON compile commands database" ON)
 
 # -- incubator options that are off by default ---------------------------------
 
@@ -37,7 +40,7 @@ set(CAF_INC_SANITIZERS "" CACHE STRING
 # -- macOS-specific options ----------------------------------------------------
 
 if(APPLE)
-  option(CMAKE_MACOSX_RPATH "Use rpaths on macOS and iOS" ON)
+  set(CMAKE_MACOSX_RPATH ON CACHE INTERNAL "Use rpaths on macOS and iOS")
 endif()
 
 # -- get dependencies ----------------------------------------------------------
