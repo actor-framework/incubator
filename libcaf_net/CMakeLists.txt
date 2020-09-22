@@ -126,7 +126,7 @@ target_link_libraries(caf-net-test PRIVATE CAF::test)
 
 caf_incubator_add_test_suites(caf-net-test
   accept_socket
-  #application
+  application
   convert_ip_endpoint
   datagram_socket
   detail.rfc6455

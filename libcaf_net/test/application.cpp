@@ -31,8 +31,12 @@
 #include "caf/net/basp/ec.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/packet_writer.hpp"
+#include "caf/net/stream_socket.hpp"
 #include "caf/none.hpp"
 #include "caf/uri.hpp"
+
+#include "caf/net/length_prefix_framing.hpp"
+/*
 
 using namespace caf;
 using namespace caf::net;
@@ -49,6 +53,8 @@ struct config : actor_system_config {
   }
 };
 
+struct fixture {};
+
 struct fixture : test_coordinator_fixture<config>,
                  proxy_registry::backend,
                  basp::application::test_tag,
@@ -60,101 +66,102 @@ struct fixture : test_coordinator_fixture<config>,
     mars = make_node_id(mars_uri);
   }
 
-  template <class... Ts>
-  byte_buffer to_buf(const Ts&... xs) {
-    byte_buffer buf;
-    binary_serializer sink{system(), buf};
-    REQUIRE_OK(sink(xs...));
-    return buf;
-  }
+    template <claäss... Ts>
+    byte_buffer to_buf(const Ts&... xs) {
+      byte_buffer buf;
+      binary_serializer sink{system(), buf};
+      REQUIRE_OK(sink(xs...));
+      return buf;
+    }
 
-  template <class... Ts>
-  void set_input(const Ts&... xs) {
-    input = to_buf(xs...);
-  }
+    template <class... Ts>
+    void set_input(const Ts&... xs) {
+      input = to_buf(xs...);
+    }
 
-  void handle_handshake() {
-    CAF_CHECK_EQUAL(app.state(),
-                    basp::connection_state::await_handshake_header);
-    auto payload = to_buf(mars, basp::application::default_app_ids());
-    set_input(basp::header{basp::message_type::handshake,
-                           static_cast<uint32_t>(payload.size()),
-                           basp::version});
-    REQUIRE_OK(app.handle_data(*this, input));
-    CAF_CHECK_EQUAL(app.state(),
-                    basp::connection_state::await_handshake_payload);
-    REQUIRE_OK(app.handle_data(*this, payload));
-  }
+    void handle_handshake() {
+      CAF_CHECK_EQUAL(app.state(),
+                      basp::connection_state::await_handshake_header);
+      auto payload = to_buf(mars, basp::application::default_app_ids());
+      set_input(basp::header{basp::message_type::handshake,
+                             static_cast<uint32_t>(payload.size()),
+                             basp::version});
+      REQUIRE_OK(app.handle_data(*this, input));
+      CAF_CHECK_EQUAL(app.state(),
+                      basp::connection_state::await_handshake_payload);
+      REQUIRE_OK(app.handle_data(*this, payload));
+    }
 
-  void consume_handshake() {
-    if (output.size() < basp::header_size)
-      CAF_FAIL("BASP application did not write a handshake header");
-    auto hdr = basp::header::from_bytes(output);
-    if (hdr.type != basp::message_type::handshake || hdr.payload_len == 0
-        || hdr.operation_data != basp::version)
-      CAF_FAIL("invalid handshake header");
-    node_id nid;
-    std::vector<std::string> app_ids;
-    binary_deserializer source{sys, output};
-    source.skip(basp::header_size);
-    if (auto err = source(nid, app_ids))
-      CAF_FAIL("unable to deserialize payload: " << err);
-    if (source.remaining() > 0)
-      CAF_FAIL("trailing bytes after reading payload");
-    output.clear();
-  }
+    void consume_handshake() {
+      if (output.size() < basp::header_size)
+        CAF_FAIL("BASP application did not write a handshake header");
+      auto hdr = basp::header::from_bytes(output);
+      if (hdr.type != basp::message_type::handshake || hdr.payload_len == 0
+          || hdr.operation_data != basp::version)
+        CAF_FAIL("invalid handshake header");
+      node_id nid;
+      std::vector<std::string> app_ids;
+      binary_deserializer source{sys, output};
+      source.skip(basp::header_size);
+      if (auto err = source(nid, app_ids))
+        CAF_FAIL("unable to deserialize payload: " << err);
+      if (source.remaining() > 0)
+        CAF_FAIL("trailing bytes after reading payload");
+      output.clear();
+    }
 
-  actor_system& system() {
-    return sys;
-  }
+    actor_system& system() {
+      return sys;
+    }
 
-  fixture& transport() {
-    return *this;
-  }
+    fixture& transport() {
+      return *this;
+    }
 
-  endpoint_manager& manager() {
-    CAF_FAIL("unexpected function call");
-  }
+    endpoint_manager& manager() {
+      CAF_FAIL("unexpected function call");
+    }
 
-  byte_buffer next_payload_buffer() override {
-    return {};
-  }
+    byte_buffer next_payload_buffer() override {
+      return {};
+    }
 
-  byte_buffer next_header_buffer() override {
-    return {};
-  }
+    byte_buffer next_header_buffer() override {
+      return {};
+    }
 
-  template <class... Ts>
-  void configure_read(Ts...) {
-    // nop
-  }
+    template <class... Ts>
+    void configure_read(Ts...) {
+      // nop
+    }
 
-  strong_actor_ptr make_proxy(node_id nid, actor_id aid) override {
-    using impl_type = forwarding_actor_proxy;
-    using hdl_type = strong_actor_ptr;
-    actor_config cfg;
-    return make_actor<impl_type, hdl_type>(aid, nid, &sys, cfg, self);
-  }
+    strong_actor_ptr make_proxy(node_id nid, actor_id aid) override {
+      using impl_type = forwarding_actor_proxy;
+      using hdl_type = strong_actor_ptr;
+      actor_config cfg;
+      return make_actor<impl_type, hdl_type>(aid, nid, &sys, cfg, self);
+    }
 
-  void set_last_hop(node_id*) override {
-    // nop
-  }
+    void set_last_hop(node_id*) override {
+      // nop
+    }
 
-protected:
-  void write_impl(span<byte_buffer*> buffers) override {
-    for (auto buf : buffers)
-      output.insert(output.end(), buf->begin(), buf->end());
-  }
+  protected:
+    void write_impl(span<byte_buffer*> buffers) override {
+      for (auto buf : buffers)
+        output.insert(output.end(), buf->begin(), buf->end());
+    }
 
-  byte_buffer input;
+    byte_buffer input;
 
-  byte_buffer output;
+    byte_buffer output;
 
-  node_id mars;
+    node_id mars;
 
-  proxy_registry proxies;
+    proxy_registry proxies;
 
-  basp::application app;
+    basp::application app;
+
 };
 
 } // namespace
@@ -339,4 +346,6 @@ CAF_TEST(heartbeat message) {
   CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_header);
 }
 
+
 CAF_TEST_FIXTURE_SCOPE_END()
+*/

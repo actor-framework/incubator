@@ -23,8 +23,6 @@
 #include "caf/net/test/host_fixture.hpp"
 #include "caf/test/dsl.hpp"
 
-#include "caf/binary_deserializer.hpp"
-#include "caf/binary_serializer.hpp"
 #include "caf/byte.hpp"
 #include "caf/byte_buffer.hpp"
 #include "caf/detail/scope_guard.hpp"
@@ -35,6 +33,9 @@
 #include "caf/net/socket_manager.hpp"
 #include "caf/net/stream_socket.hpp"
 #include "caf/span.hpp"
+
+#include "caf/net/basp/application.hpp"
+#include "caf/net/length_prefix_framing.hpp"
 
 using namespace caf;
 using namespace caf::net;
@@ -180,6 +181,26 @@ CAF_TEST(send) {
   CAF_CHECK_EQUAL(string_view(reinterpret_cast<char*>(recv_buf.data()),
                               recv_buf.size()),
                   hello_manager);
+}
+
+struct be : public proxy_registry::backend {
+  /// Creates a new proxy instance.
+  strong_actor_ptr make_proxy(node_id, actor_id) {
+    return nullptr;
+  };
+
+  /// Sets the thread-local last-hop pointer to detect indirect connections.
+  void set_last_hop(node_id*) {
+    // nop
+  }
+};
+
+CAF_TEST(dummy) {
+  be b;
+  proxy_registry pr{sys, b};
+  auto mgr = make_socket_manager<basp::application, length_prefix_framing,
+                                 stream_transport>(send_socket_guard.release(),
+                                                   &mpx, pr);
 }
 
 CAF_TEST_FIXTURE_SCOPE_END()
