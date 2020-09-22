@@ -26,7 +26,9 @@
 #include "caf/byte_span.hpp"
 #include "caf/detail/network_order.hpp"
 #include "caf/error.hpp"
+#include "caf/net/message_oriented_layer_ptr.hpp"
 #include "caf/net/receive_policy.hpp"
+#include "caf/net/socket_manager.hpp"
 #include "caf/sec.hpp"
 #include "caf/span.hpp"
 #include "caf/tag/message_oriented.hpp"
@@ -49,6 +51,25 @@ public:
   using length_prefix_type = uint32_t;
 
   static constexpr size_t max_message_length = INT32_MAX;
+
+  // -- constructors, destructors, and assignment operators --------------------
+
+  template <class... Ts>
+  length_prefix_framing(Ts&&... xs) : upper_layer_(std::forward<Ts>(xs)...) {
+    // nop
+  }
+
+  virtual ~length_prefix_framing() {
+    // nop
+  }
+
+  // -- initialization ---------------------------------------------------------
+
+  template <class ParentPtr>
+  error init(socket_manager* owner, ParentPtr parent, const settings& config) {
+    auto this_layer_ptr = make_message_oriented_layer_ptr(this, parent);
+    return upper_layer_.init(owner, this_layer_ptr, config);
+  }
 
   // -- interface for the upper layer ------------------------------------------
 

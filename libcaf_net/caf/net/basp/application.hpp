@@ -49,6 +49,7 @@
 #include "caf/proxy_registry.hpp"
 #include "caf/response_promise.hpp"
 #include "caf/scoped_execution_unit.hpp"
+#include "caf/tag/message_oriented.hpp"
 #include "caf/unit.hpp"
 
 namespace caf::net::basp {
@@ -57,6 +58,10 @@ namespace caf::net::basp {
 class CAF_NET_EXPORT application {
 public:
   // -- member types -----------------------------------------------------------
+
+  using input_tag = tag::message_oriented;
+
+  using byte_span = span<const byte>;
 
   using hub_type = detail::worker_hub<worker>;
 
@@ -75,10 +80,10 @@ public:
 
   // -- interface functions ----------------------------------------------------
 
-  template <class Parent>
-  error init(Parent& parent) {
+  template <class ParentPtr>
+  error init(socket_manager*, ParentPtr parent, const settings&) {
     // Initialize member variables.
-    system_ = &parent.system();
+    /*system_ = &parent->system();
     executor_.system_ptr(system_);
     executor_.proxy_registry_ptr(&proxies_);
     // Allow unit tests to run the application without endpoint manager.
@@ -101,12 +106,17 @@ public:
                     static_cast<uint32_t>(payload.size()), version},
              hdr);
     parent.write_packet(hdr, payload);
-    parent.transport().configure_read(receive_policy::exactly(header_size));
+    parent.transport().configure_read(receive_policy::exactly(header_size));*/
     return none;
   }
 
   error write_message(packet_writer& writer,
                       std::unique_ptr<endpoint_manager_queue::message> ptr);
+
+  template <class LowerLayer>
+  ptrdiff_t consume(LowerLayer& down, byte_span buffer, byte_span) {
+    return 0;
+  }
 
   template <class Parent>
   error handle_data(Parent& parent, byte_span bytes) {
