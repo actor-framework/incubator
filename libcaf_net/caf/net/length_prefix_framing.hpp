@@ -153,7 +153,7 @@ public:
   template <class LowerLayer>
   void abort(LowerLayer& down, const error& reason) {
     access<LowerLayer> this_layer{&down, this};
-    return upper_layer_.abort(this_layer, reason);
+    upper_layer_.abort(this_layer, reason);
   }
 
   template <class LowerLayer>
