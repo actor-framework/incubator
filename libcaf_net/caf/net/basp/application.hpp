@@ -40,6 +40,7 @@
 #include "caf/fwd.hpp"
 #include "caf/net/basp/connection_state.hpp"
 #include "caf/net/basp/constants.hpp"
+#include "caf/net/basp/ec.hpp"
 #include "caf/net/basp/header.hpp"
 #include "caf/net/basp/message_queue.hpp"
 #include "caf/net/basp/message_type.hpp"
@@ -52,6 +53,7 @@
 #include "caf/proxy_registry.hpp"
 #include "caf/response_promise.hpp"
 #include "caf/scoped_execution_unit.hpp"
+#include "caf/send.hpp"
 #include "caf/tag/message_oriented.hpp"
 #include "caf/unit.hpp"
 
@@ -101,26 +103,17 @@ public:
       hub_->add_new_worker(*queue_, proxies_);
     // Write handshake.
     auto& buf = parent->message_buffer();
-    auto header_begin = buf.size();
-    binary_serializer sink{&executor_, buf};
-    sink.skip(header_size);
-    if (!sink.apply_objects(system().node(),
-                            get_or(system().config(),
-                                   "caf.middleman.app-identifiers",
-                                   application::default_app_ids())))
-      return sink.get_error();
-    sink.seek(header_begin);
-    if (!sink.apply_object(
-          header{message_type::handshake,
-                 static_cast<uint32_t>(buf.size() - header_size - header_begin),
-                 version}))
-      return sink.get_error();
-    owner_->register_writing();
-    return none;
+    return write_message(
+      buf, header{message_type::handshake, uint32_t{0}, version},
+      system().node(),
+      get_or(system().config(), "caf.middleman.app-identifiers",
+             application::default_app_ids()));
   }
 
   template <class LowerLayer>
-  error prepare_send(LowerLayer& down) {
+  bool prepare_send(LowerLayer&) {
+    /*
+    TODO: auto ptr = next_message();
     CAF_ASSERT(ptr != nullptr);
     CAF_ASSERT(ptr->msg != nullptr);
     CAF_LOG_TRACE(CAF_ARG2("content", ptr->msg->content()));
@@ -128,29 +121,42 @@ public:
     const auto& dst = ptr->receiver;
     if (dst == nullptr) {
       // TODO: valid?
-      return none;
+      return true;
     }
-    auto payload_buf = writer.next_payload_buffer();
-    binary_serializer sink{system(), payload_buf};
+    auto& buf = down.message_buffer();
+    auto header_begin = buf.size();
+    binary_serializer sink{system(), message_buf};
+    sink.skip(header_size);
     if (src != nullptr) {
       auto src_id = src->id();
       system().registry().put(src_id, src);
-      if (!sink.apply_objects(src->node(), src_id, dst->id(), ptr->msg->stages))
-        return sink.get_error();
+      if (!sink.apply_objects(src->node(), src_id, dst->id(),
+                              ptr->msg->stages)) {
+        CAF_LOG_ERROR("serializing failed: " << sink.get_error(););
+        return false;
+      }
     } else {
       if (!sink.apply_objects(node_id{}, actor_id{0}, dst->id(),
-                              ptr->msg->stages))
-        return sink.get_error();
+                              ptr->msg->stages)) {
+        CAF_LOG_ERROR("serializing failed: " << sink.get_error(););
+        return false;
+      }
     }
-    if (!sink.apply_objects(ptr->msg->content()))
-      return sink.get_error();
-    auto hdr = writer.next_header_buffer();
-    to_bytes(header{message_type::actor_message,
-                    static_cast<uint32_t>(payload_buf.size()),
-                    ptr->msg->mid.integer_value()},
-             hdr);
-    writer.write_packet(hdr, payload_buf);
-    return none;
+    if (!sink.apply_objects(ptr->msg->content())) {
+      CAF_LOG_ERROR("serializing failed: " << sink.get_error(););
+      return false;
+    }
+    sink.seek(header_begin);
+    if (!sink.apply_objects(header{message_type::actor_message,
+                                   static_cast<uint32_t>(payload_buf.size()),
+                                   ptr->msg->mid.integer_value()})) {
+      CAF_LOG_ERROR("serializing failed: " << sink.get_error(););
+      return false;
+    }
+    owner_->register_writing();
+    return true;
+    */
+    return false; // THIS IS JUST DISABLE THIS FUNCTION.
   }
 
   template <class LowerLayer>
@@ -165,41 +171,34 @@ public:
   template <class LowerLayer>
   void resolve(LowerLayer& down, string_view path, const actor& listener) {
     CAF_LOG_TRACE(CAF_ARG(path) << CAF_ARG(listener));
-    auto payload = down.next_payload_buffer();
-    binary_serializer sink{&executor_, payload};
-    if (!sink.apply_objects(path)) {
-      CAF_LOG_ERROR("unable to serialize path:" << sink.get_error());
+    auto& buf = down.message_buffer();
+    auto req_id = next_request_id_++;
+    if (auto err = write_message(
+          buf, header{message_type::resolve_request, 0, req_id}, path)) {
+      CAF_LOG_ERROR("write_message failed: " << CAF_ARG(err));
       return;
     }
-    auto req_id = next_request_id_++;
-    auto hdr = down.next_header_buffer();
-    to_bytes(header{message_type::resolve_request,
-                    static_cast<uint32_t>(payload.size()), req_id},
-             hdr);
-    down.write_packet(hdr, payload);
     pending_resolves_.emplace(req_id, listener);
   }
 
   template <class LowerLayer>
   void new_proxy(LowerLayer& down, actor_id id) {
-    auto hdr = down.next_header_buffer();
-    to_bytes(
-      header{message_type::monitor_message, 0, static_cast<uint64_t>(id)}, hdr);
-    writer.write_packet(hdr);
+    auto& buf = down.message_buffer();
+    if (auto err = write_message(buf, header{message_type::monitor_message, 0,
+                                             static_cast<uint64_t>(id)})) {
+      CAF_LOG_ERROR("unable to serialize header:" << CAF_ARG(err));
+      return;
+    }
   }
 
   template <class LowerLayer>
   void local_actor_down(LowerLayer& down, actor_id id, error reason) {
-    auto payload = writer.next_payload_buffer();
-    binary_serializer sink{system(), payload};
-    if (!sink.apply_objects(reason))
-      CAF_RAISE_ERROR("unable to serialize an error");
-    auto hdr = writer.next_header_buffer();
-    to_bytes(header{message_type::down_message,
-                    static_cast<uint32_t>(payload.size()),
-                    static_cast<uint64_t>(id)},
-             hdr);
-    writer.write_packet(hdr, payload);
+    auto& buf = down.message_buffer();
+    if (auto err = write_message(
+          buf, header{message_type::down_message, 0, static_cast<uint64_t>(id)},
+          reason)) {
+      CAF_RAISE_ERROR("write_message failed:" << CAF_ARG(err));
+    }
   }
 
   template <class Parent>
@@ -227,13 +226,34 @@ public:
   }
 
 private:
+  /// Writes a message to the given buffer.
+  /// @param buf The buffer that should be written to.
+  /// @param hdr The header of the message.
+  /// @param xs Any number of contents for the payload of the message.
+  template <class... Ts>
+  error write_message(byte_buffer& buf, header hdr, Ts&... xs) {
+    auto header_begin = buf.size();
+    binary_serializer sink{&executor_, buf};
+    if constexpr (sizeof...(xs) != 0) {
+      // Apply payload if it exists.
+      sink.skip(header_size);
+      if (!sink.apply_objects(std::forward(xs...)))
+        return sink.get_error();
+      sink.seek(header_begin);
+    }
+    hdr.payload_len = buf.size() - header_size - header_begin;
+    if (!sink.apply_object(hdr))
+      return sink.get_error();
+    owner_->register_writing();
+    return none;
+  }
+
   // -- handling of incoming messages ------------------------------------------
 
   template <class LowerLayer>
   error handle(LowerLayer& down, byte_span bytes) {
     auto strip_header = [](byte_span bytes) -> byte_span {
-      return make_span(bytes.data() + header_size,
-                       bytes.size() - header_size());
+      return make_span(bytes.data() + header_size, bytes.size() - header_size);
     };
     CAF_LOG_TRACE(CAF_ARG(state_) << CAF_ARG2("bytes.size", bytes.size()));
     switch (state_) {
@@ -249,7 +269,7 @@ private:
           return ec::missing_payload;
         if (bytes.size() < header_size + hdr.payload_len)
           return ec::unexpected_number_of_bytes;
-        if (auto err = handle_handshake(writer, hdr, strip_header(bytes)))
+        if (auto err = handle_handshake(down, hdr, strip_header(bytes)))
           return err;
         state_ = connection_state::ready;
         return none;
@@ -259,10 +279,10 @@ private:
           return ec::unexpected_number_of_bytes;
         auto hdr = header::from_bytes(bytes);
         if (hdr.payload_len == 0)
-          return handle(writer, hdr, byte_span{});
+          return handle(down, hdr, byte_span{});
         if (bytes.size() < header_size + hdr.payload_len)
           return ec::unexpected_number_of_bytes;
-        return handle(writer, hdr_, strip_header(bytes));
+        return handle(down, hdr, strip_header(bytes));
       }
       default:
         return ec::illegal_state;
@@ -276,15 +296,15 @@ private:
       case message_type::handshake:
         return ec::unexpected_handshake;
       case message_type::actor_message:
-        return handle_actor_message(writer, hdr, payload);
+        return handle_actor_message(down, hdr, payload);
       case message_type::resolve_request:
-        return handle_resolve_request(writer, hdr, payload);
+        return handle_resolve_request(down, hdr, payload);
       case message_type::resolve_response:
-        return handle_resolve_response(writer, hdr, payload);
+        return handle_resolve_response(down, hdr, payload);
       case message_type::monitor_message:
-        return handle_monitor_message(writer, hdr, payload);
+        return handle_monitor_message(down, hdr, payload);
       case message_type::down_message:
-        return handle_down_message(writer, hdr, payload);
+        return handle_down_message(down, hdr, payload);
       case message_type::heartbeat:
         return none;
       default:
@@ -381,25 +401,16 @@ private:
     }
     // TODO: figure out how to obtain messaging interface.
     auto& buf = down.message_buffer();
-    auto header_begin = buf.size();
-    binary_serializer sink{&executor_, buf};
-    sink.skip(header_size);
-    if (!sink.apply_objects(aid, ifs))
-      return sink.get_error();
-    sink.seek(header_begin);
-    if (!sink.apply_object(header{message_type::resolve_response,
-                                  static_cast<uint32_t>(payload.size()),
-                                  rec_hdr.operation_data}))
-      return sink.get_error();
-    owner_->register_writing();
-    return none;
+    return write_message(
+      buf, header{message_type::resolve_response, 0, hdr.operation_data}, aid,
+      ifs);
   }
 
   template <class LowerLayer>
   error handle_resolve_response(LowerLayer&, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     CAF_ASSERT(hdr.type == message_type::resolve_response);
-    auto i = pending_resolves_.find(received_hdr.operation_data);
+    auto i = pending_resolves_.find(hdr.operation_data);
     if (i == pending_resolves_.end()) {
       CAF_LOG_ERROR("received unknown ID in resolve_response message");
       return none;
@@ -407,7 +418,7 @@ private:
     auto guard = detail::make_scope_guard([&] { pending_resolves_.erase(i); });
     actor_id aid;
     std::set<std::string> ifs;
-    binary_deserializer source{&executor_, received};
+    binary_deserializer source{&executor_, payload};
     if (!source.apply_objects(aid, ifs)) {
       anon_send(i->second, sec::remote_lookup_failed);
       return source.get_error();
@@ -439,17 +450,8 @@ private:
     } else {
       error reason = exit_reason::unknown;
       auto& buf = down.message_buffer();
-      auto header_begin = buf.size();
-      binary_serializer sink{&executor_, buf};
-      sink.skip(header);
-      if (!sink.apply_object(reason))
-        return sink.get_error();
-      sink.seek(header_begin);
-      if (!sink.apply_object(header{message_type::down_message,
-                                    static_cast<uint32_t>(payload.size()),
-                                    received_hdr.operation_data}))
-        return sink.get_error();
-      owner_->register_writing();
+      return write_message(
+        buf, header{message_type::down_message, 0, hdr.operation_data}, reason);
     }
     return none;
   }
