@@ -5,36 +5,36 @@ file(GLOB_RECURSE CAF_NET_HEADERS "caf/*.hpp")
 # -- add consistency checks for enum to_string implementations -----------------
 
 caf_incubator_add_enum_consistency_check("caf/net/basp/connection_state.hpp"
-                                         "src/basp/connection_state_strings.cpp")
+        "src/basp/connection_state_strings.cpp")
 caf_incubator_add_enum_consistency_check("caf/net/basp/ec.hpp"
-                                         "src/basp/ec_strings.cpp")
+        "src/basp/ec_strings.cpp")
 caf_incubator_add_enum_consistency_check("caf/net/basp/message_type.hpp"
-                                         "src/basp/message_type_strings.cpp")
+        "src/basp/message_type_strings.cpp")
 caf_incubator_add_enum_consistency_check("caf/net/operation.hpp"
-                                         "src/basp/operation_strings.cpp")
+        "src/basp/operation_strings.cpp")
 
 # -- utility function for setting default properties ---------------------------
 
 function(caf_net_set_default_properties)
-  foreach(target ${ARGN})
-    caf_incubator_set_default_properties(${target})
-    # Make sure we find our headers plus the the generated export header.
-    target_include_directories(${target} PRIVATE
-                               "${CMAKE_CURRENT_SOURCE_DIR}"
-                               "${CMAKE_BINARY_DIR}")
-    target_compile_definitions(${target} PRIVATE libcaf_net_EXPORTS)
-    # Pull in public dependencies.
-    target_link_libraries(${target} PUBLIC CAF::core)
-    if(MSVC)
-      target_link_libraries(${target} PUBLIC ws2_32 iphlpapi)
-    endif()
-  endforeach()
+    foreach (target ${ARGN})
+        caf_incubator_set_default_properties(${target})
+        # Make sure we find our headers plus the the generated export header.
+        target_include_directories(${target} PRIVATE
+                "${CMAKE_CURRENT_SOURCE_DIR}"
+                "${CMAKE_BINARY_DIR}")
+        target_compile_definitions(${target} PRIVATE libcaf_net_EXPORTS)
+        # Pull in public dependencies.
+        target_link_libraries(${target} PUBLIC CAF::core)
+        if (MSVC)
+            target_link_libraries(${target} PUBLIC ws2_32 iphlpapi)
+        endif ()
+    endforeach ()
 endfunction()
 
 # -- add library targets -------------------------------------------------------
 
 add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
-  #src/actor_proxy_impl.cpp
+  src/actor_proxy_impl.cpp
   #src/net/backend/tcp.cpp
   #src/net/backend/test.cpp
   src/basp/application.cpp
@@ -68,11 +68,11 @@ add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
 )
 
 add_library(libcaf_net "${PROJECT_SOURCE_DIR}/cmake/dummy.cpp"
-            $<TARGET_OBJECTS:libcaf_net_obj>)
+        $<TARGET_OBJECTS:libcaf_net_obj>)
 
 generate_export_header(libcaf_net
-                       EXPORT_MACRO_NAME CAF_NET_EXPORT
-                       EXPORT_FILE_NAME "${CMAKE_BINARY_DIR}/caf/detail/net_export.hpp")
+        EXPORT_MACRO_NAME CAF_NET_EXPORT
+        EXPORT_FILE_NAME "${CMAKE_BINARY_DIR}/caf/detail/net_export.hpp")
 
 set_property(TARGET libcaf_net_obj PROPERTY POSITION_INDEPENDENT_CODE ON)
 
@@ -85,10 +85,10 @@ target_include_directories(libcaf_net INTERFACE
 add_library(CAF::net ALIAS libcaf_net)
 
 set_target_properties(libcaf_net PROPERTIES
-                      EXPORT_NAME net
-                      SOVERSION ${CAF_VERSION}
-                      VERSION ${CAF_LIB_VERSION}
-                      OUTPUT_NAME caf_net)
+        EXPORT_NAME net
+        SOVERSION ${CAF_VERSION}
+        VERSION ${CAF_LIB_VERSION}
+        OUTPUT_NAME caf_net)
 
 # -- install library and header files ------------------------------------------
 
@@ -108,13 +108,13 @@ install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/caf"
 
 # -- build unit tests ----------------------------------------------------------
 
-if(NOT CAF_INC_ENABLE_TESTING)
-  return()
-endif()
+if (NOT CAF_INC_ENABLE_TESTING)
+    return()
+endif ()
 
 add_executable(caf-net-test
-               test/net-test.cpp
-               $<TARGET_OBJECTS:libcaf_net_obj>)
+        test/net-test.cpp
+        $<TARGET_OBJECTS:libcaf_net_obj>)
 
 caf_net_set_default_properties(caf-net-test)
 

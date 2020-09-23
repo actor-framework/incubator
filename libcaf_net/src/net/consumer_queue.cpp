@@ -16,37 +16,59 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#pragma once
-
-#include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/consumer_queue.hpp"
-#include "caf/net/datagram_socket.hpp"
-#include "caf/net/datagram_transport.hpp"
-#include "caf/net/defaults.hpp"
-#include "caf/net/endpoint_manager.hpp"
-#include "caf/net/fwd.hpp"
-#include "caf/net/host.hpp"
-#include "caf/net/ip.hpp"
-#include "caf/net/make_endpoint_manager.hpp"
-#include "caf/net/middleman.hpp"
-#include "caf/net/middleman_backend.hpp"
-#include "caf/net/multiplexer.hpp"
-#include "caf/net/network_socket.hpp"
-#include "caf/net/operation.hpp"
-#include "caf/net/packet_writer.hpp"
-#include "caf/net/packet_writer_decorator.hpp"
-#include "caf/net/pipe_socket.hpp"
-#include "caf/net/pollset_updater.hpp"
-#include "caf/net/receive_policy.hpp"
-#include "caf/net/socket.hpp"
-#include "caf/net/socket_guard.hpp"
-#include "caf/net/socket_id.hpp"
-#include "caf/net/socket_manager.hpp"
-#include "caf/net/stream_socket.hpp"
-#include "caf/net/stream_transport.hpp"
-#include "caf/net/tcp_accept_socket.hpp"
-#include "caf/net/tcp_stream_socket.hpp"
-#include "caf/net/transport_base.hpp"
-#include "caf/net/transport_worker.hpp"
-#include "caf/net/transport_worker_dispatcher.hpp"
-#include "caf/net/udp_datagram_socket.hpp"
+
+namespace caf::net {
+
+consumer_queue::element::~element() {
+  // nop
+}
+
+consumer_queue::event::event(uri locator, actor listener)
+  : element(element_type::event),
+    value(resolve_request{std::move(locator), std::move(listener)}) {
+  // nop
+}
+
+consumer_queue::event::event(node_id peer, actor_id proxy_id)
+  : element(element_type::event), value(new_proxy{peer, proxy_id}) {
+  // nop
+}
+
+consumer_queue::event::event(node_id observing_peer, actor_id local_actor_id,
+                             error reason)
+  : element(element_type::event),
+    value(local_actor_down{observing_peer, local_actor_id, std::move(reason)}) {
+  // nop
+}
+
+consumer_queue::event::event(std::string tag, uint64_t id)
+  : element(element_type::event), value(timeout{std::move(tag), id}) {
+  // nop
+}
+
+consumer_queue::event::~event() {
+  // nop
+}
+
+size_t consumer_queue::event::task_size() const noexcept {
+  return 1;
+}
+
+consumer_queue::message::message(mailbox_element_ptr msg,
+                                 strong_actor_ptr receiver)
+  : element(element_type::message),
+    msg(std::move(msg)),
+    receiver(std::move(receiver)) {
+  // nop
+}
+
+size_t consumer_queue::message::task_size() const noexcept {
+  return message_policy::task_size(*this);
+}
+
+consumer_queue::message::~message() {
+  // nop
+}
+
+} // namespace caf::net

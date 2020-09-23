@@ -19,6 +19,7 @@
 #pragma once
 
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <type_traits>
 #include <unordered_map>
@@ -49,6 +50,7 @@
 #include "caf/net/receive_policy.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/node_id.hpp"
+#include "caf/policy/normal_messages.hpp"
 #include "caf/proxy_registry.hpp"
 #include "caf/response_promise.hpp"
 #include "caf/scoped_execution_unit.hpp"
@@ -70,6 +72,18 @@ public:
   using hub_type = detail::worker_hub<worker>;
 
   struct test_tag {};
+
+  struct mailbox_policy {
+    using queue_type = intrusive::drr_queue<policy::normal_messages>;
+
+    using deficit_type = policy::normal_messages::deficit_type;
+
+    using mapped_type = policy::normal_messages::mapped_type;
+
+    using unique_pointer = policy::normal_messages::unique_pointer;
+  };
+
+  using mailbox_type = intrusive::fifo_inbox<mailbox_policy>;
 
   // -- constructors, destructors, and assignment operators --------------------
 
@@ -101,60 +115,44 @@ public:
     for (size_t i = 0; i < workers; ++i)
       hub_->add_new_worker(*queue_, proxies_);
     // Write handshake.
-    auto& buf = down->message_buffer();
     return write_message(
-      buf, header{message_type::handshake, 0, version}, system().node(),
+      down, header{message_type::handshake, 0, version}, system().node(),
       get_or(system().config(), "caf.middleman.app-identifiers",
              application::default_app_ids()));
   }
 
   template <class LowerLayerPtr>
-  bool prepare_send(LowerLayerPtr&) {
-    /*
-    TODO: auto ptr = next_message();
-    CAF_ASSERT(ptr != nullptr);
-    CAF_ASSERT(ptr->msg != nullptr);
-    CAF_LOG_TRACE(CAF_ARG2("content", ptr->msg->content()));
-    const auto& src = ptr->msg->sender;
-    const auto& dst = ptr->receiver;
-    if (dst == nullptr) {
-      // TODO: valid?
-      return true;
-    }
-    auto& buf = down.message_buffer();
-    auto header_begin = buf.size();
-    binary_serializer sink{system(), message_buf};
-    sink.skip(header_size);
-    if (src != nullptr) {
-      auto src_id = src->id();
-      system().registry().put(src_id, src);
-      if (!sink.apply_objects(src->node(), src_id, dst->id(),
-                              ptr->msg->stages)) {
-        CAF_LOG_ERROR("serializing failed: " << sink.get_error(););
+  bool prepare_send(LowerLayerPtr& down) {
+    for (size_t count = 0; count < max_consecutive_messages_; ++count) {
+      auto ptr = next_message();
+      if (ptr == nullptr)
+        break;
+      CAF_ASSERT(ptr->msg != nullptr);
+      CAF_LOG_TRACE(CAF_ARG2("content", ptr->msg->content()));
+      const auto& src = ptr->msg->sender;
+      const auto& dst = ptr->receiver;
+      if (dst == nullptr) {
+        // TODO: valid?
+        return true;
+      }
+      node_id nid{};
+      actor_id aid{0};
+      if (src != nullptr) {
+        auto src_id = src->id();
+        system().registry().put(src_id, src);
+        nid = src->node();
+        aid = src_id;
+      }
+      if (auto err = write_message(down,
+                                   header{message_type::actor_message, 0,
+                                          ptr->msg->mid.integer_value()},
+                                   nid, aid, dst->id(), ptr->msg->stages,
+                                   ptr->msg->content())) {
+        down->abort_reason(err);
         return false;
       }
-    } else {
-      if (!sink.apply_objects(node_id{}, actor_id{0}, dst->id(),
-                              ptr->msg->stages)) {
-        CAF_LOG_ERROR("serializing failed: " << sink.get_error(););
-        return false;
-      }
     }
-    if (!sink.apply_objects(ptr->msg->content())) {
-      CAF_LOG_ERROR("serializing failed: " << sink.get_error(););
-      return false;
-    }
-    sink.seek(header_begin);
-    if (!sink.apply_objects(header{message_type::actor_message,
-                                   static_cast<uint32_t>(payload_buf.size()),
-                                   ptr->msg->mid.integer_value()})) {
-      CAF_LOG_ERROR("serializing failed: " << sink.get_error(););
-      return false;
-    }
-    owner_->register_writing();
     return true;
-    */
-    return false; // THIS IS JUST DISABLE THIS FUNCTION.
   }
 
   template <class LowerLayerPtr>
@@ -168,8 +166,7 @@ public:
 
   template <class LowerLayerPtr>
   bool done_sending(LowerLayerPtr&) {
-    // TODO: this needs to be `message_queue.empty();`
-    return false;
+    return mailbox_.empty();
   }
 
   template <class LowerLayerPtr>
@@ -180,34 +177,27 @@ public:
   template <class LowerLayerPtr>
   void resolve(LowerLayerPtr& down, string_view path, const actor& listener) {
     CAF_LOG_TRACE(CAF_ARG(path) << CAF_ARG(listener));
-    auto& buf = down->message_buffer();
     auto req_id = next_request_id_++;
     if (auto err = write_message(
-          buf, header{message_type::resolve_request, 0, req_id}, path)) {
-      CAF_LOG_ERROR("write_message failed: " << CAF_ARG(err));
-      return;
-    }
+          down, header{message_type::resolve_request, 0, req_id}, path))
+      CAF_RAISE_ERROR("write_message failed: " << CAF_ARG(err));
     pending_resolves_.emplace(req_id, listener);
   }
 
   template <class LowerLayerPtr>
   void new_proxy(LowerLayerPtr& down, actor_id id) {
-    auto& buf = down->message_buffer();
-    if (auto err = write_message(buf, header{message_type::monitor_message, 0,
-                                             static_cast<uint64_t>(id)})) {
-      CAF_LOG_ERROR("unable to serialize header:" << CAF_ARG(err));
-      return;
-    }
+    if (auto err = write_message(down, header{message_type::monitor_message, 0,
+                                              static_cast<uint64_t>(id)}))
+      CAF_RAISE_ERROR("unable to serialize header:" << CAF_ARG(err));
   }
 
   template <class LowerLayerPtr>
   void local_actor_down(LowerLayerPtr& down, actor_id id, error reason) {
-    auto& buf = down->message_buffer();
-    if (auto err = write_message(
-          buf, header{message_type::down_message, 0, static_cast<uint64_t>(id)},
-          reason)) {
+    if (auto err = write_message(down,
+                                 header{message_type::down_message, 0,
+                                        static_cast<uint64_t>(id)},
+                                 reason))
       CAF_RAISE_ERROR("write_message failed:" << CAF_ARG(err));
-    }
   }
 
   // -- utility functions ------------------------------------------------------
@@ -226,25 +216,27 @@ public:
 
 private:
   /// Writes a message to the given buffer.
-  /// @param buf The buffer that should be written to.
+  /// @param down Ptr to the lower layer.
   /// @param hdr The header of the message.
   /// @param xs Any number of contents for the payload of the message.
-  template <class... Ts>
-  error write_message(byte_buffer& buf, header hdr, Ts&&... xs) {
-    // TODO: this is blatantly wrong!!
-    auto header_begin = buf.size();
+  template <class LowerLayerPtr, class... Ts>
+  error write_message(LowerLayerPtr down, header hdr, Ts&&... xs) {
+    down->begin_message();
+    auto& buf = down->message_buffer();
+    auto message_offset = buf.size();
     binary_serializer sink{&executor_, buf};
     if constexpr (sizeof...(xs) >= 1) {
       // Apply payload if it exists.
       sink.skip(header_size);
       if (!sink.apply_objects(xs...))
         return sink.get_error();
-      sink.seek(header_begin);
+      sink.seek(message_offset);
     }
-    hdr.payload_len = buf.size() - header_size - header_begin;
+    auto message_begin = buf.begin() + message_offset;
+    hdr.payload_len = std::distance(message_begin + header_size, buf.end());
     if (!sink.apply_object(hdr))
       return sink.get_error();
-    owner_->register_writing();
+    down->end_message();
     return none;
   }
 
@@ -400,9 +392,8 @@ private:
       aid = 0;
     }
     // TODO: figure out how to obtain messaging interface.
-    auto& buf = down->message_buffer();
     return write_message(
-      buf, header{message_type::resolve_response, 0, hdr.operation_data}, aid,
+      down, header{message_type::resolve_response, 0, hdr.operation_data}, aid,
       ifs);
   }
 
@@ -449,9 +440,9 @@ private:
       });*/
     } else {
       error reason = exit_reason::unknown;
-      auto& buf = down->message_buffer();
       return write_message(
-        buf, header{message_type::down_message, 0, hdr.operation_data}, reason);
+        down, header{message_type::down_message, 0, hdr.operation_data},
+        reason);
     }
     return none;
   }
@@ -467,7 +458,27 @@ private:
     return none;
   }
 
+  // -- mailbox access ---------------------------------------------------------
+
+  consumer_queue::message_ptr next_message() {
+    if (mailbox_.blocked())
+      return nullptr;
+    mailbox_.fetch_more();
+    auto& q = std::get<1>(mailbox_.queue().queues());
+    auto ts = q.next_task_size();
+    if (ts == 0)
+      return nullptr;
+    q.inc_deficit(ts);
+    auto result = q.next();
+    if (mailbox_.empty())
+      mailbox_.try_block();
+    return result;
+  }
+
   // -- member variables -------------------------------------------------------
+
+  // Stores incoming actor messages.
+  consumer_queue::type mailbox_;
 
   /// Stores a pointer to the parent actor system.
   actor_system* system_ = nullptr;
@@ -492,6 +503,8 @@ private:
 
   /// Points to the socket manager that owns this applications.
   socket_manager* owner_ = nullptr;
+
+  size_t max_consecutive_messages_;
 
   /// Provides pointers to the actor system as well as the registry,
   /// serializers and deserializer.

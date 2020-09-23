@@ -30,7 +30,7 @@
 #include "caf/intrusive/fifo_inbox.hpp"
 #include "caf/intrusive/singly_linked.hpp"
 #include "caf/mailbox_element.hpp"
-#include "caf/net/endpoint_manager_queue.hpp"
+#include "caf/net/consumer_queue.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/variant.hpp"
 
@@ -62,7 +62,7 @@ public:
 
   bool at_end_of_message_queue();
 
-  endpoint_manager_queue::message_ptr next_message();
+  consumer_queue::message_ptr next_message();
 
   // -- event management -------------------------------------------------------
 
@@ -75,7 +75,7 @@ public:
   /// Enqueues an event to the endpoint.
   template <class... Ts>
   void enqueue_event(Ts&&... xs) {
-    enqueue(new endpoint_manager_queue::event(std::forward<Ts>(xs)...));
+    enqueue(new consumer_queue::event(std::forward<Ts>(xs)...));
   }
 
   // -- pure virtual member functions ------------------------------------------
@@ -84,13 +84,13 @@ public:
   // virtual error init() = 0;
 
 protected:
-  bool enqueue(endpoint_manager_queue::element* ptr);
+  bool enqueue(consumer_queue::element* ptr);
 
   /// Points to the hosting actor system.
   actor_system& sys_;
 
   /// Stores control events and outbound messages.
-  endpoint_manager_queue::type queue_;
+  consumer_queue::type queue_;
 
   /// Stores a proxy for interacting with the actor clock.
   actor timeout_proxy_;
