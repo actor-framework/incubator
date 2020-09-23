@@ -29,7 +29,11 @@
 namespace caf::net::basp {
 
 application::application(proxy_registry& proxies)
-  : proxies_(proxies), queue_{new message_queue}, hub_{new hub_type} {
+  : mailbox_(unit, unit, unit),
+    proxies_(proxies),
+    max_consecutive_messages_{20},
+    queue_{new message_queue},
+    hub_{new hub_type} {
   // nop
 }
 

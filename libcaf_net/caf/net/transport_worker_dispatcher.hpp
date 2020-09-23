@@ -21,7 +21,7 @@
 #include <unordered_map>
 
 #include "caf/logger.hpp"
-#include "caf/net/endpoint_manager_queue.hpp"
+#include "caf/net/consumer_queue.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/packet_writer_decorator.hpp"
 #include "caf/net/transport_worker.hpp"
@@ -75,7 +75,7 @@ public:
 
   template <class Parent>
   void write_message(Parent& parent,
-                     std::unique_ptr<endpoint_manager_queue::message> msg) {
+                     std::unique_ptr<consumer_queue::message> msg) {
     auto receiver = msg->receiver;
     if (!receiver)
       return;

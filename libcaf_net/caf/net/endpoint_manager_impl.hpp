@@ -90,17 +90,17 @@ public:
         q.inc_deficit(q.total_task_size());
         for (auto ptr = q.next(); ptr != nullptr; ptr = q.next()) {
           auto f = detail::make_overload(
-            [&](endpoint_manager_queue::event::resolve_request& x) {
+            [&](consumer_queue::event::resolve_request& x) {
               transport_.resolve(*this, x.locator, x.listener);
             },
-            [&](endpoint_manager_queue::event::new_proxy& x) {
+            [&](consumer_queue::event::new_proxy& x) {
               transport_.new_proxy(*this, x.peer, x.id);
             },
-            [&](endpoint_manager_queue::event::local_actor_down& x) {
+            [&](consumer_queue::event::local_actor_down& x) {
               transport_.local_actor_down(*this, x.observing_peer, x.id,
                                           std::move(x.reason));
             },
-            [&](endpoint_manager_queue::event::timeout& x) {
+            [&](consumer_queue::event::timeout& x) {
               transport_.timeout(*this, x.type, x.id);
             });
           visit(f, ptr->value);
