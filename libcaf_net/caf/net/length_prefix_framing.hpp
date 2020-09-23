@@ -34,6 +34,13 @@
 #include "caf/tag/message_oriented.hpp"
 #include "caf/tag/stream_oriented.hpp"
 
+namespace {
+enum length_prefix_state {
+  await_header,
+  await_payload,
+};
+}
+
 namespace caf::net {
 
 /// Length-prefixed message framing for discretizing a Byte stream into messages
@@ -50,13 +57,18 @@ public:
 
   using length_prefix_type = uint32_t;
 
+  static constexpr size_t header_length = sizeof(length_prefix_type);
+
   static constexpr size_t max_message_length = INT32_MAX;
 
   // -- constructors, destructors, and assignment operators --------------------
 
   template <class... Ts>
   length_prefix_framing(Ts&&... xs)
-    : upper_layer_(std::forward<Ts>(xs)...), message_offset_(0) {
+    : upper_layer_(std::forward<Ts>(xs)...),
+      message_offset_(0),
+      state_(length_prefix_state::await_header),
+      msg_size_(0) {
     // nop
   }
 
@@ -69,6 +81,7 @@ public:
   template <class LowerLayerPtr>
   error
   init(socket_manager* owner, LowerLayerPtr& down, const settings& config) {
+    down->configure_read(receive_policy::exactly(header_length));
     auto this_layer_ptr = make_message_oriented_layer_ptr(this, down);
     return upper_layer_.init(owner, this_layer_ptr, config);
   }
@@ -78,7 +91,7 @@ public:
   template <class LowerLayerPtr>
   void begin_message(LowerLayerPtr& down) {
     down->begin_output();
-    auto& buf = down->message_buffer();
+    auto& buf = down->output_buffer();
     message_offset_ = buf.size();
     buf.insert(buf.end(), 4, byte{0});
   }
@@ -91,10 +104,10 @@ public:
   template <class LowerLayerPtr>
   void end_message(LowerLayerPtr& down) {
     using detail::to_network_order;
-    auto& buf = message_buffer();
+    auto& buf = down->output_buffer();
     auto msg_begin = buf.begin() + message_offset_;
-    auto msg_size = std::distance(msg_begin + 4, buf.end());
-    if (msg_size > 0 && msg_size < max_message_length) {
+    auto msg_size = std::distance(msg_begin + header_length, buf.end());
+    if (msg_size > 0 && static_cast<size_t>(msg_size) < max_message_length) {
       auto u32_size = to_network_order(static_cast<uint32_t>(msg_size));
       memcpy(std::addressof(*msg_begin), &u32_size, 4);
       down->end_output();
@@ -116,8 +129,8 @@ public:
   }
 
   template <class LowerLayerPtr>
-  void configure_read(LowerLayerPtr& down, receive_policy policy) {
-    down->configure_read(policy);
+  void configure_read(LowerLayerPtr&, receive_policy) {
+    // nop
   }
 
   // -- properties -------------------------------------------------------------
@@ -152,23 +165,36 @@ public:
 
   template <class LowerLayerPtr>
   ptrdiff_t consume(LowerLayerPtr& down, byte_span buffer, byte_span) {
-    using detail::from_network_order;
-    if (buffer.size() < 4)
-      return 0;
-    uint32_t u32_size = 0;
-    memcpy(&u32_size, buffer.data(), 4);
-    auto msg_size = static_cast<size_t>(from_network_order(u32_size));
-    if (buffer.size() < msg_size + 4)
-      return 0;
-    auto this_layer_ptr = make_message_oriented_layer_ptr(this, down);
-    upper_layer_.consume(this_layer_ptr,
-                         make_span(buffer.data() + 4, msg_size));
-    return msg_size + 4;
+    switch (state_) {
+      case await_header: {
+        using detail::from_network_order;
+        if (buffer.size() < header_length)
+          return 0;
+        uint32_t u32_size = 0;
+        memcpy(&u32_size, buffer.data(), header_length);
+        msg_size_ = static_cast<size_t>(from_network_order(u32_size));
+        down->configure_read(receive_policy::exactly(msg_size_));
+        state_ = await_payload;
+        return header_length;
+      }
+      case await_payload: {
+        if (buffer.size() < msg_size_)
+          return 0;
+        auto this_layer_ptr = make_message_oriented_layer_ptr(this, down);
+        upper_layer_.consume(this_layer_ptr,
+                             make_span(buffer.data(), msg_size_));
+        down->configure_read(receive_policy::exactly(header_length));
+        state_ = await_header;
+        return msg_size_;
+      }
+    }
   }
 
 private:
   UpperLayer upper_layer_;
   size_t message_offset_;
+  length_prefix_state state_;
+  size_t msg_size_;
 };
 
 } // namespace caf::net
