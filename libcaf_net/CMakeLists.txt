@@ -35,11 +35,9 @@ endfunction()
 
 add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
   #src/actor_proxy_impl.cpp
-  #src/basp/application.cpp
-  #src/endpoint_manager.cpp
   #src/net/backend/tcp.cpp
   #src/net/backend/test.cpp
-  #src/net/endpoint_manager_queue.cpp
+  src/basp/application.cpp
   src/basp/connection_state_strings.cpp
   src/basp/ec_strings.cpp
   src/basp/message_type_strings.cpp
