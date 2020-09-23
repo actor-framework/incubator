@@ -84,8 +84,8 @@ CAF_TEST(read on empty sockets) {
 CAF_TEST(transfer data from first to second socket) {
   byte_buffer wr_buf{1_b, 2_b, 4_b, 8_b, 16_b, 32_b, 64_b};
   CAF_MESSAGE("transfer data from first to second socket");
-  CAF_CHECK_EQUAL(write(first, wr_buf), wr_buf.size());
-  CAF_CHECK_EQUAL(read(second, rd_buf), wr_buf.size());
+  CAF_CHECK_EQUAL(static_cast<size_t>(write(first, wr_buf)), wr_buf.size());
+  CAF_CHECK_EQUAL(static_cast<size_t>(read(second, rd_buf)), wr_buf.size());
   CAF_CHECK(std::equal(wr_buf.begin(), wr_buf.end(), rd_buf.begin()));
   rd_buf.assign(rd_buf.size(), byte(0));
 }

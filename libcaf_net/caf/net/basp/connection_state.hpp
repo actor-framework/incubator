@@ -27,16 +27,10 @@ namespace caf::net::basp {
 /// Stores the state of a connection in a `basp::application`.
 enum class connection_state {
   /// Initial state for any connection to wait for the peer's handshake.
-  await_handshake_header,
-  /// Indicates that the header for the peer's handshake arrived and BASP
-  /// requires the payload next.
-  await_handshake_payload,
+  await_handshake,
   /// Indicates that a connection is established and this node is waiting for
-  /// the next BASP header.
-  await_header,
-  /// Indicates that this node has received a header with non-zero payload and
-  /// is waiting for the data.
-  await_payload,
+  /// the next BASP message.
+  ready,
   /// Indicates that the connection is about to shut down.
   shutdown,
 };
