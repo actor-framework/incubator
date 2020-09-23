@@ -30,10 +30,13 @@
 #include "caf/byte.hpp"
 #include "caf/byte_buffer.hpp"
 #include "caf/detail/network_order.hpp"
+#include "caf/net/receive_policy.hpp"
+#include "caf/net/stream_oriented_layer_ptr.hpp"
 #include "caf/span.hpp"
 #include "caf/tag/message_oriented.hpp"
 
 using namespace caf;
+using namespace caf::net;
 
 namespace {
 
@@ -95,7 +98,8 @@ struct ll_provide_stream_for_messages {
       auto new_data = make_span(data_stream.data() + offered,
                                 data_stream.size() - offered);
       auto newly_offered = new_data.size();
-      auto consumed = upper_layer.consume(*this, all_data, new_data);
+      auto this_layer_ptr = make_stream_oriented_layer_ptr(this, this);
+      auto consumed = upper_layer.consume(this_layer_ptr, all_data, new_data);
       CAF_CHECK(consumed >= 0);
       CAF_CHECK(static_cast<size_t>(consumed) <= data_stream.size());
       offered += newly_offered;
@@ -108,6 +112,11 @@ struct ll_provide_stream_for_messages {
       if (consumed == 0 || data_stream.size() == 0)
         return;
     }
+  }
+
+  template <class LowerLayerPtr>
+  void configure_read(LowerLayerPtr&, receive_policy) {
+    // nop
   }
 
   size_t processed = 0;
