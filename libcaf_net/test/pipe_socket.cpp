@@ -41,7 +41,8 @@ CAF_TEST(send and receive) {
   std::tie(rd_sock, wr_sock) = unbox(make_pipe());
   CAF_CHECK_EQUAL(static_cast<size_t>(write(wr_sock, send_buf)),
                   send_buf.size());
-  CAF_CHECK_EQUAL(read(rd_sock, receive_buf), send_buf.size());
+  CAF_CHECK_EQUAL(static_cast<size_t>(read(rd_sock, receive_buf)),
+                  send_buf.size());
   CAF_CHECK(std::equal(send_buf.begin(), send_buf.end(), receive_buf.begin()));
 }
 

@@ -84,8 +84,8 @@ public:
 
   // -- interface functions ----------------------------------------------------
 
-  template <class ParentPtr>
-  error init(socket_manager* owner, ParentPtr parent, const settings&) {
+  template <class LowerLayerPtr>
+  error init(socket_manager* owner, LowerLayerPtr down, const settings&) {
     // Initialize member variables.
     owner_ = owner;
     system_ = &owner->mpx().system();
@@ -101,16 +101,15 @@ public:
     for (size_t i = 0; i < workers; ++i)
       hub_->add_new_worker(*queue_, proxies_);
     // Write handshake.
-    auto& buf = parent->message_buffer();
+    auto& buf = down->message_buffer();
     return write_message(
-      buf, header{message_type::handshake, uint32_t{0}, version},
-      system().node(),
+      buf, header{message_type::handshake, 0, version}, system().node(),
       get_or(system().config(), "caf.middleman.app-identifiers",
              application::default_app_ids()));
   }
 
-  template <class LowerLayer>
-  bool prepare_send(LowerLayer&) {
+  template <class LowerLayerPtr>
+  bool prepare_send(LowerLayerPtr&) {
     /*
     TODO: auto ptr = next_message();
     CAF_ASSERT(ptr != nullptr);
@@ -158,8 +157,8 @@ public:
     return false; // THIS IS JUST DISABLE THIS FUNCTION.
   }
 
-  template <class LowerLayer>
-  ptrdiff_t consume(LowerLayer& down, byte_span buffer) {
+  template <class LowerLayerPtr>
+  ptrdiff_t consume(LowerLayerPtr& down, byte_span buffer) {
     if (auto err = handle(down, buffer)) {
       CAF_LOG_ERROR("could not handle message: " << CAF_ARG(err));
       return -1;
@@ -167,10 +166,21 @@ public:
     return buffer.size();
   }
 
-  template <class LowerLayer>
-  void resolve(LowerLayer& down, string_view path, const actor& listener) {
+  template <class LowerLayerPtr>
+  bool done_sending(LowerLayerPtr&) {
+    // TODO: this needs to be `message_queue.empty();`
+    return false;
+  }
+
+  template <class LowerLayerPtr>
+  void abort(LowerLayerPtr&, const error&) {
+    // nop
+  }
+
+  template <class LowerLayerPtr>
+  void resolve(LowerLayerPtr& down, string_view path, const actor& listener) {
     CAF_LOG_TRACE(CAF_ARG(path) << CAF_ARG(listener));
-    auto& buf = down.message_buffer();
+    auto& buf = down->message_buffer();
     auto req_id = next_request_id_++;
     if (auto err = write_message(
           buf, header{message_type::resolve_request, 0, req_id}, path)) {
@@ -180,9 +190,9 @@ public:
     pending_resolves_.emplace(req_id, listener);
   }
 
-  template <class LowerLayer>
-  void new_proxy(LowerLayer& down, actor_id id) {
-    auto& buf = down.message_buffer();
+  template <class LowerLayerPtr>
+  void new_proxy(LowerLayerPtr& down, actor_id id) {
+    auto& buf = down->message_buffer();
     if (auto err = write_message(buf, header{message_type::monitor_message, 0,
                                              static_cast<uint64_t>(id)})) {
       CAF_LOG_ERROR("unable to serialize header:" << CAF_ARG(err));
@@ -190,24 +200,14 @@ public:
     }
   }
 
-  template <class LowerLayer>
-  void local_actor_down(LowerLayer& down, actor_id id, error reason) {
-    auto& buf = down.message_buffer();
+  template <class LowerLayerPtr>
+  void local_actor_down(LowerLayerPtr& down, actor_id id, error reason) {
+    auto& buf = down->message_buffer();
     if (auto err = write_message(
           buf, header{message_type::down_message, 0, static_cast<uint64_t>(id)},
           reason)) {
       CAF_RAISE_ERROR("write_message failed:" << CAF_ARG(err));
     }
-  }
-
-  template <class Parent>
-  void timeout(Parent&, const std::string&, uint64_t) {
-    // nop
-  }
-
-  template <class LowerLayer>
-  void abort(LowerLayer&, const error&) {
-    // nop
   }
 
   // -- utility functions ------------------------------------------------------
@@ -230,13 +230,14 @@ private:
   /// @param hdr The header of the message.
   /// @param xs Any number of contents for the payload of the message.
   template <class... Ts>
-  error write_message(byte_buffer& buf, header hdr, Ts&... xs) {
+  error write_message(byte_buffer& buf, header hdr, Ts&&... xs) {
+    // TODO: this is blatantly wrong!!
     auto header_begin = buf.size();
     binary_serializer sink{&executor_, buf};
-    if constexpr (sizeof...(xs) != 0) {
+    if constexpr (sizeof...(xs) >= 1) {
       // Apply payload if it exists.
       sink.skip(header_size);
-      if (!sink.apply_objects(std::forward(xs...)))
+      if (!sink.apply_objects(xs...))
         return sink.get_error();
       sink.seek(header_begin);
     }
@@ -249,8 +250,8 @@ private:
 
   // -- handling of incoming messages ------------------------------------------
 
-  template <class LowerLayer>
-  error handle(LowerLayer& down, byte_span bytes) {
+  template <class LowerLayerPtr>
+  error handle(LowerLayerPtr& down, byte_span bytes) {
     auto strip_header = [](byte_span bytes) -> byte_span {
       return make_span(bytes.data() + header_size, bytes.size() - header_size);
     };
@@ -288,8 +289,8 @@ private:
     }
   }
 
-  template <class LowerLayer>
-  error handle(LowerLayer& down, header hdr, byte_span payload) {
+  template <class LowerLayerPtr>
+  error handle(LowerLayerPtr& down, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     switch (hdr.type) {
       case message_type::handshake:
@@ -311,8 +312,8 @@ private:
     }
   }
 
-  template <class LowerLayer>
-  error handle_handshake(LowerLayer&, header hdr, byte_span payload) {
+  template <class LowerLayerPtr>
+  error handle_handshake(LowerLayerPtr&, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     if (hdr.type != message_type::handshake)
       return ec::missing_handshake;
@@ -336,8 +337,8 @@ private:
     return none;
   }
 
-  template <class LowerLayer>
-  error handle_actor_message(LowerLayer&, header hdr, byte_span payload) {
+  template <class LowerLayerPtr>
+  error handle_actor_message(LowerLayerPtr&, header hdr, byte_span payload) {
     auto worker = hub_->pop();
     if (worker != nullptr) {
       CAF_LOG_DEBUG("launch BASP worker for deserializing an actor_message");
@@ -373,9 +374,9 @@ private:
     return none;
   }
 
-  template <class LowerLayer>
+  template <class LowerLayerPtr>
   error
-  handle_resolve_request(LowerLayer& down, header hdr, byte_span payload) {
+  handle_resolve_request(LowerLayerPtr& down, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     CAF_ASSERT(hdr.type == message_type::resolve_request);
     size_t path_size = 0;
@@ -399,14 +400,14 @@ private:
       aid = 0;
     }
     // TODO: figure out how to obtain messaging interface.
-    auto& buf = down.message_buffer();
+    auto& buf = down->message_buffer();
     return write_message(
       buf, header{message_type::resolve_response, 0, hdr.operation_data}, aid,
       ifs);
   }
 
-  template <class LowerLayer>
-  error handle_resolve_response(LowerLayer&, header hdr, byte_span payload) {
+  template <class LowerLayerPtr>
+  error handle_resolve_response(LowerLayerPtr&, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     CAF_ASSERT(hdr.type == message_type::resolve_response);
     auto i = pending_resolves_.find(hdr.operation_data);
@@ -430,9 +431,9 @@ private:
     return none;
   }
 
-  template <class LowerLayer>
+  template <class LowerLayerPtr>
   error
-  handle_monitor_message(LowerLayer& down, header hdr, byte_span payload) {
+  handle_monitor_message(LowerLayerPtr& down, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     if (!payload.empty())
       return ec::unexpected_payload;
@@ -448,15 +449,15 @@ private:
       });*/
     } else {
       error reason = exit_reason::unknown;
-      auto& buf = down.message_buffer();
+      auto& buf = down->message_buffer();
       return write_message(
         buf, header{message_type::down_message, 0, hdr.operation_data}, reason);
     }
     return none;
   }
 
-  template <class LowerLayer>
-  error handle_down_message(LowerLayer&, header hdr, byte_span payload) {
+  template <class LowerLayerPtr>
+  error handle_down_message(LowerLayerPtr&, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     error reason;
     binary_deserializer source{&executor_, payload};

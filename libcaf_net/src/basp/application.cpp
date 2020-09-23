@@ -20,23 +20,10 @@
 
 #include <vector>
 
-#include "caf/actor_system.hpp"
-#include "caf/actor_system_config.hpp"
-#include "caf/binary_deserializer.hpp"
-#include "caf/binary_serializer.hpp"
-#include "caf/byte_buffer.hpp"
 #include "caf/defaults.hpp"
-#include "caf/detail/network_order.hpp"
 #include "caf/detail/parse.hpp"
-#include "caf/error.hpp"
 #include "caf/logger.hpp"
-#include "caf/net/basp/constants.hpp"
-#include "caf/net/basp/ec.hpp"
-#include "caf/net/packet_writer.hpp"
 #include "caf/no_stages.hpp"
-#include "caf/none.hpp"
-#include "caf/sec.hpp"
-#include "caf/send.hpp"
 #include "caf/string_algorithms.hpp"
 
 namespace caf::net::basp {
