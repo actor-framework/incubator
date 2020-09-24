@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <iostream>
 #include <memory>
 
 #include "caf/byte.hpp"
@@ -32,13 +33,6 @@
 #include "caf/span.hpp"
 #include "caf/tag/message_oriented.hpp"
 #include "caf/tag/stream_oriented.hpp"
-
-namespace {
-enum length_prefix_state {
-  await_header,
-  await_payload,
-};
-}
 
 namespace caf::net {
 
@@ -68,7 +62,7 @@ public:
   length_prefix_framing(Ts&&... xs)
     : upper_layer_(std::forward<Ts>(xs)...),
       message_offset_(0),
-      state_(length_prefix_state::await_header),
+      awaiting_header_(true),
       msg_size_(0) {
     // nop
   }
@@ -166,35 +160,31 @@ public:
 
   template <class LowerLayerPtr>
   ptrdiff_t consume(LowerLayerPtr& down, byte_span buffer, byte_span) {
-    switch (state_) {
-      case await_header: {
-        using detail::from_network_order;
-        if (buffer.size() < header_length)
-          return 0;
-        uint32_t u32_size = 0;
-        memcpy(&u32_size, buffer.data(), header_length);
-        msg_size_ = static_cast<size_t>(from_network_order(u32_size));
-        down->configure_read(receive_policy::exactly(msg_size_));
-        state_ = await_payload;
-        return header_length;
-      }
-      case await_payload: {
-        if (buffer.size() < msg_size_)
-          return 0;
-        auto this_layer_ptr = make_message_oriented_layer_ptr(this, down);
-        upper_layer_.consume(this_layer_ptr,
-                             make_span(buffer.data(), msg_size_));
-        down->configure_read(receive_policy::exactly(header_length));
-        state_ = await_header;
-        return msg_size_;
-      }
+    if (awaiting_header_) {
+      using detail::from_network_order;
+      if (buffer.size() < header_length)
+        return 0;
+      uint32_t u32_size = 0;
+      memcpy(&u32_size, buffer.data(), header_length);
+      msg_size_ = static_cast<size_t>(from_network_order(u32_size));
+      down->configure_read(receive_policy::exactly(msg_size_));
+      awaiting_header_ = false;
+      return header_length;
+    } else {
+      if (buffer.size() < msg_size_)
+        return 0;
+      auto this_layer_ptr = make_message_oriented_layer_ptr(this, down);
+      upper_layer_.consume(this_layer_ptr, make_span(buffer.data(), msg_size_));
+      down->configure_read(receive_policy::exactly(header_length));
+      awaiting_header_ = true;
+      return msg_size_;
     }
   }
 
 private:
   UpperLayer upper_layer_;
   size_t message_offset_;
-  length_prefix_state state_;
+  bool awaiting_header_;
   size_t msg_size_;
 };
 

@@ -74,8 +74,8 @@ public:
   }
 
   template <class Parent>
-  void write_message(Parent& parent,
-                     std::unique_ptr<consumer_queue::message> msg) {
+  void
+  write_message(Parent& parent, std::unique_ptr<consumer_queue::message> msg) {
     auto receiver = msg->receiver;
     if (!receiver)
       return;
@@ -132,8 +132,8 @@ public:
   }
 
   template <class Parent>
-  expected<worker_ptr> add_new_worker(Parent& parent, node_id node,
-                                      id_type id) {
+  expected<worker_ptr>
+  add_new_worker(Parent& parent, node_id node, id_type id) {
     CAF_LOG_TRACE(CAF_ARG(node) << CAF_ARG(id));
     auto application = factory_.make();
     auto worker = std::make_shared<worker_type>(std::move(application), id);

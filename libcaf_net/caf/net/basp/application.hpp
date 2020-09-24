@@ -45,6 +45,7 @@
 #include "caf/net/basp/message_queue.hpp"
 #include "caf/net/basp/message_type.hpp"
 #include "caf/net/basp/worker.hpp"
+#include "caf/net/consumer_queue.hpp"
 #include "caf/net/endpoint_manager.hpp"
 #include "caf/net/multiplexer.hpp"
 #include "caf/net/receive_policy.hpp"
@@ -72,18 +73,6 @@ public:
   using hub_type = detail::worker_hub<worker>;
 
   struct test_tag {};
-
-  struct mailbox_policy {
-    using queue_type = intrusive::drr_queue<policy::normal_messages>;
-
-    using deficit_type = policy::normal_messages::deficit_type;
-
-    using mapped_type = policy::normal_messages::mapped_type;
-
-    using unique_pointer = policy::normal_messages::unique_pointer;
-  };
-
-  using mailbox_type = intrusive::fifo_inbox<mailbox_policy>;
 
   // -- constructors, destructors, and assignment operators --------------------
 

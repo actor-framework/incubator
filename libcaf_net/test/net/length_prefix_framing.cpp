@@ -47,6 +47,11 @@ struct ul_expect_messages {
 
   using input_tag = tag::message_oriented;
 
+  template <class LowerLayerPtr>
+  error init(socket_manager*, LowerLayerPtr, const settings&) {
+    return none;
+  }
+
   void set_expected_messages(std::vector<byte_buffer> messages) {
     expected_messages.clear();
     for (auto& msg : messages)
@@ -91,36 +96,34 @@ struct ll_provide_stream_for_messages {
   }
 
   void run() {
+    auto this_layer_ptr = make_stream_oriented_layer_ptr(this, this);
+    settings cfg;
+    CAF_CHECK_EQUAL(upper_layer.init(nullptr, this_layer_ptr, cfg), none);
     CAF_CHECK(data_stream.size() != 0);
     while (processed != data_stream.size()) {
-      auto all_data = make_span(data_stream.data() + processed,
-                                data_stream.size() - processed);
-      auto new_data = make_span(data_stream.data() + offered,
-                                data_stream.size() - offered);
-      auto newly_offered = new_data.size();
-      auto this_layer_ptr = make_stream_oriented_layer_ptr(this, this);
+      auto all_data = make_span(data_stream.data(), min_read_size);
+      auto new_data = make_span(data_stream.data(), min_read_size);
+      CAF_MESSAGE("offering " << min_read_size << " bytes");
       auto consumed = upper_layer.consume(this_layer_ptr, all_data, new_data);
-      CAF_CHECK(consumed >= 0);
+      CAF_MESSAGE("Layer consumed " << consumed << " bytes");
+      CAF_REQUIRE(consumed >= 0);
       CAF_CHECK(static_cast<size_t>(consumed) <= data_stream.size());
-      offered += newly_offered;
       processed += consumed;
-      if (consumed > 0) {
+      if (consumed > 0)
         data_stream.erase(data_stream.begin(), data_stream.begin() + consumed);
-        offered -= processed;
-        processed = 0;
-      }
       if (consumed == 0 || data_stream.size() == 0)
         return;
     }
   }
 
   template <class LowerLayerPtr>
-  void configure_read(LowerLayerPtr&, receive_policy) {
-    // nop
+  void configure_read(LowerLayerPtr&, receive_policy policy) {
+    min_read_size = policy.min_size;
   }
 
+  size_t min_read_size = 0;
+
   size_t processed = 0;
-  size_t offered = 0;
 
   std::vector<byte> data_stream;
 
@@ -192,30 +195,6 @@ CAF_TEST(process messages) {
   clear();
   // Multiple messages.
   generate_messages(10);
-  set_expectations();
-  test_receive_data();
-}
-
-CAF_TEST(incomplete message) {
-  generate_messages(1, 1000);
-  CAF_MESSAGE("data.size() = " << data.size());
-  auto initial_size = data.size();
-  auto data_copy = data;
-  auto mid = data.size() / 2;
-  data.resize(mid);
-  CAF_MESSAGE("data.size() = " << data.size());
-  data_copy.erase(data_copy.begin(), data_copy.begin() + mid);
-  CAF_MESSAGE("data_copy.size() = " << data_copy.size());
-  CAF_REQUIRE(data.size() + data_copy.size() == initial_size);
-  // Don't set expectations because there shouldn't be a complete message
-  // in the bytes.
-  auto messages_copy = messages;
-  messages.clear();
-  CAF_REQUIRE(messages.empty());
-  set_expectations();
-  test_receive_data();
-  data.insert(data.end(), data_copy.begin(), data_copy.end());
-  messages = messages_copy;
   set_expectations();
   test_receive_data();
 }
