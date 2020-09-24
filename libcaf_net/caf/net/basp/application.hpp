@@ -26,7 +26,9 @@
 #include <unordered_set>
 #include <vector>
 
+#include "caf/actor.hpp"
 #include "caf/actor_addr.hpp"
+#include "caf/actor_clock.hpp"
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
 #include "caf/binary_deserializer.hpp"
@@ -39,6 +41,10 @@
 #include "caf/detail/worker_hub.hpp"
 #include "caf/error.hpp"
 #include "caf/fwd.hpp"
+#include "caf/intrusive/drr_queue.hpp"
+#include "caf/intrusive/fifo_inbox.hpp"
+#include "caf/intrusive/singly_linked.hpp"
+#include "caf/mailbox_element.hpp"
 #include "caf/net/basp/connection_state.hpp"
 #include "caf/net/basp/constants.hpp"
 #include "caf/net/basp/ec.hpp"
@@ -59,6 +65,7 @@
 #include "caf/send.hpp"
 #include "caf/tag/message_oriented.hpp"
 #include "caf/unit.hpp"
+#include "caf/variant.hpp"
 
 namespace caf::net::basp {
 
@@ -106,7 +113,7 @@ public:
       hub_->add_new_worker(*queue_, proxies_);
     // Write handshake.
     return write_message(
-      down, header{message_type::handshake, 0, version}, system().node(),
+      down, header{message_type::handshake, version}, system().node(),
       get_or(system().config(), "caf.middleman.app-identifiers",
              application::default_app_ids()));
   }
@@ -133,11 +140,10 @@ public:
         nid = src->node();
         aid = src_id;
       }
-      if (auto err = write_message(down,
-                                   header{message_type::actor_message, 0,
-                                          ptr->msg->mid.integer_value()},
-                                   nid, aid, dst->id(), ptr->msg->stages,
-                                   ptr->msg->content())) {
+      if (auto err = write_message(
+            down,
+            header{message_type::actor_message, ptr->msg->mid.integer_value()},
+            nid, aid, dst->id(), ptr->msg->stages, ptr->msg->content())) {
         down->abort_reason(err);
         return false;
       }
@@ -149,6 +155,7 @@ public:
   ptrdiff_t consume(LowerLayerPtr& down, byte_span buffer) {
     if (auto err = handle(down, buffer)) {
       CAF_LOG_ERROR("could not handle message: " << CAF_ARG(err));
+      down->abort_reason(err);
       return -1;
     }
     return buffer.size();
@@ -169,25 +176,24 @@ public:
     CAF_LOG_TRACE(CAF_ARG(path) << CAF_ARG(listener));
     auto req_id = next_request_id_++;
     if (auto err = write_message(
-          down, header{message_type::resolve_request, 0, req_id}, path))
-      CAF_RAISE_ERROR("write_message failed: " << CAF_ARG(err));
+          down, header{message_type::resolve_request, req_id}, path))
+      down->abort_reason(err);
     pending_resolves_.emplace(req_id, listener);
   }
 
   template <class LowerLayerPtr>
   void new_proxy(LowerLayerPtr& down, actor_id id) {
-    if (auto err = write_message(down, header{message_type::monitor_message, 0,
+    if (auto err = write_message(down, header{message_type::monitor_message,
                                               static_cast<uint64_t>(id)}))
-      CAF_RAISE_ERROR("unable to serialize header:" << CAF_ARG(err));
+      down->abort_reason(err);
   }
 
   template <class LowerLayerPtr>
   void local_actor_down(LowerLayerPtr& down, actor_id id, error reason) {
-    if (auto err = write_message(down,
-                                 header{message_type::down_message, 0,
-                                        static_cast<uint64_t>(id)},
-                                 reason))
-      CAF_RAISE_ERROR("write_message failed:" << CAF_ARG(err));
+    if (auto err = write_message(
+          down, header{message_type::down_message, static_cast<uint64_t>(id)},
+          reason))
+      down->abort_reason(err);
   }
 
   // -- utility functions ------------------------------------------------------
@@ -195,6 +201,10 @@ public:
   strong_actor_ptr resolve_local_path(string_view path);
 
   // -- properties -------------------------------------------------------------
+
+  error last_error() const noexcept {
+    return last_error_;
+  }
 
   connection_state state() const noexcept {
     return state_;
@@ -210,22 +220,16 @@ private:
   /// @param hdr The header of the message.
   /// @param xs Any number of contents for the payload of the message.
   template <class LowerLayerPtr, class... Ts>
-  error write_message(LowerLayerPtr down, header hdr, Ts&&... xs) {
+  error write_message(LowerLayerPtr& down, header hdr, Ts&&... xs) {
     down->begin_message();
     auto& buf = down->message_buffer();
-    auto message_offset = buf.size();
     binary_serializer sink{&executor_, buf};
-    if constexpr (sizeof...(xs) >= 1) {
-      // Apply payload if it exists.
-      sink.skip(header_size);
-      if (!sink.apply_objects(xs...))
-        return sink.get_error();
-      sink.seek(message_offset);
-    }
-    auto message_begin = buf.begin() + message_offset;
-    hdr.payload_len = std::distance(message_begin + header_size, buf.end());
     if (!sink.apply_object(hdr))
       return sink.get_error();
+    if constexpr (sizeof...(xs) >= 1) {
+      if (!sink.apply_objects(xs...))
+        return sink.get_error();
+    }
     down->end_message();
     return none;
   }
@@ -247,10 +251,6 @@ private:
           return ec::missing_handshake;
         if (hdr.operation_data != version)
           return ec::version_mismatch;
-        if (hdr.payload_len == 0)
-          return ec::missing_payload;
-        if (bytes.size() < header_size + hdr.payload_len)
-          return ec::unexpected_number_of_bytes;
         if (auto err = handle_handshake(down, hdr, strip_header(bytes)))
           return err;
         state_ = connection_state::ready;
@@ -260,10 +260,6 @@ private:
         if (bytes.size() < header_size)
           return ec::unexpected_number_of_bytes;
         auto hdr = header::from_bytes(bytes);
-        if (hdr.payload_len == 0)
-          return handle(down, hdr, byte_span{});
-        if (bytes.size() < header_size + hdr.payload_len)
-          return ec::unexpected_number_of_bytes;
         return handle(down, hdr, strip_header(bytes));
       }
       default:
@@ -383,7 +379,7 @@ private:
     }
     // TODO: figure out how to obtain messaging interface.
     return write_message(
-      down, header{message_type::resolve_response, 0, hdr.operation_data}, aid,
+      down, header{message_type::resolve_response, hdr.operation_data}, aid,
       ifs);
   }
 
@@ -431,8 +427,7 @@ private:
     } else {
       error reason = exit_reason::unknown;
       return write_message(
-        down, header{message_type::down_message, 0, hdr.operation_data},
-        reason);
+        down, header{message_type::down_message, hdr.operation_data}, reason);
     }
     return none;
   }
@@ -472,6 +467,9 @@ private:
 
   /// Stores a pointer to the parent actor system.
   actor_system* system_ = nullptr;
+
+  /// Stores the last error that happened within this application.
+  error last_error_ = none;
 
   /// Stores the expected type of the next incoming message.
   connection_state state_ = connection_state::await_handshake;
