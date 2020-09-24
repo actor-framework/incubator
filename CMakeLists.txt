@@ -28,6 +28,7 @@ option(CAF_INC_ENABLE_STANDALONE_BUILD
 option(CAF_INC_ENABLE_TESTING "Build unit test suites" ON)
 option(CAF_INC_ENABLE_NET_MODULE "Build networking module" ON)
 option(CAF_INC_ENABLE_BB_MODULE "Build building blocks module" ON)
+option(CAF_INC_ENABLE_EXAMPLES "Build small programs" ON)
 
 # -- incubator options with non-boolean values ---------------------------------
 
@@ -204,4 +205,8 @@ endif()
 
 if(CAF_INC_ENABLE_NET_MODULE)
   add_subdirectory(libcaf_bb)
+endif()
+
+if(CAF_INC_ENABLE_EXAMPLES)
+  add_subdirectory(examples)
 endif()
