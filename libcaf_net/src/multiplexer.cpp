@@ -23,7 +23,6 @@
 #include "caf/byte.hpp"
 #include "caf/config.hpp"
 #include "caf/error.hpp"
-#include "caf/expected.hpp"
 #include "caf/logger.hpp"
 #include "caf/make_counted.hpp"
 #include "caf/net/middleman.hpp"
@@ -31,8 +30,6 @@
 #include "caf/net/pollset_updater.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/sec.hpp"
-#include "caf/span.hpp"
-#include "caf/variant.hpp"
 
 #ifndef CAF_WINDOWS
 #  include <poll.h>

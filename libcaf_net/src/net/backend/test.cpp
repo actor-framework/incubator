@@ -22,9 +22,10 @@
 #include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/basp/application.hpp"
 #include "caf/net/basp/ec.hpp"
-#include "caf/net/make_endpoint_manager.hpp"
+#include "caf/net/length_prefix_framing.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/multiplexer.hpp"
+#include "caf/net/socket_manager.hpp"
 #include "caf/net/stream_transport.hpp"
 #include "caf/raise_error.hpp"
 #include "caf/sec.hpp"
@@ -51,11 +52,11 @@ void test::stop() {
   peers_.clear();
 }
 
-endpoint_manager_ptr test::peer(const node_id& id) {
+socket_manager_ptr test::peer(const node_id& id) {
   return get_peer(id).second;
 }
 
-expected<endpoint_manager_ptr> test::get_or_connect(const uri& locator) {
+expected<socket_manager_ptr> test::get_or_connect(const uri& locator) {
   if (auto ptr = peer(make_node_id(*locator.authority_only())))
     return ptr;
   return make_error(sec::runtime_error,
@@ -65,7 +66,7 @@ expected<endpoint_manager_ptr> test::get_or_connect(const uri& locator) {
 void test::resolve(const uri& locator, const actor& listener) {
   auto id = locator.authority_only();
   if (id)
-    peer(make_node_id(*id))->resolve(locator, listener);
+    peer(make_node_id(*id))->resolve(locator.path(), listener);
   else
     anon_send(listener, error(basp::ec::invalid_locator));
 }
@@ -73,9 +74,7 @@ void test::resolve(const uri& locator, const actor& listener) {
 strong_actor_ptr test::make_proxy(node_id nid, actor_id aid) {
   using impl_type = actor_proxy_impl;
   using hdl_type = strong_actor_ptr;
-  actor_config cfg;
-  return make_actor<impl_type, hdl_type>(aid, nid, &mm_.system(), cfg,
-                                         peer(nid));
+  return get_peer(nid).second->make_proxy(nid, aid);
 }
 
 void test::set_last_hop(node_id*) {
@@ -88,18 +87,16 @@ uint16_t test::port() const noexcept {
 
 test::peer_entry& test::emplace(const node_id& peer_id, stream_socket first,
                                 stream_socket second) {
-  using transport_type = stream_transport<basp::application>;
   if (auto err = nonblocking(second, true))
     CAF_LOG_ERROR("nonblocking failed: " << err);
-  auto mpx = mm_.mpx();
-  basp::application app{proxies_};
-  auto mgr = make_endpoint_manager(mpx, mm_.system(),
-                                   transport_type{second, std::move(app)});
-  if (auto err = mgr->init()) {
+  auto& mpx = mm_.mpx();
+  auto mgr = make_socket_manager<basp::application, length_prefix_framing,
+                                 stream_transport>(second, &mpx, proxies_);
+  settings cfg;
+  if (auto err = mgr->init(cfg)) {
     CAF_LOG_ERROR("mgr->init() failed: " << err);
     CAF_RAISE_ERROR("mgr->init() failed");
   }
-  mpx->register_reading(mgr);
   auto& result = peers_[peer_id];
   result = std::make_pair(first, std::move(mgr));
   return result;

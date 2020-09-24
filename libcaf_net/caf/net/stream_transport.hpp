@@ -75,11 +75,11 @@ public:
   template <class ParentPtr>
   void begin_output(ParentPtr parent) {
     if (write_buf_.empty())
-      parent->register_writing();
+      down->register_writing();
   }
 
-  template <class ParentPtr>
-  byte_buffer& output_buffer(ParentPtr) {
+  template <class LowerLayerPtr>
+  byte_buffer& output_buffer(LowerLayerPtr) {
     return write_buf_;
   }
 
@@ -98,10 +98,10 @@ public:
     return parent->abort_reason();
   }
 
-  template <class ParentPtr>
-  void configure_read(ParentPtr parent, receive_policy policy) {
+  template <class LowerLayerPtr>
+  void configure_read(LowerLayerPtr down, receive_policy policy) {
     if (policy.max_size > 0 && max_read_size_ == 0)
-      parent->register_reading();
+      down->register_reading();
     min_read_size_ = policy.min_size;
     max_read_size_ = policy.max_size;
   }
@@ -134,8 +134,9 @@ public:
 
   // -- initialization ---------------------------------------------------------
 
-  template <class ParentPtr>
-  error init(socket_manager* owner, ParentPtr parent, const settings& config) {
+  template <class LowerLayerPtr>
+  error
+  init(socket_manager* owner, LowerLayerPtr down, const settings& config) {
     namespace mm = defaults::middleman;
     auto default_max_reads = static_cast<uint32_t>(mm::max_consecutive_reads);
     max_consecutive_reads_ = get_or(
@@ -155,20 +156,20 @@ public:
       CAF_LOG_ERROR("send_buffer_size: " << socket_buf_size.error());
       return std::move(socket_buf_size.error());
     }
-    auto this_layer_ptr = make_stream_oriented_layer_ptr(this, parent);
+    auto this_layer_ptr = make_stream_oriented_layer_ptr(this, down);
     return upper_layer_.init(owner, this_layer_ptr, config);
   }
 
   // -- event callbacks --------------------------------------------------------
 
-  template <class ParentPtr>
-  bool handle_read_event(ParentPtr parent) {
+  template <class LowerLayerPtr>
+  bool handle_read_event(LowerLayerPtr down) {
     CAF_LOG_TRACE(CAF_ARG2("handle", parent->handle().id));
-    auto fail = [this, parent](auto reason) {
+    auto fail = [this, down](auto reason) {
       CAF_LOG_DEBUG("read failed" << CAF_ARG(reason));
-      parent->abort_reason(std::move(reason));
-      auto this_layer_ptr = make_stream_oriented_layer_ptr(this, parent);
-      upper_layer_.abort(this_layer_ptr, parent->abort_reason());
+      down->abort_reason(std::move(reason));
+      auto this_layer_ptr = make_stream_oriented_layer_ptr(this, down);
+      upper_layer_.abort(this_layer_ptr, down->abort_reason());
       return false;
     };
     if (read_buf_.size() < max_read_size_)
@@ -228,7 +229,7 @@ public:
           delta_offset_ = offset_;
         } else if (consumed < 0) {
           upper_layer_.abort(this_layer_ptr,
-                             parent->abort_reason_or(caf::sec::runtime_error));
+                             down->abort_reason_or(caf::sec::runtime_error));
           return false;
         }
         // Our thresholds may have changed if the upper layer called
@@ -252,21 +253,21 @@ public:
     return max_read_size_ > 0;
   }
 
-  template <class ParentPtr>
-  bool handle_write_event(ParentPtr parent) {
+  template <class LowerLayerPtr>
+  bool handle_write_event(LowerLayerPtr down) {
     CAF_LOG_TRACE(CAF_ARG2("handle", parent->handle().id));
-    auto fail = [this, parent](sec reason) {
+    auto fail = [this, down](sec reason) {
       CAF_LOG_DEBUG("read failed" << CAF_ARG(reason));
-      parent->abort_reason(reason);
-      auto this_layer_ptr = make_stream_oriented_layer_ptr(this, parent);
+      down->abort_reason(reason);
+      auto this_layer_ptr = make_stream_oriented_layer_ptr(this, down);
       upper_layer_.abort(this_layer_ptr, reason);
       return false;
     };
     // Allow the upper layer to add extra data to the write buffer.
-    auto this_layer_ptr = make_stream_oriented_layer_ptr(this, parent);
+    auto this_layer_ptr = make_stream_oriented_layer_ptr(this, down);
     if (!upper_layer_.prepare_send(this_layer_ptr)) {
       upper_layer_.abort(this_layer_ptr,
-                         parent->abort_reason_or(caf::sec::runtime_error));
+                         down->abort_reason_or(caf::sec::runtime_error));
       return false;
     }
     if (write_buf_.empty())
@@ -288,9 +289,9 @@ public:
     }
   }
 
-  template <class ParentPtr>
-  void abort(ParentPtr parent, const error& reason) {
-    auto this_layer_ptr = make_stream_oriented_layer_ptr(this, parent);
+  template <class LowerLayerPtr>
+  void abort(LowerLayerPtr down, const error& reason) {
+    auto this_layer_ptr = make_stream_oriented_layer_ptr(this, down);
     upper_layer_.abort(this_layer_ptr, reason);
   }
 

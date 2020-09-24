@@ -314,8 +314,7 @@ CAF_TEST(resolve response with invalid actor handle) {
   handle_handshake();
   consume_handshake();
   CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
-  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
-  app.resolve(this_layer_ptr, "foo/bar", self);
+  CAF_CHECK_EQUAL(app.resolve("foo/bar", self), none);
   std::string path;
   RECEIVE(basp::message_type::resolve_request, 1u, path);
   CAF_CHECK_EQUAL(path, "foo/bar");
@@ -332,8 +331,7 @@ CAF_TEST(resolve response with valid actor handle) {
   handle_handshake();
   consume_handshake();
   CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
-  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
-  app.resolve(this_layer_ptr, "foo/bar", self);
+  CAF_CHECK_EQUAL(app.resolve("foo/bar", self), none);
   std::string path;
   RECEIVE(basp::message_type::resolve_request, 1u, path);
   CAF_CHECK_EQUAL(path, "foo/bar");

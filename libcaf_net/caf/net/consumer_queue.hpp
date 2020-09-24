@@ -61,7 +61,7 @@ public:
   class event final : public element {
   public:
     struct resolve_request {
-      uri locator;
+      std::string locator;
       actor listener;
     };
 
@@ -81,7 +81,7 @@ public:
       uint64_t id;
     };
 
-    event(uri locator, actor listener);
+    event(std::string locator, actor listener);
 
     event(node_id peer, actor_id proxy_id);
 

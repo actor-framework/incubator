@@ -23,8 +23,8 @@
 #include "caf/expected.hpp"
 #include "caf/init_global_meta_objects.hpp"
 #include "caf/net/basp/ec.hpp"
-#include "caf/net/endpoint_manager.hpp"
 #include "caf/net/middleman_backend.hpp"
+#include "caf/net/socket_manager.hpp"
 #include "caf/raise_error.hpp"
 #include "caf/sec.hpp"
 #include "caf/send.hpp"
@@ -106,7 +106,7 @@ void middleman::add_module_options(actor_system_config& cfg) {
     .add<std::string>("network-backend", "legacy option");
 }
 
-expected<endpoint_manager_ptr> middleman::connect(const uri& locator) {
+expected<socket_manager_ptr> middleman::connect(const uri& locator) {
   if (auto ptr = backend(locator.scheme()))
     return ptr->get_or_connect(locator);
   else
