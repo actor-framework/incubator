@@ -37,6 +37,21 @@ application::application(proxy_registry& proxies)
   // nop
 }
 
+error application::resolve(string_view path, const actor& listener) {
+  using intrusive::inbox_result;
+  using event_type = consumer_queue::event;
+  switch (mailbox_.push_back(new event_type(to_string(path), listener))) {
+    case intrusive::inbox_result::success:
+      return none;
+    case intrusive::inbox_result::unblocked_reader:
+      owner_->register_writing();
+      return none;
+    default:
+      return make_error(sec::runtime_error,
+                        "could not enqueue resolve request");
+  }
+}
+
 strong_actor_ptr application::resolve_local_path(string_view path) {
   CAF_LOG_TRACE(CAF_ARG(path));
   // We currently support two path formats: `id/<actor_id>` and `name/<atom>`.

@@ -24,7 +24,7 @@ consumer_queue::element::~element() {
   // nop
 }
 
-consumer_queue::event::event(uri locator, actor listener)
+consumer_queue::event::event(std::string locator, actor listener)
   : element(element_type::event),
     value(resolve_request{std::move(locator), std::move(listener)}) {
   // nop

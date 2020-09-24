@@ -21,9 +21,9 @@
 #include <map>
 
 #include "caf/detail/net_export.hpp"
-#include "caf/net/endpoint_manager.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/middleman_backend.hpp"
+#include "caf/net/socket_manager.hpp"
 #include "caf/net/stream_socket.hpp"
 #include "caf/node_id.hpp"
 
@@ -35,7 +35,7 @@ class CAF_NET_EXPORT test : public middleman_backend {
 public:
   // -- member types -----------------------------------------------------------
 
-  using peer_entry = std::pair<stream_socket, endpoint_manager_ptr>;
+  using peer_entry = std::pair<stream_socket, socket_manager_ptr>;
 
   // -- constructors, destructors, and assignment operators --------------------
 
@@ -49,9 +49,9 @@ public:
 
   void stop() override;
 
-  endpoint_manager_ptr peer(const node_id& id) override;
+  socket_manager_ptr peer(const node_id& id) override;
 
-  expected<endpoint_manager_ptr> get_or_connect(const uri& locator) override;
+  expected<socket_manager_ptr> get_or_connect(const uri& locator) override;
 
   void resolve(const uri& locator, const actor& listener) override;
 

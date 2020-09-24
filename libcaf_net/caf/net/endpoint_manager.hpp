@@ -67,7 +67,7 @@ public:
   // -- event management -------------------------------------------------------
 
   /// Resolves a path to a remote actor.
-  void resolve(uri locator, actor listener);
+  // void resolve(uri locator, actor listener);
 
   /// Enqueues a message to the endpoint.
   void enqueue(mailbox_element_ptr msg, strong_actor_ptr receiver);

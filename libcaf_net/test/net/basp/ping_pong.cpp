@@ -69,7 +69,7 @@ template <class Node>
 class planet : public test_coordinator_fixture<config<Node>> {
 public:
   planet(planet_driver& driver)
-    : mpx(*this->sys.network_manager().mpx()), driver_(driver) {
+    : mpx(this->sys.network_manager().mpx()), driver_(driver) {
     mpx.set_thread_id();
   }
 

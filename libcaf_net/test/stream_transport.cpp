@@ -119,17 +119,12 @@ public:
     return recv_buf_->size();
   }
 
-  template <class ParentPtr>
-  void resolve(ParentPtr parent, string_view path, const actor& listener) {
-    actor_id aid = 42;
-    auto hid = string_view("0011223344556677889900112233445566778899");
-    auto nid = unbox(make_node_id(42, hid));
-    actor_config cfg;
-    endpoint_manager_ptr ptr{&parent->manager()};
-    auto p = make_actor<actor_proxy_impl, strong_actor_ptr>(
-      aid, nid, &parent->system(), cfg, std::move(ptr));
-    anon_send(listener, resolve_atom_v, std::string{path.begin(), path.end()},
-              p);
+  void resolve(string_view, const actor&) {
+    // nop
+  }
+
+  strong_actor_ptr make_proxy(node_id, actor_id) {
+    return nullptr;
   }
 
   static void handle_error(sec code) {
@@ -181,26 +176,6 @@ CAF_TEST(send) {
   CAF_CHECK_EQUAL(string_view(reinterpret_cast<char*>(recv_buf.data()),
                               recv_buf.size()),
                   hello_manager);
-}
-
-struct be : public proxy_registry::backend {
-  /// Creates a new proxy instance.
-  strong_actor_ptr make_proxy(node_id, actor_id) {
-    return nullptr;
-  };
-
-  /// Sets the thread-local last-hop pointer to detect indirect connections.
-  void set_last_hop(node_id*) {
-    // nop
-  }
-};
-
-CAF_TEST(dummy) {
-  be b;
-  proxy_registry pr{sys, b};
-  auto mgr = make_socket_manager<basp::application, length_prefix_framing,
-                                 stream_transport>(send_socket_guard.release(),
-                                                   &mpx, pr);
 }
 
 CAF_TEST_FIXTURE_SCOPE_END()

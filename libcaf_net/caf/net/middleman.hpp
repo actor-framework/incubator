@@ -107,7 +107,7 @@ public:
 
   // -- remoting ---------------------------------------------------------------
 
-  expected<endpoint_manager_ptr> connect(const uri& locator);
+  expected<socket_manager_ptr> connect(const uri& locator);
 
   // Publishes an actor.
   template <class Handle>

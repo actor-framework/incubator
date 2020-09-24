@@ -45,6 +45,7 @@
 #include "caf/intrusive/fifo_inbox.hpp"
 #include "caf/intrusive/singly_linked.hpp"
 #include "caf/mailbox_element.hpp"
+#include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/basp/connection_state.hpp"
 #include "caf/net/basp/constants.hpp"
 #include "caf/net/basp/ec.hpp"
@@ -120,33 +121,15 @@ public:
 
   template <class LowerLayerPtr>
   bool prepare_send(LowerLayerPtr& down) {
-    for (size_t count = 0; count < max_consecutive_messages_; ++count) {
-      auto ptr = next_message();
-      if (ptr == nullptr)
-        break;
-      CAF_ASSERT(ptr->msg != nullptr);
-      CAF_LOG_TRACE(CAF_ARG2("content", ptr->msg->content()));
-      const auto& src = ptr->msg->sender;
-      const auto& dst = ptr->receiver;
-      if (dst == nullptr) {
-        // TODO: valid?
-        return true;
-      }
-      node_id nid{};
-      actor_id aid{0};
-      if (src != nullptr) {
-        auto src_id = src->id();
-        system().registry().put(src_id, src);
-        nid = src->node();
-        aid = src_id;
-      }
-      if (auto err = write_message(
-            down,
-            header{message_type::actor_message, ptr->msg->mid.integer_value()},
-            nid, aid, dst->id(), ptr->msg->stages, ptr->msg->content())) {
-        down->abort_reason(err);
-        return false;
-      }
+    if (auto err = handle_events(down)) {
+      CAF_LOG_ERROR("handle_events failed: " << CAF_ARG(err));
+      down->abort_reason(err);
+      return false;
+    }
+    if (auto err = handle_messages(down)) {
+      CAF_LOG_ERROR("handle_messages failed: " << CAF_ARG(err));
+      down->abort_reason(err);
+      return false;
     }
     return true;
   }
@@ -171,21 +154,21 @@ public:
     // nop
   }
 
-  template <class LowerLayerPtr>
-  void resolve(LowerLayerPtr& down, string_view path, const actor& listener) {
-    CAF_LOG_TRACE(CAF_ARG(path) << CAF_ARG(listener));
-    auto req_id = next_request_id_++;
-    if (auto err = write_message(
-          down, header{message_type::resolve_request, req_id}, path))
-      down->abort_reason(err);
-    pending_resolves_.emplace(req_id, listener);
-  }
+  error resolve(string_view path, const actor& listener);
 
   template <class LowerLayerPtr>
   void new_proxy(LowerLayerPtr& down, actor_id id) {
     if (auto err = write_message(down, header{message_type::monitor_message,
                                               static_cast<uint64_t>(id)}))
       down->abort_reason(err);
+  }
+
+  strong_actor_ptr make_proxy(const node_id& nid, const actor_id& aid) {
+    using impl_type = actor_proxy_impl;
+    using handle_type = strong_actor_ptr;
+    actor_config cfg;
+    return make_actor<impl_type, handle_type>(aid, nid, system_, cfg, owner_,
+                                              mailbox_);
   }
 
   template <class LowerLayerPtr>
@@ -235,6 +218,67 @@ private:
   }
 
   // -- handling of incoming messages ------------------------------------------
+
+  template <class LowerLayerPtr>
+  error handle_events(LowerLayerPtr& down) {
+    if (!mailbox_.blocked()) {
+      mailbox_.fetch_more();
+      auto& q = std::get<0>(mailbox_.queue().queues());
+      do {
+        q.inc_deficit(q.total_task_size());
+        for (auto ptr = q.next(); ptr != nullptr; ptr = q.next()) {
+          auto f = detail::make_overload(
+            [&](consumer_queue::event::resolve_request& x) {
+              return write_resolve_request(down, x.locator, x.listener);
+            },
+            [&](consumer_queue::event::new_proxy&) {
+              // transport_.new_proxy(*this, x.peer, x.id);
+            },
+            [&](consumer_queue::event::local_actor_down&) {
+              // transport_.local_actor_down(*this, x.observing_peer, x.id,
+              //                            std::move(x.reason));
+            },
+            [&](consumer_queue::event::timeout&) {
+              // transport_.timeout(*this, x.type, x.id);*Z
+            });
+          visit(f, ptr->value);
+        }
+      } while (!q.empty());
+    }
+    return none;
+  }
+
+  template <class LowerLayerPtr>
+  error handle_messages(LowerLayerPtr& down) {
+    for (size_t count = 0; count < max_consecutive_messages_; ++count) {
+      auto ptr = next_message();
+      if (ptr == nullptr)
+        break;
+      CAF_ASSERT(ptr->msg != nullptr);
+      CAF_LOG_TRACE(CAF_ARG2("content", ptr->msg->content()));
+      const auto& src = ptr->msg->sender;
+      const auto& dst = ptr->receiver;
+      if (dst == nullptr) {
+        // TODO: valid?
+        return none;
+      }
+      node_id nid{};
+      actor_id aid{0};
+      if (src != nullptr) {
+        auto src_id = src->id();
+        system().registry().put(src_id, src);
+        nid = src->node();
+        aid = src_id;
+      }
+      if (auto err = write_message(
+            down,
+            header{message_type::actor_message, ptr->msg->mid.integer_value()},
+            nid, aid, dst->id(), ptr->msg->stages, ptr->msg->content())) {
+        return err;
+      }
+    }
+    return none;
+  }
 
   template <class LowerLayerPtr>
   error handle(LowerLayerPtr& down, byte_span bytes) {
@@ -350,6 +394,19 @@ private:
       f.handle_remote_message(&executor_);
     }
     return none;
+  }
+
+  template <class LowerLayerPtr>
+  void write_resolve_request(LowerLayerPtr& down, const std::string& path,
+                             const actor& listener) {
+    CAF_LOG_TRACE(CAF_ARG(path) << CAF_ARG(listener));
+    auto req_id = next_request_id_++;
+    if (auto err = write_message(
+          down, header{message_type::resolve_request, req_id}, path)) {
+      anon_send(listener, resolve_atom_v, err);
+      return;
+    }
+    pending_resolves_.emplace(req_id, listener);
   }
 
   template <class LowerLayerPtr>

@@ -143,6 +143,14 @@ struct app_t {
     return 0;
   }
 
+  void resolve(string_view, const actor&) {
+    // nop
+  }
+
+  strong_actor_ptr make_proxy(node_id, actor_id) {
+    return nullptr;
+  }
+
   // Handle to the worker-under-test.
   actor worker;
 

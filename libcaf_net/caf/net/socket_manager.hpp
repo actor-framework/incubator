@@ -145,6 +145,22 @@ public:
   /// @param code The error code as reported by the operating system.
   virtual void handle_error(sec code) = 0;
 
+  /// Called when an actor should be resolved.
+  /// @param path The path that should be resolved.
+  /// @param listener The actor to which the the result should be sent to.
+  virtual void resolve([[maybe_unused]] string_view path,
+                       [[maybe_unused]] const actor& listener) {
+    // nop
+  }
+
+  /// Called when an actor should be resolved.
+  /// @param nid The `node_id` of the remote actor.
+  /// @param aid The `actor_id` of the remote actor.
+  virtual strong_actor_ptr make_proxy([[maybe_unused]] const node_id& nid,
+                                      [[maybe_unused]] const actor_id& aid) {
+    return nullptr;
+  }
+
 protected:
   // -- member variables -------------------------------------------------------
 
@@ -185,6 +201,7 @@ public:
       CAF_LOG_ERROR("failed to set nonblocking flag in socket:" << err);
       return err;
     }
+    register_reading();
     return protocol_.init(static_cast<socket_manager*>(this), this, config);
   }
 
@@ -208,6 +225,15 @@ public:
   void handle_error(sec code) override {
     abort_reason_ = code;
     return protocol_.abort(this, abort_reason_);
+  }
+
+  void resolve(string_view path, const actor& listener) override {
+    top_layer().resolve(path, listener);
+  }
+
+  strong_actor_ptr make_proxy(const node_id& nid,
+                              const actor_id& aid) override {
+    return top_layer().make_proxy(nid, aid);
   }
 
   auto& protocol() noexcept {
