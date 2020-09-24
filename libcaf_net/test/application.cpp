@@ -30,13 +30,9 @@
 #include "caf/net/basp/constants.hpp"
 #include "caf/net/basp/ec.hpp"
 #include "caf/net/middleman.hpp"
-#include "caf/net/packet_writer.hpp"
-#include "caf/net/stream_socket.hpp"
-#include "caf/none.hpp"
 #include "caf/uri.hpp"
 
 #include "caf/net/length_prefix_framing.hpp"
-/*
 
 using namespace caf;
 using namespace caf::net;
@@ -47,141 +43,161 @@ using namespace caf::net;
 
 namespace {
 
+struct dummy_socket_manager : public socket_manager {
+  dummy_socket_manager(socket handle, multiplexer* mpx)
+    : socket_manager(handle, mpx) {
+    // nop
+  }
+
+  error init(const settings&) override {
+    return none;
+  }
+
+  bool handle_read_event() override {
+    return false;
+  }
+
+  bool handle_write_event() override {
+    return false;
+  }
+
+  void handle_error(sec) override {
+    // nop
+  }
+};
+
 struct config : actor_system_config {
   config() {
     net::middleman::add_module_options(*this);
   }
 };
 
-struct fixture {};
-
 struct fixture : test_coordinator_fixture<config>,
                  proxy_registry::backend,
-                 basp::application::test_tag,
-                 public packet_writer {
-  fixture() : proxies(sys, *this), app(proxies) {
-    REQUIRE_OK(app.init(*this));
+                 basp::application::test_tag {
+  fixture() : mm(sys), mpx(&mm), proxies(sys, *this), app(proxies) {
+    dummy_socket_manager dummy_mgr{socket{42}, &mpx};
+    settings cfg;
+    auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+    REQUIRE_OK(app.init(&dummy_mgr, this_layer_ptr, cfg));
     uri mars_uri;
     REQUIRE_OK(parse("tcp://mars", mars_uri));
     mars = make_node_id(mars_uri);
   }
 
-    template <claäss... Ts>
-    byte_buffer to_buf(const Ts&... xs) {
-      byte_buffer buf;
-      binary_serializer sink{system(), buf};
-      REQUIRE_OK(sink(xs...));
-      return buf;
-    }
+  template <class... Ts>
+  byte_buffer to_buf(const Ts&... xs) {
+    byte_buffer buf;
+    binary_serializer sink{sys, buf};
+    REQUIRE_OK(!sink.apply_objects(xs...));
+    return buf;
+  }
 
-    template <class... Ts>
-    void set_input(const Ts&... xs) {
-      input = to_buf(xs...);
-    }
+  template <class... Ts>
+  void set_input(const Ts&... xs) {
+    input = to_buf(xs...);
+  }
 
-    void handle_handshake() {
-      CAF_CHECK_EQUAL(app.state(),
-                      basp::connection_state::await_handshake_header);
-      auto payload = to_buf(mars, basp::application::default_app_ids());
-      set_input(basp::header{basp::message_type::handshake,
-                             static_cast<uint32_t>(payload.size()),
-                             basp::version});
-      REQUIRE_OK(app.handle_data(*this, input));
-      CAF_CHECK_EQUAL(app.state(),
-                      basp::connection_state::await_handshake_payload);
-      REQUIRE_OK(app.handle_data(*this, payload));
-    }
+  void handle_handshake() {
+    CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake);
+    auto app_ids = basp::application::default_app_ids();
+    set_input(basp::header{basp::message_type::handshake, basp::version}, mars,
+              app_ids);
+    CAF_MESSAGE("set_input done");
+    auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+    CAF_REQUIRE_GREATER_OR_EQUAL(app.consume(this_layer_ptr, input), 0);
+    CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  }
 
-    void consume_handshake() {
-      if (output.size() < basp::header_size)
-        CAF_FAIL("BASP application did not write a handshake header");
-      auto hdr = basp::header::from_bytes(output);
-      if (hdr.type != basp::message_type::handshake || hdr.payload_len == 0
-          || hdr.operation_data != basp::version)
-        CAF_FAIL("invalid handshake header");
-      node_id nid;
-      std::vector<std::string> app_ids;
-      binary_deserializer source{sys, output};
-      source.skip(basp::header_size);
-      if (auto err = source(nid, app_ids))
-        CAF_FAIL("unable to deserialize payload: " << err);
-      if (source.remaining() > 0)
-        CAF_FAIL("trailing bytes after reading payload");
-      output.clear();
-    }
+  void consume_handshake() {
+    if (output.size() < basp::header_size)
+      CAF_FAIL("BASP application did not write a handshake header");
+    auto hdr = basp::header::from_bytes(output);
+    if (hdr.type != basp::message_type::handshake
+        || hdr.operation_data != basp::version)
+      CAF_FAIL("invalid handshake header");
+    node_id nid;
+    std::vector<std::string> app_ids;
+    binary_deserializer source{sys, output};
+    source.skip(basp::header_size);
+    if (!source.apply_objects(nid, app_ids))
+      CAF_FAIL("unable to deserialize payload: " << source.get_error());
+    if (source.remaining() > 0)
+      CAF_FAIL("trailing bytes after reading payload");
+    output.clear();
+  }
 
-    actor_system& system() {
-      return sys;
-    }
+  template <class LowerLayerPtr>
+  void begin_message(LowerLayerPtr&) {
+    // nop
+  }
 
-    fixture& transport() {
-      return *this;
-    }
+  template <class LowerLayerPtr>
+  byte_buffer& message_buffer(LowerLayerPtr&) {
+    return output;
+  }
 
-    endpoint_manager& manager() {
-      CAF_FAIL("unexpected function call");
-    }
+  template <class LowerLayerPtr>
+  void end_message(LowerLayerPtr&) {
+    // nop
+  }
 
-    byte_buffer next_payload_buffer() override {
-      return {};
-    }
+  template <class... Ts>
+  void configure_read(Ts...) {
+    // nop
+  }
 
-    byte_buffer next_header_buffer() override {
-      return {};
-    }
+  template <class LowerLayerPtr>
+  void abort_reason(LowerLayerPtr&, const error& err) {
+    last_error = err;
+  }
 
-    template <class... Ts>
-    void configure_read(Ts...) {
-      // nop
-    }
+  strong_actor_ptr make_proxy(node_id nid, actor_id aid) override {
+    using impl_type = forwarding_actor_proxy;
+    using hdl_type = strong_actor_ptr;
+    actor_config cfg;
+    return make_actor<impl_type, hdl_type>(aid, nid, &sys, cfg, self);
+  }
 
-    strong_actor_ptr make_proxy(node_id nid, actor_id aid) override {
-      using impl_type = forwarding_actor_proxy;
-      using hdl_type = strong_actor_ptr;
-      actor_config cfg;
-      return make_actor<impl_type, hdl_type>(aid, nid, &sys, cfg, self);
-    }
+  void set_last_hop(node_id*) override {
+    // nop
+  }
 
-    void set_last_hop(node_id*) override {
-      // nop
-    }
+protected:
+  middleman mm;
 
-  protected:
-    void write_impl(span<byte_buffer*> buffers) override {
-      for (auto buf : buffers)
-        output.insert(output.end(), buf->begin(), buf->end());
-    }
+  multiplexer mpx;
 
-    byte_buffer input;
+  byte_buffer input;
 
-    byte_buffer output;
+  byte_buffer output;
 
-    node_id mars;
+  node_id mars;
 
-    proxy_registry proxies;
+  proxy_registry proxies;
 
-    basp::application app;
+  basp::application app;
 
+  error last_error;
 };
 
 } // namespace
 
 #define MOCK(kind, op, ...)                                                    \
   do {                                                                         \
-    auto payload = to_buf(__VA_ARGS__);                                        \
-    set_input(basp::header{kind, static_cast<uint32_t>(payload.size()), op});  \
-    if (auto err = app.handle_data(*this, input))                              \
-      CAF_FAIL("application-under-test failed to process header: " << err);    \
-    if (auto err = app.handle_data(*this, payload))                            \
-      CAF_FAIL("application-under-test failed to process payload: " << err);   \
+    set_input(basp::header{kind, op}, __VA_ARGS__);                            \
+    auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);         \
+    if (app.consume(this_layer_ptr, input) < 0)                                \
+      CAF_FAIL(                                                                \
+        "application-under-test failed to process message: " << last_error);   \
   } while (false)
 
 #define RECEIVE(msg_type, op_data, ...)                                        \
   do {                                                                         \
     binary_deserializer source{sys, output};                                   \
     basp::header hdr;                                                          \
-    if (auto err = source(hdr, __VA_ARGS__))                                   \
-      CAF_FAIL("failed to receive data: " << err);                             \
+    if (!source.apply_objects(hdr, __VA_ARGS__))                               \
+      CAF_FAIL("failed to receive data: " << source.get_error());              \
     if (source.remaining() != 0)                                               \
       CAF_FAIL("unable to read entire message, " << source.remaining()         \
                                                  << " bytes left in buffer");  \
@@ -193,59 +209,53 @@ struct fixture : test_coordinator_fixture<config>,
 CAF_TEST_FIXTURE_SCOPE(application_tests, fixture)
 
 CAF_TEST(missing handshake) {
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake_header);
-  set_input(basp::header{basp::message_type::heartbeat, 0, 0});
-  CAF_CHECK_EQUAL(app.handle_data(*this, input), basp::ec::missing_handshake);
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake);
+  set_input(basp::header{basp::message_type::heartbeat, 0});
+  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+  CAF_CHECK_LESS(app.consume(this_layer_ptr, input), 0);
+  CAF_CHECK_EQUAL(last_error, basp::ec::missing_handshake);
 }
 
 CAF_TEST(version mismatch) {
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake_header);
-  set_input(basp::header{basp::message_type::handshake, 0, 0});
-  CAF_CHECK_EQUAL(app.handle_data(*this, input), basp::ec::version_mismatch);
-}
-
-CAF_TEST(missing payload in handshake) {
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake_header);
-  set_input(basp::header{basp::message_type::handshake, 0, basp::version});
-  CAF_CHECK_EQUAL(app.handle_data(*this, input), basp::ec::missing_payload);
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake);
+  set_input(basp::header{basp::message_type::handshake, 0});
+  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+  CAF_CHECK_LESS(app.consume(this_layer_ptr, input), 0);
+  CAF_CHECK_EQUAL(last_error, basp::ec::version_mismatch);
 }
 
 CAF_TEST(invalid handshake) {
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake_header);
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake);
   node_id no_nid;
   std::vector<std::string> no_ids;
-  auto payload = to_buf(no_nid, no_ids);
-  set_input(basp::header{basp::message_type::handshake,
-                         static_cast<uint32_t>(payload.size()), basp::version});
-  REQUIRE_OK(app.handle_data(*this, input));
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake_payload);
-  CAF_CHECK_EQUAL(app.handle_data(*this, payload), basp::ec::invalid_handshake);
+  set_input(basp::header{basp::message_type::handshake, basp::version}, no_nid,
+            no_ids);
+  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+  CAF_CHECK_LESS(app.consume(this_layer_ptr, input), 0);
+  CAF_CHECK_EQUAL(last_error, basp::ec::invalid_handshake);
 }
 
 CAF_TEST(app identifier mismatch) {
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake_header);
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake);
   std::vector<std::string> wrong_ids{"YOLO!!!"};
-  auto payload = to_buf(mars, wrong_ids);
-  set_input(basp::header{basp::message_type::handshake,
-                         static_cast<uint32_t>(payload.size()), basp::version});
-  REQUIRE_OK(app.handle_data(*this, input));
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake_payload);
-  CAF_CHECK_EQUAL(app.handle_data(*this, payload),
-                  basp::ec::app_identifiers_mismatch);
+  set_input(basp::header{basp::message_type::handshake, basp::version}, mars,
+            wrong_ids);
+  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+  CAF_CHECK_LESS(app.consume(this_layer_ptr, input), 0);
+  CAF_CHECK_EQUAL(last_error, basp::ec::app_identifiers_mismatch);
 }
 
 CAF_TEST(repeated handshake) {
   handle_handshake();
   consume_handshake();
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_header);
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
   node_id no_nid;
   std::vector<std::string> no_ids;
-  auto payload = to_buf(no_nid, no_ids);
-  set_input(basp::header{basp::message_type::handshake,
-                         static_cast<uint32_t>(payload.size()), basp::version});
-  CAF_CHECK_EQUAL(app.handle_data(*this, input), none);
-  CAF_CHECK_EQUAL(app.handle_data(*this, payload),
-                  basp::ec::unexpected_handshake);
+  set_input(basp::header{basp::message_type::handshake, basp::version}, no_nid,
+            no_ids);
+  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+  CAF_CHECK_LESS(app.consume(this_layer_ptr, input), 0);
+  CAF_CHECK_EQUAL(last_error, basp::ec::unexpected_handshake);
 }
 
 CAF_TEST(actor message) {
@@ -263,9 +273,8 @@ CAF_TEST(actor message) {
 CAF_TEST(resolve request without result) {
   handle_handshake();
   consume_handshake();
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_header);
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
   MOCK(basp::message_type::resolve_request, 42, std::string{"foo/bar"});
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_header);
   actor_id aid;
   std::set<std::string> ifs;
   RECEIVE(basp::message_type::resolve_response, 42u, aid, ifs);
@@ -278,9 +287,8 @@ CAF_TEST(resolve request on id with result) {
   consume_handshake();
   sys.registry().put(self->id(), self);
   auto path = "id/" + std::to_string(self->id());
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_header);
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
   MOCK(basp::message_type::resolve_request, 42, path);
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_header);
   actor_id aid;
   std::set<std::string> ifs;
   RECEIVE(basp::message_type::resolve_response, 42u, aid, ifs);
@@ -293,9 +301,8 @@ CAF_TEST(resolve request on name with result) {
   consume_handshake();
   sys.registry().put("foo", self);
   std::string path = "name/foo";
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_header);
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
   MOCK(basp::message_type::resolve_request, 42, path);
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_header);
   actor_id aid;
   std::set<std::string> ifs;
   RECEIVE(basp::message_type::resolve_response, 42u, aid, ifs);
@@ -306,7 +313,9 @@ CAF_TEST(resolve request on name with result) {
 CAF_TEST(resolve response with invalid actor handle) {
   handle_handshake();
   consume_handshake();
-  app.resolve(*this, "foo/bar", self);
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+  app.resolve(this_layer_ptr, "foo/bar", self);
   std::string path;
   RECEIVE(basp::message_type::resolve_request, 1u, path);
   CAF_CHECK_EQUAL(path, "foo/bar");
@@ -322,7 +331,9 @@ CAF_TEST(resolve response with invalid actor handle) {
 CAF_TEST(resolve response with valid actor handle) {
   handle_handshake();
   consume_handshake();
-  app.resolve(*this, "foo/bar", self);
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+  app.resolve(this_layer_ptr, "foo/bar", self);
   std::string path;
   RECEIVE(basp::message_type::resolve_request, 1u, path);
   CAF_CHECK_EQUAL(path, "foo/bar");
@@ -339,13 +350,12 @@ CAF_TEST(resolve response with valid actor handle) {
 CAF_TEST(heartbeat message) {
   handle_handshake();
   consume_handshake();
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_header);
-  auto bytes = to_bytes(basp::header{basp::message_type::heartbeat, 0, 0});
+  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  auto bytes = to_bytes(basp::header{basp::message_type::heartbeat, 0});
   set_input(bytes);
-  REQUIRE_OK(app.handle_data(*this, input));
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_header);
+  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+  CAF_REQUIRE_GREATER(app.consume(this_layer_ptr, input), 0);
+  CAF_CHECK_EQUAL(last_error, none);
 }
 
-
 CAF_TEST_FIXTURE_SCOPE_END()
-*/
