@@ -39,14 +39,15 @@ using namespace caf::net;
 
 #define REQUIRE_OK(statement)                                                  \
   if (auto err = statement)                                                    \
-    CAF_FAIL("failed to serialize data: " << err);
+  CAF_FAIL("failed to serialize data: " << err)
 
 namespace {
 
 struct dummy_socket_manager : public socket_manager {
   dummy_socket_manager(socket handle, multiplexer* mpx)
     : socket_manager(handle, mpx) {
-    // nop
+    mask_add(operation::read);
+    mask_add(operation::write);
   }
 
   error init(const settings&) override {
@@ -72,9 +73,7 @@ struct config : actor_system_config {
   }
 };
 
-struct fixture : test_coordinator_fixture<config>,
-                 proxy_registry::backend,
-                 basp::application::test_tag {
+struct fixture : test_coordinator_fixture<config>, proxy_registry::backend {
   fixture() : mm(sys), mpx(&mm), proxies(sys, *this), app(proxies) {
     dummy_socket_manager dummy_mgr{socket{42}, &mpx};
     settings cfg;

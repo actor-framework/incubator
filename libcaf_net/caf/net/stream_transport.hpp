@@ -162,7 +162,10 @@ public:
       return std::move(socket_buf_size.error());
     }
     auto this_layer_ptr = make_stream_oriented_layer_ptr(this, down);
-    return upper_layer_.init(owner, this_layer_ptr, config);
+    if (auto err = upper_layer_.init(owner, this_layer_ptr, config))
+      return err;
+    read_buf_.resize(min_read_size_);
+    return none;
   }
 
   // -- event callbacks --------------------------------------------------------
