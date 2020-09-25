@@ -34,7 +34,7 @@ application::application(proxy_registry& proxies)
     max_consecutive_messages_{20},
     queue_{new message_queue},
     hub_{new hub_type} {
-  // nop
+  mailbox_.try_block();
 }
 
 void application::resolve(string_view path, const actor& listener) {

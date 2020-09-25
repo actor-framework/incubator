@@ -221,7 +221,6 @@ public:
   bool handle_write_event() override {
     return protocol_.handle_write_event(this);
   }
-
   void handle_error(sec code) override {
     abort_reason_ = code;
     return protocol_.abort(this, abort_reason_);

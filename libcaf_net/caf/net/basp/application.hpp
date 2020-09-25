@@ -80,8 +80,6 @@ public:
 
   using hub_type = detail::worker_hub<worker>;
 
-  struct test_tag {};
-
   // -- constructors, destructors, and assignment operators --------------------
 
   explicit application(proxy_registry& proxies);
@@ -145,7 +143,9 @@ public:
 
   template <class LowerLayerPtr>
   bool done_sending(LowerLayerPtr&) {
-    return mailbox_.empty();
+    if (mailbox_.blocked())
+      return true;
+    return (mailbox_.empty() && mailbox_.try_block());
   }
 
   template <class LowerLayerPtr>
