@@ -65,6 +65,10 @@ public:
       lptr_->configure_read(llptr_, policy);
     }
 
+    void timeout(std::string type, uint64_t id) {
+      lptr_->timeout(llptr_, std::move(type), id);
+    }
+
   private:
     Layer* lptr_;
     LowerLayerPtr llptr_;

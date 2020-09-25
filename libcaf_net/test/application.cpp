@@ -148,6 +148,11 @@ struct fixture : test_coordinator_fixture<config>,
   }
 
   template <class LowerLayerPtr>
+  void timeout(LowerLayerPtr&, std::string, uint64_t) {
+    // nop
+  }
+
+  template <class LowerLayerPtr>
   void abort_reason(LowerLayerPtr&, const error& err) {
     last_error = err;
   }
@@ -314,7 +319,9 @@ CAF_TEST(resolve response with invalid actor handle) {
   handle_handshake();
   consume_handshake();
   CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
-  CAF_CHECK_EQUAL(app.resolve("foo/bar", self), none);
+  app.resolve("foo/bar", self);
+  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+  CAF_CHECK_GREATER_OR_EQUAL(app.prepare_send(this_layer_ptr), 0);
   std::string path;
   RECEIVE(basp::message_type::resolve_request, 1u, path);
   CAF_CHECK_EQUAL(path, "foo/bar");
@@ -331,7 +338,9 @@ CAF_TEST(resolve response with valid actor handle) {
   handle_handshake();
   consume_handshake();
   CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
-  CAF_CHECK_EQUAL(app.resolve("foo/bar", self), none);
+  app.resolve("foo/bar", self);
+  auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
+  CAF_CHECK_GREATER_OR_EQUAL(app.prepare_send(this_layer_ptr), 0);
   std::string path;
   RECEIVE(basp::message_type::resolve_request, 1u, path);
   CAF_CHECK_EQUAL(path, "foo/bar");

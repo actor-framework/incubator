@@ -66,12 +66,10 @@ public:
     };
 
     struct new_proxy {
-      node_id peer;
       actor_id id;
     };
 
     struct local_actor_down {
-      node_id observing_peer;
       actor_id id;
       error reason;
     };
@@ -83,9 +81,9 @@ public:
 
     event(std::string locator, actor listener);
 
-    event(node_id peer, actor_id proxy_id);
+    event(actor_id proxy_id);
 
-    event(node_id observing_peer, actor_id local_actor_id, error reason);
+    event(actor_id local_actor_id, error reason);
 
     event(std::string type, uint64_t id);
 

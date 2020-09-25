@@ -72,8 +72,6 @@ void test::resolve(const uri& locator, const actor& listener) {
 }
 
 strong_actor_ptr test::make_proxy(node_id nid, actor_id aid) {
-  using impl_type = actor_proxy_impl;
-  using hdl_type = strong_actor_ptr;
   return get_peer(nid).second->make_proxy(nid, aid);
 }
 

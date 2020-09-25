@@ -106,6 +106,11 @@ public:
     max_read_size_ = policy.max_size;
   }
 
+  template <class LowerLayerPtr>
+  void timeout(LowerLayerPtr&, std::string, uint64_t) {
+    // nop
+  }
+
   // -- properties -------------------------------------------------------------
 
   auto& read_buffer() noexcept {
