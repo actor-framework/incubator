@@ -218,7 +218,7 @@ constexpr std::string_view input = R"__(
 } // namespace
 
 CAF_TEST_FIXTURE_SCOPE(actor_shell_tests, fixture)
-
+/*
 CAF_TEST(actor shells expose their mailbox to their owners) {
   auto sck = testee_socket_guard.release();
   auto mgr = net::make_socket_manager<app_t, net::stream_transport>(sck, &mpx);
@@ -231,7 +231,7 @@ CAF_TEST(actor shells expose their mailbox to their owners) {
   anon_send(hdl, "line 3");
   run_while([&] { return app.lines.size() != 3; });
   CAF_CHECK_EQUAL(app.lines, svec({"line 1", "line 2", "line 3"}));
-}
+}*/
 
 CAF_TEST(actor shells can send requests and receive responses) {
   auto worker = sys.spawn([] {
