@@ -94,11 +94,10 @@ public:
               transport_.resolve(*this, x.locator, x.listener);
             },
             [&](consumer_queue::event::new_proxy& x) {
-              transport_.new_proxy(*this, x.peer, x.id);
+              transport_.new_proxy(*this, x.id);
             },
             [&](consumer_queue::event::local_actor_down& x) {
-              transport_.local_actor_down(*this, x.observing_peer, x.id,
-                                          std::move(x.reason));
+              transport_.local_actor_down(*this, x.id, std::move(x.reason));
             },
             [&](consumer_queue::event::timeout& x) {
               transport_.timeout(*this, x.type, x.id);

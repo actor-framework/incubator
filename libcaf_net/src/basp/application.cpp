@@ -37,19 +37,17 @@ application::application(proxy_registry& proxies)
   // nop
 }
 
-error application::resolve(string_view path, const actor& listener) {
-  using intrusive::inbox_result;
-  using event_type = consumer_queue::event;
-  switch (mailbox_.push_back(new event_type(to_string(path), listener))) {
-    case intrusive::inbox_result::success:
-      return none;
-    case intrusive::inbox_result::unblocked_reader:
-      owner_->register_writing();
-      return none;
-    default:
-      return make_error(sec::runtime_error,
-                        "could not enqueue resolve request");
-  }
+void application::resolve(string_view path, const actor& listener) {
+  enqueue_event(to_string(path), listener);
+}
+
+strong_actor_ptr application::make_proxy(const node_id& nid,
+                                         const actor_id& aid) {
+  using impl_type = actor_proxy_impl;
+  using handle_type = strong_actor_ptr;
+  actor_config cfg;
+  return make_actor<impl_type, handle_type>(aid, nid, system_, cfg, owner_,
+                                            mailbox_);
 }
 
 strong_actor_ptr application::resolve_local_path(string_view path) {
@@ -72,6 +70,18 @@ strong_actor_ptr application::resolve_local_path(string_view path) {
     return system().registry().get(name);
   }
   return nullptr;
+}
+
+bool application::enqueue(consumer_queue::element* ptr) {
+  switch (mailbox_.push_back(ptr)) {
+    case intrusive::inbox_result::success:
+      return true;
+    case intrusive::inbox_result::unblocked_reader:
+      owner_->register_writing();
+      return true;
+    default:
+      return false;
+  }
 }
 
 } // namespace caf::net::basp

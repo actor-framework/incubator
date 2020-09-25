@@ -120,12 +120,12 @@ public:
 
   template <class LowerLayerPtr>
   bool prepare_send(LowerLayerPtr& down) {
-    if (auto err = handle_events(down)) {
+    if (auto err = dequeue_events(down)) {
       CAF_LOG_ERROR("handle_events failed: " << CAF_ARG(err));
       down->abort_reason(err);
       return false;
     }
-    if (auto err = handle_messages(down)) {
+    if (auto err = dequeue_messages(down)) {
       CAF_LOG_ERROR("handle_messages failed: " << CAF_ARG(err));
       down->abort_reason(err);
       return false;
@@ -153,54 +153,15 @@ public:
     // nop
   }
 
-  error resolve(string_view path, const actor& listener);
+  void resolve(string_view path, const actor& listener);
 
-  template <class LowerLayerPtr>
-  void new_proxy(LowerLayerPtr& down, actor_id id) {
-    if (auto err = write_message(down, header{message_type::monitor_message,
-                                              static_cast<uint64_t>(id)}))
-      down->abort_reason(err);
-  }
-
-  strong_actor_ptr make_proxy(const node_id& nid, const actor_id& aid) {
-    using impl_type = actor_proxy_impl;
-    using handle_type = strong_actor_ptr;
-    actor_config cfg;
-    return make_actor<impl_type, handle_type>(aid, nid, system_, cfg, owner_,
-                                              mailbox_);
-  }
-
-  template <class LowerLayerPtr>
-  void local_actor_down(LowerLayerPtr& down, actor_id id, error reason) {
-    if (auto err = write_message(
-          down, header{message_type::down_message, static_cast<uint64_t>(id)},
-          reason))
-      down->abort_reason(err);
-  }
+  strong_actor_ptr make_proxy(const node_id& nid, const actor_id& aid);
 
   // -- utility functions ------------------------------------------------------
 
   strong_actor_ptr resolve_local_path(string_view path);
 
-  // -- properties -------------------------------------------------------------
-
-  error last_error() const noexcept {
-    return last_error_;
-  }
-
-  connection_state state() const noexcept {
-    return state_;
-  }
-
-  actor_system& system() const noexcept {
-    return *system_;
-  }
-
-private:
-  /// Writes a message to the given buffer.
-  /// @param down Ptr to the lower layer.
-  /// @param hdr The header of the message.
-  /// @param xs Any number of contents for the payload of the message.
+  /// Writes a message to the message buffer of `down`.
   template <class LowerLayerPtr, class... Ts>
   error write_message(LowerLayerPtr& down, header hdr, Ts&&... xs) {
     down->begin_message();
@@ -216,10 +177,21 @@ private:
     return none;
   }
 
-  // -- handling of incoming messages ------------------------------------------
+  // -- properties -------------------------------------------------------------
+
+  connection_state state() const noexcept {
+    return state_;
+  }
+
+  actor_system& system() const noexcept {
+    return *system_;
+  }
+
+private:
+  // -- handling of outgoing messages and events -------------------------------
 
   template <class LowerLayerPtr>
-  error handle_events(LowerLayerPtr& down) {
+  error dequeue_events(LowerLayerPtr& down) {
     if (!mailbox_.blocked()) {
       mailbox_.fetch_more();
       auto& q = std::get<0>(mailbox_.queue().queues());
@@ -228,17 +200,14 @@ private:
         for (auto ptr = q.next(); ptr != nullptr; ptr = q.next()) {
           auto f = detail::make_overload(
             [&](consumer_queue::event::resolve_request& x) {
-              return write_resolve_request(down, x.locator, x.listener);
+              write_resolve_request(down, x.locator, x.listener);
             },
-            [&](consumer_queue::event::new_proxy&) {
-              // transport_.new_proxy(*this, x.peer, x.id);
+            [&](consumer_queue::event::new_proxy& x) { new_proxy(down, x.id); },
+            [&](consumer_queue::event::local_actor_down& x) {
+              local_actor_down(down, x.id, std::move(x.reason));
             },
-            [&](consumer_queue::event::local_actor_down&) {
-              // transport_.local_actor_down(*this, x.observing_peer, x.id,
-              //                            std::move(x.reason));
-            },
-            [&](consumer_queue::event::timeout&) {
-              // transport_.timeout(*this, x.type, x.id);*Z
+            [&](consumer_queue::event::timeout& x) {
+              timeout(down, x.type, x.id);
             });
           visit(f, ptr->value);
         }
@@ -248,7 +217,40 @@ private:
   }
 
   template <class LowerLayerPtr>
-  error handle_messages(LowerLayerPtr& down) {
+  void write_resolve_request(LowerLayerPtr& down, const std::string& path,
+                             const actor& listener) {
+    CAF_LOG_TRACE(CAF_ARG(path) << CAF_ARG(listener));
+    auto req_id = next_request_id_++;
+    if (auto err = write_message(
+          down, header{message_type::resolve_request, req_id}, path)) {
+      anon_send(listener, resolve_atom_v, err);
+      return;
+    }
+    pending_resolves_.emplace(req_id, listener);
+  }
+
+  template <class LowerLayerPtr>
+  void new_proxy(LowerLayerPtr& down, actor_id id) {
+    if (auto err = write_message(down, header{message_type::monitor_message,
+                                              static_cast<uint64_t>(id)}))
+      down->abort_reason(err);
+  }
+
+  template <class LowerLayerPtr>
+  void local_actor_down(LowerLayerPtr& down, actor_id id, error reason) {
+    if (auto err = write_message(
+          down, header{message_type::down_message, static_cast<uint64_t>(id)},
+          reason))
+      down->abort_reason(err);
+  }
+
+  template <class LowerLayerPtr>
+  void timeout(LowerLayerPtr& down, std::string type, uint64_t id) {
+    down->timeout(std::move(type), id);
+  }
+
+  template <class LowerLayerPtr>
+  error dequeue_messages(LowerLayerPtr& down) {
     for (size_t count = 0; count < max_consecutive_messages_; ++count) {
       auto ptr = next_message();
       if (ptr == nullptr)
@@ -278,6 +280,8 @@ private:
     }
     return none;
   }
+
+  // -- handling of incoming messages ------------------------------------------
 
   template <class LowerLayerPtr>
   error handle(LowerLayerPtr& down, byte_span bytes) {
@@ -396,19 +400,6 @@ private:
   }
 
   template <class LowerLayerPtr>
-  void write_resolve_request(LowerLayerPtr& down, const std::string& path,
-                             const actor& listener) {
-    CAF_LOG_TRACE(CAF_ARG(path) << CAF_ARG(listener));
-    auto req_id = next_request_id_++;
-    if (auto err = write_message(
-          down, header{message_type::resolve_request, req_id}, path)) {
-      anon_send(listener, resolve_atom_v, err);
-      return;
-    }
-    pending_resolves_.emplace(req_id, listener);
-  }
-
-  template <class LowerLayerPtr>
   error
   handle_resolve_request(LowerLayerPtr& down, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
@@ -473,13 +464,9 @@ private:
     auto aid = static_cast<actor_id>(hdr.operation_data);
     auto hdl = system().registry().get(aid);
     if (hdl != nullptr) {
-      // TODO: This type of enqueue should happen directly within the message
-      // queue of the consumer.
-      /*endpoint_manager_ptr mgr = manager_;
-      auto nid = peer_id_;
-      hdl->get()->attach_functor([mgr, nid, aid](error reason) mutable {
-        mgr->enqueue_event(std::move(nid), aid, std::move(reason));
-      });*/
+      hdl->get()->attach_functor([this, aid](error reason) mutable {
+        this->enqueue_event(aid, std::move(reason));
+      });
     } else {
       error reason = exit_reason::unknown;
       return write_message(
@@ -516,6 +503,14 @@ private:
     return result;
   }
 
+  /// Enqueues an event to the mailbox.
+  template <class... Ts>
+  void enqueue_event(Ts&&... xs) {
+    enqueue(new consumer_queue::event(std::forward<Ts>(xs)...));
+  }
+
+  bool enqueue(consumer_queue::element* ptr);
+
   // -- member variables -------------------------------------------------------
 
   // Stores incoming actor messages.
@@ -523,9 +518,6 @@ private:
 
   /// Stores a pointer to the parent actor system.
   actor_system* system_ = nullptr;
-
-  /// Stores the last error that happened within this application.
-  error last_error_ = none;
 
   /// Stores the expected type of the next incoming message.
   connection_state state_ = connection_state::await_handshake;

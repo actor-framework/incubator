@@ -30,15 +30,14 @@ consumer_queue::event::event(std::string locator, actor listener)
   // nop
 }
 
-consumer_queue::event::event(node_id peer, actor_id proxy_id)
-  : element(element_type::event), value(new_proxy{peer, proxy_id}) {
+consumer_queue::event::event(actor_id proxy_id)
+  : element(element_type::event), value(new_proxy{proxy_id}) {
   // nop
 }
 
-consumer_queue::event::event(node_id observing_peer, actor_id local_actor_id,
-                             error reason)
+consumer_queue::event::event(actor_id local_actor_id, error reason)
   : element(element_type::event),
-    value(local_actor_down{observing_peer, local_actor_id, std::move(reason)}) {
+    value(local_actor_down{local_actor_id, std::move(reason)}) {
   // nop
 }
 

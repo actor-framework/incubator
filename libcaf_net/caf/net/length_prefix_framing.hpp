@@ -128,6 +128,11 @@ public:
     // nop
   }
 
+  template <class LowerLayerPtr>
+  void timeout(LowerLayerPtr& down, std::string type, uint64_t id) {
+    down->timeout(std::move(type), id);
+  }
+
   // -- properties -------------------------------------------------------------
 
   auto& upper_layer() noexcept {

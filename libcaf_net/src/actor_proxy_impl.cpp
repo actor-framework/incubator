@@ -29,7 +29,7 @@ actor_proxy_impl::actor_proxy_impl(actor_config& cfg, socket_manager* mgr,
                                    consumer_queue::type& mailbox)
   : super(cfg), mgr_(mgr), mailbox_(mailbox) {
   CAF_ASSERT(mgr_ != nullptr);
-  enqueue_event(node(), id());
+  enqueue_event(id());
 }
 
 actor_proxy_impl::~actor_proxy_impl() {
