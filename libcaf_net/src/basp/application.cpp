@@ -46,8 +46,7 @@ strong_actor_ptr application::make_proxy(const node_id& nid,
   using impl_type = actor_proxy_impl;
   using handle_type = strong_actor_ptr;
   actor_config cfg;
-  return make_actor<impl_type, handle_type>(aid, nid, system_, cfg, owner_,
-                                            mailbox_);
+  return make_actor<impl_type, handle_type>(aid, nid, system_, cfg, this);
 }
 
 strong_actor_ptr application::resolve_local_path(string_view path) {
@@ -72,13 +71,22 @@ strong_actor_ptr application::resolve_local_path(string_view path) {
   return nullptr;
 }
 
+void application::enqueue(mailbox_element_ptr msg, strong_actor_ptr receiver) {
+  using message_type = consumer_queue::message;
+  auto ptr = new message_type(std::move(msg), std::move(receiver));
+  enqueue(ptr);
+}
+
 bool application::enqueue(consumer_queue::element* ptr) {
   switch (mailbox_.push_back(ptr)) {
     case intrusive::inbox_result::success:
       return true;
-    case intrusive::inbox_result::unblocked_reader:
-      owner_->register_writing();
+    case intrusive::inbox_result::unblocked_reader: {
+      std::unique_lock<std::mutex> guard{owner_mtx_};
+      if (owner_)
+        owner_->mpx().register_writing(owner_);
       return true;
+    }
     default:
       return false;
   }
