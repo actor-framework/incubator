@@ -53,8 +53,8 @@
 #include "caf/net/basp/message_queue.hpp"
 #include "caf/net/basp/message_type.hpp"
 #include "caf/net/basp/worker.hpp"
+#include "caf/net/consumer.hpp"
 #include "caf/net/consumer_queue.hpp"
-#include "caf/net/endpoint_manager.hpp"
 #include "caf/net/multiplexer.hpp"
 #include "caf/net/receive_policy.hpp"
 #include "caf/net/socket_manager.hpp"
@@ -71,7 +71,7 @@
 namespace caf::net::basp {
 
 /// An implementation of BASP as an application layer protocol.
-class CAF_NET_EXPORT application {
+class CAF_NET_EXPORT application : public consumer {
 public:
   // -- member types -----------------------------------------------------------
 
@@ -188,7 +188,28 @@ public:
     return *system_;
   }
 
+  // -- mailbox access ---------------------------------------------------------
+
+  void enqueue(mailbox_element_ptr msg, strong_actor_ptr receiver) override;
+
+  bool enqueue(consumer_queue::element* ptr) override;
+
 private:
+  consumer_queue::message_ptr next_message() {
+    if (mailbox_.blocked())
+      return nullptr;
+    mailbox_.fetch_more();
+    auto& q = std::get<1>(mailbox_.queue().queues());
+    auto ts = q.next_task_size();
+    if (ts == 0)
+      return nullptr;
+    q.inc_deficit(ts);
+    auto result = q.next();
+    if (mailbox_.empty())
+      mailbox_.try_block();
+    return result;
+  }
+
   // -- handling of outgoing messages and events -------------------------------
 
   template <class LowerLayerPtr>
@@ -286,9 +307,6 @@ private:
 
   template <class LowerLayerPtr>
   error handle(LowerLayerPtr& down, byte_span bytes) {
-    auto strip_header = [](byte_span bytes) -> byte_span {
-      return make_span(bytes.data() + header_size, bytes.size() - header_size);
-    };
     CAF_LOG_TRACE(CAF_ARG(state_) << CAF_ARG2("bytes.size", bytes.size()));
     switch (state_) {
       case connection_state::await_handshake: {
@@ -299,7 +317,7 @@ private:
           return ec::missing_handshake;
         if (hdr.operation_data != version)
           return ec::version_mismatch;
-        if (auto err = handle_handshake(down, hdr, strip_header(bytes)))
+        if (auto err = handle_handshake(down, hdr, bytes.subspan(header_size)))
           return err;
         state_ = connection_state::ready;
         return none;
@@ -308,7 +326,7 @@ private:
         if (bytes.size() < header_size)
           return ec::unexpected_number_of_bytes;
         auto hdr = header::from_bytes(bytes);
-        return handle(down, hdr, strip_header(bytes));
+        return handle(down, hdr, bytes.subspan(header_size));
       }
       default:
         return ec::illegal_state;
@@ -487,31 +505,6 @@ private:
     return none;
   }
 
-  // -- mailbox access ---------------------------------------------------------
-
-  consumer_queue::message_ptr next_message() {
-    if (mailbox_.blocked())
-      return nullptr;
-    mailbox_.fetch_more();
-    auto& q = std::get<1>(mailbox_.queue().queues());
-    auto ts = q.next_task_size();
-    if (ts == 0)
-      return nullptr;
-    q.inc_deficit(ts);
-    auto result = q.next();
-    if (mailbox_.empty())
-      mailbox_.try_block();
-    return result;
-  }
-
-  /// Enqueues an event to the mailbox.
-  template <class... Ts>
-  void enqueue_event(Ts&&... xs) {
-    enqueue(new consumer_queue::event(std::forward<Ts>(xs)...));
-  }
-
-  bool enqueue(consumer_queue::element* ptr);
-
   // -- member variables -------------------------------------------------------
 
   // Stores incoming actor messages.
@@ -540,6 +533,9 @@ private:
 
   /// Points to the socket manager that owns this applications.
   socket_manager* owner_ = nullptr;
+
+  // Guards access to owner_.
+  std::mutex owner_mtx_;
 
   size_t max_consecutive_messages_;
 

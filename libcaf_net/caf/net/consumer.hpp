@@ -18,27 +18,23 @@
 
 #pragma once
 
-#include "caf/actor_proxy.hpp"
-#include "caf/net/consumer.hpp"
-#include "caf/net/socket_manager.hpp"
+#include "caf/detail/net_export.hpp"
+#include "caf/net/consumer_queue.hpp"
 
 namespace caf::net {
 
-/// Implements a simple proxy forwarding all operations to a manager.
-class actor_proxy_impl : public actor_proxy {
+/// An implementation of BASP as an application layer protocol.
+class CAF_NET_EXPORT consumer {
 public:
-  using super = actor_proxy;
+  /// Enqueues an event to the mailbox.
+  template <class... Ts>
+  void enqueue_event(Ts&&... xs) {
+    enqueue(new consumer_queue::event(std::forward<Ts>(xs)...));
+  }
 
-  actor_proxy_impl(actor_config& cfg, consumer* cons);
+  virtual void enqueue(mailbox_element_ptr msg, strong_actor_ptr receiver) = 0;
 
-  ~actor_proxy_impl() override;
-
-  void enqueue(mailbox_element_ptr what, execution_unit* context) override;
-
-  void kill_proxy(execution_unit* ctx, error rsn) override;
-
-private:
-  consumer* consumer_;
+  virtual bool enqueue(consumer_queue::element* ptr) = 0;
 };
 
 } // namespace caf::net
