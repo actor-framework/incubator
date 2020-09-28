@@ -37,6 +37,7 @@ add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
   src/actor_proxy_impl.cpp
   #src/net/backend/tcp.cpp
   src/net/backend/test.cpp
+  src/net/consumer_queue.cpp
   src/basp/application.cpp
   src/basp/connection_state_strings.cpp
   src/basp/ec_strings.cpp

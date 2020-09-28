@@ -91,6 +91,15 @@ public:
     factory_.abort(reason);
   }
 
+  void resolve(caf::string_view, const caf::actor&) {
+    CAF_LOG_ERROR("connection_acceptor received resolve event");
+  }
+
+  caf::strong_actor_ptr make_proxy(const caf::node_id&, const caf::actor_id&) {
+    CAF_LOG_ERROR("connection_acceptor received make_proxy call");
+    return nullptr;
+  }
+
 private:
   factory_type factory_;
 

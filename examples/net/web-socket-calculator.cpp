@@ -36,6 +36,7 @@
 // asyncio.get_event_loop().run_until_complete(hello())
 // ~~~
 
+#include "caf/actor.hpp"
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
 #include "caf/event_based_actor.hpp"
@@ -46,6 +47,7 @@
 #include "caf/net/socket_manager.hpp"
 #include "caf/net/tcp_accept_socket.hpp"
 #include "caf/net/web_socket_server.hpp"
+#include "caf/string_view.hpp"
 #include "caf/tag/mixed_message_oriented.hpp"
 
 #include <cstdint>
@@ -229,6 +231,14 @@ public:
                                "received binary WebSocket frame (unsupported)");
     down->abort_reason(std::move(err));
     return -1;
+  }
+
+  void resolve(caf::string_view, const caf::actor&) {
+    // nop
+  }
+
+  caf::strong_actor_ptr make_proxy(const caf::node_id&, const caf::actor_id&) {
+    return nullptr;
   }
 
 private:
