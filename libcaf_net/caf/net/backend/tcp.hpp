@@ -26,10 +26,11 @@
 #include "caf/expected.hpp"
 #include "caf/net/basp/application.hpp"
 #include "caf/net/fwd.hpp"
-#include "caf/net/make_endpoint_manager.hpp"
+#include "caf/net/length_prefix_framing.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/middleman_backend.hpp"
 #include "caf/net/multiplexer.hpp"
+#include "caf/net/socket_manager.hpp"
 #include "caf/net/stream_transport.hpp"
 #include "caf/net/tcp_stream_socket.hpp"
 #include "caf/node_id.hpp"
@@ -39,7 +40,7 @@ namespace caf::net::backend {
 /// Minimal backend for tcp communication.
 class CAF_NET_EXPORT tcp : public middleman_backend {
 public:
-  using peer_map = std::map<node_id, endpoint_manager_ptr>;
+  using peer_map = std::map<node_id, socket_manager_ptr>;
 
   using emplace_return_type = std::pair<peer_map::iterator, bool>;
 
@@ -55,9 +56,9 @@ public:
 
   void stop() override;
 
-  expected<endpoint_manager_ptr> get_or_connect(const uri& locator) override;
+  expected<socket_manager_ptr> get_or_connect(const uri& locator) override;
 
-  endpoint_manager_ptr peer(const node_id& id) override;
+  socket_manager_ptr peer(const node_id& id) override;
 
   void resolve(const uri& locator, const actor& listener) override;
 
@@ -70,20 +71,17 @@ public:
   uint16_t port() const noexcept override;
 
   template <class Handle>
-  expected<endpoint_manager_ptr>
+  expected<socket_manager_ptr>
   emplace(const node_id& peer_id, Handle socket_handle) {
-    using transport_type = stream_transport<basp::application>;
     if (auto err = nonblocking(socket_handle, true))
       return err;
-    auto mpx = mm_.mpx();
-    basp::application app{proxies_};
-    auto mgr = make_endpoint_manager(
-      mpx, mm_.system(), transport_type{socket_handle, std::move(app)});
-    if (auto err = mgr->init()) {
+    auto mgr = make_socket_manager<basp::application, length_prefix_framing,
+                                   stream_transport>(socket_handle, &mm_.mpx(),
+                                                     proxies_);
+    if (auto err = mgr->init(content(mm_.system().config()))) {
       CAF_LOG_ERROR("mgr->init() failed: " << err);
       return err;
     }
-    mpx->register_reading(mgr);
     emplace_return_type res;
     {
       const std::lock_guard<std::mutex> lock(lock_);
@@ -96,7 +94,7 @@ public:
   }
 
 private:
-  endpoint_manager_ptr get_peer(const node_id& id);
+  socket_manager_ptr get_peer(const node_id& id);
 
   middleman& mm_;
 

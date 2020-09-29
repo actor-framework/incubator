@@ -78,7 +78,7 @@ class planet : public test_coordinator_fixture<config<Node>> {
 public:
   planet(planet_driver& driver)
     : mm(this->sys.network_manager()), mpx(mm.mpx()), driver_(driver) {
-    mpx->set_thread_id();
+    mpx.set_thread_id();
   }
 
   node_id id() const {
@@ -90,7 +90,7 @@ public:
   }
 
   net::middleman& mm;
-  multiplexer_ptr mpx;
+  multiplexer& mpx;
 
 private:
   planet_driver& driver_;
@@ -100,12 +100,12 @@ struct fixture : host_fixture, planet_driver {
   fixture() : earth(*this), mars(*this) {
     earth.run();
     mars.run();
-    CAF_REQUIRE_EQUAL(earth.mpx->num_socket_managers(), 2);
-    CAF_REQUIRE_EQUAL(mars.mpx->num_socket_managers(), 2);
+    CAF_REQUIRE_EQUAL(earth.mpx.num_socket_managers(), 2ul);
+    CAF_REQUIRE_EQUAL(mars.mpx.num_socket_managers(), 2ul);
   }
 
   bool handle_io_event() override {
-    return earth.mpx->poll_once(false) || mars.mpx->poll_once(false);
+    return earth.mpx.poll_once(false) || mars.mpx.poll_once(false);
   }
 
   void run() {
@@ -131,12 +131,12 @@ CAF_TEST(doorman accept) {
   CAF_CHECK(sock);
   auto guard = make_socket_guard(*sock);
   int runs = 0;
-  while (earth.mpx->num_socket_managers() < 3) {
+  while (earth.mpx.num_socket_managers() < 3) {
     if (++runs >= 5)
       CAF_FAIL("doorman did not create endpoint_manager");
     run();
   }
-  CAF_CHECK_EQUAL(earth.mpx->num_socket_managers(), 3);
+  CAF_CHECK_EQUAL(earth.mpx.num_socket_managers(), 3ul);
 }
 
 CAF_TEST(connect) {
@@ -152,7 +152,7 @@ CAF_TEST(connect) {
   auto sock = unbox(accept(acc_guard.socket()));
   auto sock_guard = make_socket_guard(sock);
   handle_io_event();
-  CAF_CHECK_EQUAL(earth.mpx->num_socket_managers(), 3);
+  CAF_CHECK_EQUAL(earth.mpx.num_socket_managers(), 3ul);
 }
 
 CAF_TEST(publish) {
@@ -173,8 +173,8 @@ CAF_TEST(resolve) {
   auto mars_be = reinterpret_cast<net::backend::tcp*>(mars.mm.backend("tcp"));
   CAF_CHECK(mars_be->emplace(earth.id(), sockets.second));
   handle_io_event();
-  CAF_CHECK_EQUAL(earth.mpx->num_socket_managers(), 3);
-  CAF_CHECK_EQUAL(mars.mpx->num_socket_managers(), 3);
+  CAF_CHECK_EQUAL(earth.mpx.num_socket_managers(), 3ul);
+  CAF_CHECK_EQUAL(mars.mpx.num_socket_managers(), 3ul);
   auto dummy = earth.sys.spawn(dummy_actor);
   earth.mm.publish(dummy, "dummy"s);
   auto locator = unbox(make_uri("tcp://earth/name/dummy"s));
