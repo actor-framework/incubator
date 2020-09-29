@@ -26,7 +26,6 @@
 
 #include "caf/byte_buffer.hpp"
 #include "caf/forwarding_actor_proxy.hpp"
-#include "caf/net/basp/connection_state.hpp"
 #include "caf/net/basp/constants.hpp"
 #include "caf/net/basp/ec.hpp"
 #include "caf/net/middleman.hpp"
@@ -98,14 +97,14 @@ struct fixture : test_coordinator_fixture<config>, proxy_registry::backend {
   }
 
   void handle_handshake() {
-    CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake);
+    CAF_CHECK(!app.handshake_complete());
     auto app_ids = basp::application::default_app_ids();
     set_input(basp::header{basp::message_type::handshake, basp::version}, mars,
               app_ids);
     CAF_MESSAGE("set_input done");
     auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
     CAF_REQUIRE_GREATER_OR_EQUAL(app.consume(this_layer_ptr, input), 0);
-    CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+    CAF_CHECK(app.handshake_complete());
   }
 
   void consume_handshake() {
@@ -213,7 +212,7 @@ protected:
 CAF_TEST_FIXTURE_SCOPE(application_tests, fixture)
 
 CAF_TEST(missing handshake) {
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake);
+  CAF_CHECK(!app.handshake_complete());
   set_input(basp::header{basp::message_type::heartbeat, 0});
   auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
   CAF_CHECK_LESS(app.consume(this_layer_ptr, input), 0);
@@ -221,7 +220,7 @@ CAF_TEST(missing handshake) {
 }
 
 CAF_TEST(version mismatch) {
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake);
+  CAF_CHECK(!app.handshake_complete());
   set_input(basp::header{basp::message_type::handshake, 0});
   auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
   CAF_CHECK_LESS(app.consume(this_layer_ptr, input), 0);
@@ -229,7 +228,7 @@ CAF_TEST(version mismatch) {
 }
 
 CAF_TEST(invalid handshake) {
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake);
+  CAF_CHECK(!app.handshake_complete());
   node_id no_nid;
   std::vector<std::string> no_ids;
   set_input(basp::header{basp::message_type::handshake, basp::version}, no_nid,
@@ -240,7 +239,7 @@ CAF_TEST(invalid handshake) {
 }
 
 CAF_TEST(app identifier mismatch) {
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::await_handshake);
+  CAF_CHECK(!app.handshake_complete());
   std::vector<std::string> wrong_ids{"YOLO!!!"};
   set_input(basp::header{basp::message_type::handshake, basp::version}, mars,
             wrong_ids);
@@ -252,7 +251,7 @@ CAF_TEST(app identifier mismatch) {
 CAF_TEST(repeated handshake) {
   handle_handshake();
   consume_handshake();
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  CAF_CHECK(app.handshake_complete());
   node_id no_nid;
   std::vector<std::string> no_ids;
   set_input(basp::header{basp::message_type::handshake, basp::version}, no_nid,
@@ -277,7 +276,7 @@ CAF_TEST(actor message) {
 CAF_TEST(resolve request without result) {
   handle_handshake();
   consume_handshake();
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  CAF_CHECK(app.handshake_complete());
   MOCK(basp::message_type::resolve_request, 42, std::string{"foo/bar"});
   actor_id aid;
   std::set<std::string> ifs;
@@ -291,7 +290,7 @@ CAF_TEST(resolve request on id with result) {
   consume_handshake();
   sys.registry().put(self->id(), self);
   auto path = "id/" + std::to_string(self->id());
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  CAF_CHECK(app.handshake_complete());
   MOCK(basp::message_type::resolve_request, 42, path);
   actor_id aid;
   std::set<std::string> ifs;
@@ -305,7 +304,7 @@ CAF_TEST(resolve request on name with result) {
   consume_handshake();
   sys.registry().put("foo", self);
   std::string path = "name/foo";
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  CAF_CHECK(app.handshake_complete());
   MOCK(basp::message_type::resolve_request, 42, path);
   actor_id aid;
   std::set<std::string> ifs;
@@ -317,7 +316,7 @@ CAF_TEST(resolve request on name with result) {
 CAF_TEST(resolve response with invalid actor handle) {
   handle_handshake();
   consume_handshake();
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  CAF_CHECK(app.handshake_complete());
   app.resolve("foo/bar", self);
   auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
   CAF_CHECK_GREATER_OR_EQUAL(app.prepare_send(this_layer_ptr), 0);
@@ -336,7 +335,7 @@ CAF_TEST(resolve response with invalid actor handle) {
 CAF_TEST(resolve response with valid actor handle) {
   handle_handshake();
   consume_handshake();
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  CAF_CHECK(app.handshake_complete());
   app.resolve("foo/bar", self);
   auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
   CAF_CHECK_GREATER_OR_EQUAL(app.prepare_send(this_layer_ptr), 0);
@@ -356,7 +355,7 @@ CAF_TEST(resolve response with valid actor handle) {
 CAF_TEST(heartbeat message) {
   handle_handshake();
   consume_handshake();
-  CAF_CHECK_EQUAL(app.state(), basp::connection_state::ready);
+  CAF_CHECK(app.handshake_complete());
   auto bytes = to_bytes(basp::header{basp::message_type::heartbeat, 0});
   set_input(bytes);
   auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);

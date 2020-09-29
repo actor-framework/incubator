@@ -4,8 +4,6 @@ file(GLOB_RECURSE CAF_NET_HEADERS "caf/*.hpp")
 
 # -- add consistency checks for enum to_string implementations -----------------
 
-caf_incubator_add_enum_consistency_check("caf/net/basp/connection_state.hpp"
-        "src/basp/connection_state_strings.cpp")
 caf_incubator_add_enum_consistency_check("caf/net/basp/ec.hpp"
         "src/basp/ec_strings.cpp")
 caf_incubator_add_enum_consistency_check("caf/net/basp/message_type.hpp"
@@ -39,7 +37,6 @@ add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
   src/net/backend/test.cpp
   src/net/consumer_queue.cpp
   src/basp/application.cpp
-  src/basp/connection_state_strings.cpp
   src/basp/ec_strings.cpp
   src/basp/message_type_strings.cpp
   src/basp/operation_strings.cpp
