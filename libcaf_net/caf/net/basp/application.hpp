@@ -46,7 +46,6 @@
 #include "caf/intrusive/singly_linked.hpp"
 #include "caf/mailbox_element.hpp"
 #include "caf/net/actor_proxy_impl.hpp"
-#include "caf/net/basp/connection_state.hpp"
 #include "caf/net/basp/constants.hpp"
 #include "caf/net/basp/ec.hpp"
 #include "caf/net/basp/header.hpp"
@@ -180,8 +179,8 @@ public:
 
   // -- properties -------------------------------------------------------------
 
-  connection_state state() const noexcept {
-    return state_;
+  bool handshake_complete() const noexcept {
+    return handshake_complete_;
   }
 
   actor_system& system() const noexcept {
@@ -307,29 +306,24 @@ private:
 
   template <class LowerLayerPtr>
   error handle(LowerLayerPtr& down, byte_span bytes) {
-    CAF_LOG_TRACE(CAF_ARG(state_) << CAF_ARG2("bytes.size", bytes.size()));
-    switch (state_) {
-      case connection_state::await_handshake: {
-        if (bytes.size() < header_size)
-          return ec::unexpected_number_of_bytes;
-        auto hdr = header::from_bytes(bytes);
-        if (hdr.type != message_type::handshake)
-          return ec::missing_handshake;
-        if (hdr.operation_data != version)
-          return ec::version_mismatch;
-        if (auto err = handle_handshake(down, hdr, bytes.subspan(header_size)))
-          return err;
-        state_ = connection_state::ready;
-        return none;
-      }
-      case connection_state::ready: {
-        if (bytes.size() < header_size)
-          return ec::unexpected_number_of_bytes;
-        auto hdr = header::from_bytes(bytes);
-        return handle(down, hdr, bytes.subspan(header_size));
-      }
-      default:
-        return ec::illegal_state;
+    CAF_LOG_TRACE(CAF_ARG2("bytes.size", bytes.size()));
+    if (!handshake_complete_) {
+      if (bytes.size() < header_size)
+        return ec::unexpected_number_of_bytes;
+      auto hdr = header::from_bytes(bytes);
+      if (hdr.type != message_type::handshake)
+        return ec::missing_handshake;
+      if (hdr.operation_data != version)
+        return ec::version_mismatch;
+      if (auto err = handle_handshake(down, hdr, bytes.subspan(header_size)))
+        return err;
+      handshake_complete_ = true;
+      return none;
+    } else {
+      if (bytes.size() < header_size)
+        return ec::unexpected_number_of_bytes;
+      auto hdr = header::from_bytes(bytes);
+      return handle(down, hdr, bytes.subspan(header_size));
     }
   }
 
@@ -513,8 +507,8 @@ private:
   /// Stores a pointer to the parent actor system.
   actor_system* system_ = nullptr;
 
-  /// Stores the expected type of the next incoming message.
-  connection_state state_ = connection_state::await_handshake;
+  /// Stores whether the BASP handshake completed successfully.
+  bool handshake_complete_ = false;
 
   /// Stores the ID of our peer.
   node_id peer_id_;
