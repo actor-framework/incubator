@@ -21,13 +21,15 @@
 #include <cstdint>
 #include <string>
 
+#include "caf/detail/net_export.hpp"
+
 namespace caf::net::basp {
 
 /// @addtogroup BASP
 
 /// Describes the first header field of a BASP message and determines the
 /// interpretation of the other header fields.
-enum class message_type : uint8_t {
+enum class CAF_NET_EXPORT message_type : uint8_t {
   /// Sends supported BASP version and node information to the server.
   ///
   /// ![](client_handshake.png)
@@ -69,7 +71,7 @@ enum class message_type : uint8_t {
 };
 
 /// @relates message_type
-std::string to_string(message_type);
+std::string to_string(message_type) CAF_NET_EXPORT;
 
 /// @}
 
