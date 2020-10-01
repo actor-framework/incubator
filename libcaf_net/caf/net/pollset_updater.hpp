@@ -36,9 +36,19 @@ public:
 
   using msg_buf = std::array<byte, sizeof(intptr_t) + 1>;
 
+  // -- constants --------------------------------------------------------------
+
+  static constexpr uint8_t register_reading_code = 0x00;
+
+  static constexpr uint8_t register_writing_code = 0x01;
+
+  static constexpr uint8_t init_manager_code = 0x02;
+
+  static constexpr uint8_t shutdown_code = 0x04;
+
   // -- constructors, destructors, and assignment operators --------------------
 
-  pollset_updater(pipe_socket read_handle, const multiplexer_ptr& parent);
+  pollset_updater(pipe_socket read_handle, multiplexer* parent);
 
   ~pollset_updater() override;
 
@@ -51,6 +61,8 @@ public:
 
   // -- interface functions ----------------------------------------------------
 
+  error init(const settings& config) override;
+
   bool handle_read_event() override;
 
   bool handle_write_event() override;
@@ -59,7 +71,7 @@ public:
 
 private:
   msg_buf buf_;
-  size_t buf_size_;
+  size_t buf_size_ = 0;
 };
 
 } // namespace caf::net

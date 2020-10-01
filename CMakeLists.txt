@@ -31,6 +31,7 @@ option(CAF_INC_ENABLE_STANDALONE_BUILD
 option(CAF_INC_ENABLE_TESTING "Build unit test suites" ON)
 option(CAF_INC_ENABLE_NET_MODULE "Build networking module" ON)
 option(CAF_INC_ENABLE_BB_MODULE "Build building blocks module" ON)
+option(CAF_INC_ENABLE_EXAMPLES "Build small programs" ON)
 
 # -- incubator options with non-boolean values ---------------------------------
 
@@ -49,7 +50,7 @@ if(CAF_INC_ENABLE_STANDALONE_BUILD)
   FetchContent_Declare(
     actor_framework
     GIT_REPOSITORY https://github.com/actor-framework/actor-framework.git
-    GIT_TAG        9caa83be4
+    GIT_TAG        4f8609b
   )
   FetchContent_Populate(actor_framework)
   set(CAF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -207,4 +208,8 @@ endif()
 
 if(CAF_INC_ENABLE_NET_MODULE)
   add_subdirectory(libcaf_bb)
+endif()
+
+if(CAF_INC_ENABLE_EXAMPLES)
+  add_subdirectory(examples)
 endif()
