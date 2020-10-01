@@ -19,7 +19,6 @@
 #pragma once
 
 #include <cstdint>
-#include <iterator>
 #include <memory>
 #include <type_traits>
 #include <unordered_map>
@@ -28,7 +27,6 @@
 
 #include "caf/actor.hpp"
 #include "caf/actor_addr.hpp"
-#include "caf/actor_clock.hpp"
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
 #include "caf/binary_deserializer.hpp"
@@ -41,9 +39,6 @@
 #include "caf/detail/worker_hub.hpp"
 #include "caf/error.hpp"
 #include "caf/fwd.hpp"
-#include "caf/intrusive/drr_queue.hpp"
-#include "caf/intrusive/fifo_inbox.hpp"
-#include "caf/intrusive/singly_linked.hpp"
 #include "caf/mailbox_element.hpp"
 #include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/basp/constants.hpp"
@@ -54,18 +49,15 @@
 #include "caf/net/basp/worker.hpp"
 #include "caf/net/consumer.hpp"
 #include "caf/net/consumer_queue.hpp"
-#include "caf/net/multiplexer.hpp"
 #include "caf/net/receive_policy.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/node_id.hpp"
-#include "caf/policy/normal_messages.hpp"
 #include "caf/proxy_registry.hpp"
 #include "caf/response_promise.hpp"
 #include "caf/scoped_execution_unit.hpp"
 #include "caf/send.hpp"
 #include "caf/tag/message_oriented.hpp"
 #include "caf/unit.hpp"
-#include "caf/variant.hpp"
 
 namespace caf::net::basp {
 
@@ -97,34 +89,35 @@ public:
   error init(socket_manager* owner, LowerLayerPtr down, const settings& cfg) {
     // Initialize member variables.
     owner_ = owner;
-    system_ = &owner->mpx().system();
+    system_ = &owner->system();
     executor_.system_ptr(system_);
     executor_.proxy_registry_ptr(&proxies_);
+    max_throughput_ = get_or(cfg, "caf.scheduler.max-throughput",
+                             defaults::scheduler::max_throughput);
     auto workers = get_or<size_t>(
       cfg, "caf.middleman.workers",
       std::min(3u, std::thread::hardware_concurrency() / 4u) + 1);
-    max_throughput_ = get_or(system().config(), "caf.scheduler.max-throughput",
-                             defaults::scheduler::max_throughput);
     for (size_t i = 0; i < workers; ++i)
       hub_->add_new_worker(*queue_, proxies_);
     // Write handshake.
-    return write_message(
-      down, header{message_type::handshake, version}, system().node(),
-      get_or(system().config(), "caf.middleman.app-identifiers",
-             application::default_app_ids()));
+    auto app_ids = get_or(cfg, "caf.middleman.app-identifiers",
+                          application::default_app_ids());
+    return write_message(down, header{message_type::handshake, version},
+                         system().node(), app_ids);
   }
 
   template <class LowerLayerPtr>
   bool prepare_send(LowerLayerPtr& down) {
+    CAF_LOG_TRACE("");
     if (!handshake_complete())
       return true;
     if (auto err = dequeue_events(down)) {
-      CAF_LOG_ERROR("handle_events failed: " << CAF_ARG(err));
+      CAF_LOG_ERROR("dequeue_events failed: " << CAF_ARG(err));
       down->abort_reason(err);
       return false;
     }
     if (auto err = dequeue_messages(down)) {
-      CAF_LOG_ERROR("handle_messages failed: " << CAF_ARG(err));
+      CAF_LOG_ERROR("dequeue_messages failed: " << CAF_ARG(err));
       down->abort_reason(err);
       return false;
     }
@@ -133,6 +126,7 @@ public:
 
   template <class LowerLayerPtr>
   ptrdiff_t consume(LowerLayerPtr& down, byte_span buffer) {
+    CAF_LOG_TRACE(CAF_ARG2("buffer.size", buffer.size()));
     if (auto err = handle(down, buffer)) {
       CAF_LOG_ERROR("could not handle message: " << CAF_ARG(err));
       down->abort_reason(err);
@@ -143,6 +137,7 @@ public:
 
   template <class LowerLayerPtr>
   bool done_sending(LowerLayerPtr&) {
+    CAF_LOG_TRACE("");
     if (mailbox_.blocked())
       return true;
     return (mailbox_.empty() && mailbox_.try_block());
@@ -150,6 +145,7 @@ public:
 
   template <class LowerLayerPtr>
   void abort(LowerLayerPtr&, const error&) {
+    CAF_LOG_TRACE("");
     // nop
   }
 
@@ -164,15 +160,12 @@ public:
   /// Writes a message to the message buffer of `down`.
   template <class LowerLayerPtr, class... Ts>
   error write_message(LowerLayerPtr& down, header hdr, Ts&&... xs) {
+    CAF_LOG_TRACE(CAF_ARG(hdr));
     down->begin_message();
     auto& buf = down->message_buffer();
     binary_serializer sink{&executor_, buf};
-    if (!sink.apply_object(hdr))
+    if (!sink.apply_objects(hdr, xs...))
       return sink.get_error();
-    if constexpr (sizeof...(xs) >= 1) {
-      if (!sink.apply_objects(xs...))
-        return sink.get_error();
-    }
     down->end_message();
     return none;
   }
@@ -213,6 +206,7 @@ private:
 
   template <class LowerLayerPtr>
   error dequeue_events(LowerLayerPtr& down) {
+    CAF_LOG_TRACE("");
     if (!mailbox_.blocked()) {
       mailbox_.fetch_more();
       auto& q = std::get<0>(mailbox_.queue().queues());
@@ -221,14 +215,14 @@ private:
         for (auto ptr = q.next(); ptr != nullptr; ptr = q.next()) {
           auto f = detail::make_overload(
             [&](consumer_queue::event::resolve_request& x) {
-              write_resolve_request(down, x.locator, x.listener);
+              write_resolve_request(down, x.path, x.listener);
             },
             [&](consumer_queue::event::new_proxy& x) { new_proxy(down, x.id); },
             [&](consumer_queue::event::local_actor_down& x) {
               local_actor_down(down, x.id, std::move(x.reason));
             },
             [&](consumer_queue::event::timeout& x) {
-              timeout(down, x.type, x.id);
+              timeout(down, std::move(x.type), x.id);
             });
           visit(f, ptr->value);
         }
@@ -251,27 +245,31 @@ private:
   }
 
   template <class LowerLayerPtr>
-  void new_proxy(LowerLayerPtr& down, actor_id id) {
+  void new_proxy(LowerLayerPtr& down, actor_id aid) {
+    CAF_LOG_TRACE(CAF_ARG(aid));
     if (auto err = write_message(down, header{message_type::monitor_message,
-                                              static_cast<uint64_t>(id)}))
+                                              static_cast<uint64_t>(aid)}))
       down->abort_reason(err);
   }
 
   template <class LowerLayerPtr>
-  void local_actor_down(LowerLayerPtr& down, actor_id id, error reason) {
+  void local_actor_down(LowerLayerPtr& down, actor_id aid, error reason) {
+    CAF_LOG_TRACE(CAF_ARG(aid) << CAF_ARG(reason));
     if (auto err = write_message(
-          down, header{message_type::down_message, static_cast<uint64_t>(id)},
+          down, header{message_type::down_message, static_cast<uint64_t>(aid)},
           reason))
       down->abort_reason(err);
   }
 
   template <class LowerLayerPtr>
   void timeout(LowerLayerPtr& down, std::string type, uint64_t id) {
+    CAF_LOG_TRACE(CAF_ARG(type) << CAF_ARG(id));
     down->timeout(std::move(type), id);
   }
 
   template <class LowerLayerPtr>
   error dequeue_messages(LowerLayerPtr& down) {
+    CAF_LOG_TRACE("");
     for (size_t count = 0; count < max_throughput_; ++count) {
       auto ptr = next_message();
       if (ptr == nullptr)
@@ -377,6 +375,7 @@ private:
 
   template <class LowerLayerPtr>
   error handle_actor_message(LowerLayerPtr&, header hdr, byte_span payload) {
+    CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     auto worker = hub_->pop();
     if (worker != nullptr) {
       CAF_LOG_DEBUG("launch BASP worker for deserializing an actor_message");

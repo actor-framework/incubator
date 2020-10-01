@@ -58,23 +58,18 @@ public:
   // -- constructors, destructors, and assignment operators --------------------
 
   template <class... Ts>
-  length_prefix_framing(Ts&&... xs)
-    : upper_layer_(std::forward<Ts>(xs)...),
-      message_offset_(0),
-      awaiting_header_(true),
-      msg_size_(0) {
+  length_prefix_framing(Ts&&... xs) : upper_layer_(std::forward<Ts>(xs)...) {
     // nop
   }
 
-  virtual ~length_prefix_framing() {
-    // nop
-  }
+  ~length_prefix_framing() = default;
 
   // -- initialization ---------------------------------------------------------
 
   template <class LowerLayerPtr>
   error
   init(socket_manager* owner, LowerLayerPtr& down, const settings& config) {
+    CAF_LOG_TRACE("");
     down->configure_read(receive_policy::exactly(header_length));
     auto this_layer_ptr = make_message_oriented_layer_ptr(this, down);
     return upper_layer_.init(owner, this_layer_ptr, config);
@@ -84,6 +79,7 @@ public:
 
   template <class LowerLayerPtr>
   void begin_message(LowerLayerPtr& down) {
+    CAF_LOG_TRACE("");
     down->begin_output();
     auto& buf = down->output_buffer();
     message_offset_ = buf.size();
@@ -97,6 +93,7 @@ public:
 
   template <class LowerLayerPtr>
   void end_message(LowerLayerPtr& down) {
+    CAF_LOG_TRACE("");
     using detail::to_network_order;
     auto& buf = down->output_buffer();
     auto msg_begin = buf.begin() + message_offset_;
@@ -106,9 +103,11 @@ public:
       memcpy(std::addressof(*msg_begin), &u32_size, 4);
       down->end_output();
     } else {
-      down->abort_reason(make_error(
-        sec::runtime_error, msg_size == 0 ? "logic error: message of size 0"
-                                          : "maximum message size exceeded"));
+      auto err = make_error(sec::runtime_error,
+                            msg_size == 0 ? "logic error: message of size 0"
+                                          : "maximum message size exceeded");
+      CAF_LOG_ERROR(err);
+      down->abort_reason(err);
     }
   }
 
@@ -164,10 +163,10 @@ public:
 
   template <class LowerLayerPtr>
   ptrdiff_t consume(LowerLayerPtr& down, byte_span buffer, byte_span) {
+    CAF_LOG_TRACE(CAF_ARG2("buffer.size", buffer.size()));
     if (awaiting_header_) {
       using detail::from_network_order;
-      if (buffer.size() < header_length)
-        return 0;
+      CAF_ASSERT(buffer.size() == header_length);
       uint32_t u32_size = 0;
       memcpy(&u32_size, buffer.data(), header_length);
       msg_size_ = static_cast<size_t>(from_network_order(u32_size));
@@ -175,10 +174,9 @@ public:
       awaiting_header_ = false;
       return header_length;
     } else {
-      if (buffer.size() < msg_size_)
-        return 0;
+      CAF_ASSERT(buffer.size() == msg_size_);
       auto this_layer_ptr = make_message_oriented_layer_ptr(this, down);
-      upper_layer_.consume(this_layer_ptr, make_span(buffer.data(), msg_size_));
+      upper_layer_.consume(this_layer_ptr, buffer);
       down->configure_read(receive_policy::exactly(header_length));
       awaiting_header_ = true;
       return msg_size_;
@@ -186,10 +184,17 @@ public:
   }
 
 private:
+  /// Holds the upper layer.
   UpperLayer upper_layer_;
-  size_t message_offset_;
-  bool awaiting_header_;
-  size_t msg_size_;
+
+  /// Holds the offset within the message buffer for writing the header.
+  size_t message_offset_ = 0;
+
+  /// Holds the size of the next message.
+  size_t msg_size_ = 0;
+
+  /// Signals wether a header or payload is expected with the next `consume`.
+  bool awaiting_header_ = true;
 };
 
 } // namespace caf::net

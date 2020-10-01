@@ -26,6 +26,7 @@
 #include "caf/logger.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/receive_policy.hpp"
+#include "caf/net/socket_manager.hpp"
 #include "caf/net/stream_oriented_layer_ptr.hpp"
 #include "caf/net/stream_socket.hpp"
 #include "caf/sec.hpp"
@@ -56,9 +57,7 @@ public:
     // nop
   }
 
-  virtual ~stream_transport() {
-    // nop
-  }
+  ~stream_transport() = default;
 
   // -- interface for stream_oriented_layer_ptr --------------------------------
 
@@ -160,11 +159,9 @@ public:
       CAF_LOG_ERROR("send_buffer_size: " << socket_buf_size.error());
       return std::move(socket_buf_size.error());
     }
+    owner->register_reading();
     auto this_layer_ptr = make_stream_oriented_layer_ptr(this, parent);
-    if (auto err = upper_layer_.init(owner, this_layer_ptr, config))
-      return err;
-    read_buf_.resize(max_read_size_);
-    return none;
+    return upper_layer_.init(owner, this_layer_ptr, config);
   }
 
   // -- event callbacks --------------------------------------------------------

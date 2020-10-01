@@ -34,9 +34,6 @@
 #include "caf/net/stream_socket.hpp"
 #include "caf/span.hpp"
 
-#include "caf/net/basp/application.hpp"
-#include "caf/net/length_prefix_framing.hpp"
-
 using namespace caf;
 using namespace caf::net;
 
@@ -123,7 +120,7 @@ public:
     // nop
   }
 
-  strong_actor_ptr make_proxy(node_id, actor_id) {
+  strong_actor_ptr make_proxy(const node_id&, const actor_id&) {
     return nullptr;
   }
 

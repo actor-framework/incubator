@@ -37,11 +37,13 @@ application::application(proxy_registry& proxies)
 }
 
 void application::resolve(string_view path, const actor& listener) {
+  CAF_LOG_TRACE(CAF_ARG(path) << CAF_ARG(listener));
   enqueue_event(to_string(path), listener);
 }
 
 strong_actor_ptr application::make_proxy(const node_id& nid,
                                          const actor_id& aid) {
+  CAF_LOG_TRACE(CAF_ARG(nid) << CAF_ARG(aid));
   using impl_type = actor_proxy_impl;
   using handle_type = strong_actor_ptr;
   actor_config cfg;
@@ -71,12 +73,14 @@ strong_actor_ptr application::resolve_local_path(string_view path) {
 }
 
 void application::enqueue(mailbox_element_ptr msg, strong_actor_ptr receiver) {
+  CAF_LOG_TRACE(CAF_ARG(msg) << CAF_ARG(receiver));
   using message_type = consumer_queue::message;
   auto ptr = new message_type(std::move(msg), std::move(receiver));
   enqueue(ptr);
 }
 
 bool application::enqueue(consumer_queue::element* ptr) {
+  CAF_LOG_TRACE("");
   switch (mailbox_.push_back(ptr)) {
     case intrusive::inbox_result::success:
       return true;

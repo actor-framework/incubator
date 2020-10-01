@@ -21,7 +21,6 @@
 #include "caf/actor_system.hpp"
 #include "caf/expected.hpp"
 #include "caf/logger.hpp"
-#include "caf/net/multiplexer.hpp"
 
 namespace caf::net {
 

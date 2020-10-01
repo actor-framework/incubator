@@ -20,7 +20,6 @@
 
 #include "caf/actor_proxy.hpp"
 #include "caf/net/consumer.hpp"
-#include "caf/net/socket_manager.hpp"
 
 namespace caf::net {
 
