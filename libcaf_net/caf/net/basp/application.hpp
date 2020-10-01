@@ -93,19 +93,17 @@ public:
   // -- interface functions ----------------------------------------------------
 
   template <class LowerLayerPtr>
-  error init(socket_manager* owner, LowerLayerPtr down, const settings&) {
+  error init(socket_manager* owner, LowerLayerPtr down, const settings& cfg) {
     // Initialize member variables.
     owner_ = owner;
     system_ = &owner->mpx().system();
     executor_.system_ptr(system_);
     executor_.proxy_registry_ptr(&proxies_);
-    // Allow unit tests to run the application without endpoint manager.
-    size_t workers;
-    if (auto workers_cfg = get_if<size_t>(&system_->config(),
-                                          "caf.middleman.workers"))
-      workers = *workers_cfg;
-    else
-      workers = std::min(3u, std::thread::hardware_concurrency() / 4u) + 1;
+    auto workers = get_or<size_t>(
+      cfg, "caf.middleman.workers",
+      std::min(3u, std::thread::hardware_concurrency() / 4u) + 1);
+    max_throughput_ = get_or(system().config(), "caf.scheduler.max-throughput",
+                             defaults::scheduler::max_throughput);
     for (size_t i = 0; i < workers; ++i)
       hub_->add_new_worker(*queue_, proxies_);
     // Write handshake.
@@ -273,7 +271,7 @@ private:
 
   template <class LowerLayerPtr>
   error dequeue_messages(LowerLayerPtr& down) {
-    for (size_t count = 0; count < max_consecutive_messages_; ++count) {
+    for (size_t count = 0; count < max_throughput_; ++count) {
       auto ptr = next_message();
       if (ptr == nullptr)
         break;
@@ -532,7 +530,7 @@ private:
   // Guards access to owner_.
   std::mutex owner_mtx_;
 
-  size_t max_consecutive_messages_ = 20; // TODO: this is a random number
+  size_t max_throughput_ = 0;
 
   /// Provides pointers to the actor system as well as the registry,
   /// serializers and deserializer.
