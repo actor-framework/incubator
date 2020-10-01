@@ -37,16 +37,17 @@ using namespace caf;
 using namespace caf::net;
 
 #define REQUIRE_OK(statement)                                                  \
-  if (auto err = statement)                                                    \
-  CAF_FAIL("failed to serialize data: " << err)
+  do {                                                                         \
+    if (auto err = statement)                                                  \
+      CAF_FAIL("failed to serialize data: " << err);                           \
+  } while (false)
 
 namespace {
 
 struct dummy_socket_manager : public socket_manager {
   dummy_socket_manager(socket handle, multiplexer* mpx)
     : socket_manager(handle, mpx) {
-    mask_add(operation::read);
-    mask_add(operation::write);
+    // nop
   }
 
   error init(const settings&) override {

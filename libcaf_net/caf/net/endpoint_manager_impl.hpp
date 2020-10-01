@@ -91,7 +91,7 @@ public:
         for (auto ptr = q.next(); ptr != nullptr; ptr = q.next()) {
           auto f = detail::make_overload(
             [&](consumer_queue::event::resolve_request& x) {
-              transport_.resolve(*this, x.locator, x.listener);
+              transport_.resolve(*this, x.path, x.listener);
             },
             [&](consumer_queue::event::new_proxy& x) {
               transport_.new_proxy(*this, x.id);

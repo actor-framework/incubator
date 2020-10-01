@@ -24,9 +24,9 @@ consumer_queue::element::~element() {
   // nop
 }
 
-consumer_queue::event::event(std::string locator, actor listener)
+consumer_queue::event::event(std::string path, actor listener)
   : element(element_type::event),
-    value(resolve_request{std::move(locator), std::move(listener)}) {
+    value(resolve_request{std::move(path), std::move(listener)}) {
   // nop
 }
 
