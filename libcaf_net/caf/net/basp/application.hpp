@@ -118,6 +118,8 @@ public:
 
   template <class LowerLayerPtr>
   bool prepare_send(LowerLayerPtr& down) {
+    if (!handshake_complete())
+      return true;
     if (auto err = dequeue_events(down)) {
       CAF_LOG_ERROR("handle_events failed: " << CAF_ARG(err));
       down->abort_reason(err);
@@ -531,7 +533,7 @@ private:
   // Guards access to owner_.
   std::mutex owner_mtx_;
 
-  size_t max_consecutive_messages_;
+  size_t max_consecutive_messages_ = 20; // TODO: this is a random number
 
   /// Provides pointers to the actor system as well as the registry,
   /// serializers and deserializer.
