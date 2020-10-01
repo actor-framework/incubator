@@ -38,6 +38,7 @@
 
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
+#include "caf/byte_span.hpp"
 #include "caf/event_based_actor.hpp"
 #include "caf/exec_main.hpp"
 #include "caf/ip_endpoint.hpp"
@@ -104,9 +105,6 @@ public:
 
   // We expect a stream-oriented interface to the lower communication layers.
   using input_tag = caf::tag::mixed_message_oriented;
-
-  // Convenience alias.
-  using byte_span = caf::span<caf::byte>;
 
   // -- constants --------------------------------------------------------------
 
@@ -223,7 +221,7 @@ public:
   }
 
   template <class LowerLayerPtr>
-  ptrdiff_t consume_binary(LowerLayerPtr down, byte_span) {
+  ptrdiff_t consume_binary(LowerLayerPtr down, caf::byte_span) {
     // Reject binary input.
     auto err = caf::make_error(caf::sec::runtime_error,
                                "received binary WebSocket frame (unsupported)");
