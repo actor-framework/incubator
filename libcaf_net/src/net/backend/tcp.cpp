@@ -50,10 +50,11 @@ error tcp::init() {
                                         defaults::middleman::tcp_port);
   uri::authority_type auth;
   auth.port = conf_port;
-  auth.host = std::string("[::]");
   auto acceptor = make_tcp_accept_socket(auth, true);
-  if (!acceptor)
+  if (!acceptor) {
+    std::cout << "error: " << to_string(acceptor.error()) << std::endl;
     return acceptor.error();
+  }
   auto acc_guard = make_socket_guard(*acceptor);
   if (auto err = nonblocking(acc_guard.socket(), true))
     return err;

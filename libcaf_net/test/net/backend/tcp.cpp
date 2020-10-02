@@ -28,6 +28,7 @@
 
 #include "caf/actor_system_config.hpp"
 #include "caf/ip_endpoint.hpp"
+#include "caf/net/ip.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_guard.hpp"
 #include "caf/net/tcp_accept_socket.hpp"
@@ -78,7 +79,7 @@ class planet : public test_coordinator_fixture<config<Node>> {
 public:
   planet(planet_driver& driver)
     : mm(this->sys.network_manager()), mpx(mm.mpx()), driver_(driver) {
-    mpx->set_thread_id();
+    mpx.set_thread_id();
   }
 
   node_id id() const {
@@ -90,7 +91,7 @@ public:
   }
 
   net::middleman& mm;
-  multiplexer_ptr mpx;
+  multiplexer& mpx;
 
 private:
   planet_driver& driver_;
@@ -100,12 +101,12 @@ struct fixture : host_fixture, planet_driver {
   fixture() : earth(*this), mars(*this) {
     earth.run();
     mars.run();
-    CAF_REQUIRE_EQUAL(earth.mpx->num_socket_managers(), 2);
-    CAF_REQUIRE_EQUAL(mars.mpx->num_socket_managers(), 2);
+    CAF_REQUIRE_EQUAL(earth.mpx.num_socket_managers(), 2u);
+    CAF_REQUIRE_EQUAL(mars.mpx.num_socket_managers(), 2u);
   }
 
   bool handle_io_event() override {
-    return earth.mpx->poll_once(false) || mars.mpx->poll_once(false);
+    return earth.mpx.poll_once(false) || mars.mpx.poll_once(false);
   }
 
   void run() {
@@ -120,28 +121,28 @@ struct fixture : host_fixture, planet_driver {
 
 CAF_TEST_FIXTURE_SCOPE(tcp_backend_tests, fixture)
 
-CAF_TEST(doorman accept) {
+CAF_TEST(connection accept) {
   auto backend = earth.mm.backend("tcp");
   CAF_CHECK(backend);
   uri::authority_type auth;
-  auth.host = "localhost"s;
+  auto addrs = ip::resolve("localhost");
   auth.port = backend->port();
-  CAF_MESSAGE("trying to connect to earth at " << CAF_ARG(auth));
-  auto sock = make_connected_tcp_stream_socket(auth);
-  CAF_CHECK(sock);
-  auto guard = make_socket_guard(*sock);
-  int runs = 0;
-  while (earth.mpx->num_socket_managers() < 3) {
-    if (++runs >= 5)
-      CAF_FAIL("doorman did not create endpoint_manager");
-    run();
+  socket_guard<tcp_stream_socket> guard;
+  for (const auto& addr : addrs) {
+    auth.host = addr;
+    CAF_MESSAGE("trying to connect to earth at " << CAF_ARG(auth));
+    if (auto res = make_connected_tcp_stream_socket(auth))
+      guard = make_socket_guard(*res);
   }
-  CAF_CHECK_EQUAL(earth.mpx->num_socket_managers(), 3);
+  CAF_CHECK_NOT_EQUAL(guard.socket().id, invalid_socket_id);
+  int polls = 0;
+  while (earth.mpx.poll_once(false) && ++polls < 10)
+    ;
+  CAF_CHECK_EQUAL(earth.mpx.num_socket_managers(), 3u);
 }
 
 CAF_TEST(connect) {
   uri::authority_type auth;
-  auth.host = "0.0.0.0"s;
   auth.port = 0;
   auto acceptor = unbox(make_tcp_accept_socket(auth, false));
   auto acc_guard = make_socket_guard(acceptor);
@@ -152,7 +153,7 @@ CAF_TEST(connect) {
   auto sock = unbox(accept(acc_guard.socket()));
   auto sock_guard = make_socket_guard(sock);
   handle_io_event();
-  CAF_CHECK_EQUAL(earth.mpx->num_socket_managers(), 3);
+  CAF_CHECK_EQUAL(earth.mpx.num_socket_managers(), 3u);
 }
 
 CAF_TEST(publish) {
@@ -173,8 +174,8 @@ CAF_TEST(resolve) {
   auto mars_be = reinterpret_cast<net::backend::tcp*>(mars.mm.backend("tcp"));
   CAF_CHECK(mars_be->emplace(earth.id(), sockets.second));
   handle_io_event();
-  CAF_CHECK_EQUAL(earth.mpx->num_socket_managers(), 3);
-  CAF_CHECK_EQUAL(mars.mpx->num_socket_managers(), 3);
+  CAF_CHECK_EQUAL(earth.mpx.num_socket_managers(), 3u);
+  CAF_CHECK_EQUAL(mars.mpx.num_socket_managers(), 3u);
   auto dummy = earth.sys.spawn(dummy_actor);
   earth.mm.publish(dummy, "dummy"s);
   auto locator = unbox(make_uri("tcp://earth/name/dummy"s));
