@@ -18,7 +18,7 @@
 
 #pragma once
 
-#include <deque>
+#include <queue>
 #include <vector>
 
 #include "caf/byte_buffer.hpp"
@@ -26,24 +26,20 @@
 #include "caf/fwd.hpp"
 #include "caf/ip_endpoint.hpp"
 #include "caf/logger.hpp"
-#include "caf/net/endpoint_manager.hpp"
 #include "caf/net/fwd.hpp"
+#include "caf/net/socket_manager.hpp"
 #include "caf/net/transport_base.hpp"
 #include "caf/net/transport_worker_dispatcher.hpp"
 #include "caf/net/udp_datagram_socket.hpp"
 #include "caf/sec.hpp"
+#include "caf/tag/datagram_oriented.hpp"
+#include "caf/tag/io_event_oriented.hpp"
 
 namespace caf::net {
 
-template <class Factory>
-using datagram_transport_base
-  = transport_base<datagram_transport<Factory>,
-                   transport_worker_dispatcher<Factory, ip_endpoint>,
-                   udp_datagram_socket, Factory, ip_endpoint>;
-
 /// Implements a udp_transport policy that manages a datagram socket.
-template <class Factory>
-class datagram_transport : public datagram_transport_base<Factory> {
+
+class datagram_transport {
 public:
   // Maximal UDP-packet size
   static constexpr size_t max_datagram_size
@@ -51,166 +47,210 @@ public:
 
   // -- member types -----------------------------------------------------------
 
-  using factory_type = Factory;
+  using input_tag = tag::io_event_oriented;
 
-  using id_type = ip_endpoint;
+  using output_tag = tag::datagram_oriented;
 
-  using application_type = typename factory_type::application_type;
-
-  using super = datagram_transport_base<factory_type>;
-
-  using buffer_cache_type = typename super::buffer_cache_type;
+  using socket_type = udp_datagram_socket;
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  datagram_transport(udp_datagram_socket handle, factory_type factory)
-    : super(handle, std::move(factory)) {
+  template <class... Ts>
+  explicit datagram_transport(Ts&&... xs)
+    : dispatcher_(std::forward<Ts>(xs)...) {
     // nop
   }
 
-  // -- public member functions ------------------------------------------------
+  ~datagram_transport() = default;
 
-  error init(endpoint_manager& manager) override {
-    CAF_LOG_TRACE("");
-    if (auto err = super::init(manager))
-      return err;
-    prepare_next_read();
-    return none;
+  // -- interface for stream_oriented_layer_ptr --------------------------------
+
+  template <class ParentPtr>
+  bool can_send_more(ParentPtr) const noexcept {
+    return write_buf_.size() < max_write_buf_size_;
   }
 
-  bool handle_read_event(endpoint_manager&) override {
-    CAF_LOG_TRACE(CAF_ARG(this->handle_.id));
-    for (size_t reads = 0; reads < this->max_consecutive_reads_; ++reads) {
-      auto ret = read(this->handle_, this->read_buf_);
+  template <class ParentPtr>
+  static socket_type handle(ParentPtr parent) noexcept {
+    return parent->handle();
+  }
+
+  template <class ParentPtr>
+  void begin_datagram(ParentPtr parent) {
+    if (write_buf_.empty())
+      parent->register_writing();
+    datagram_begin_ = write_buf_.size();
+  }
+
+  template <class ParentPtr>
+  byte_buffer& datagram_buffer(ParentPtr) {
+    return write_buf_;
+  }
+
+  template <class ParentPtr>
+  static constexpr void end_datagram(ParentPtr) {
+    auto datagram_end = write_buf_.size();
+    datagram_sizes_.emplace(datagram_end - datagram_begin_);
+  }
+
+  template <class ParentPtr>
+  static void abort_reason(ParentPtr parent, error reason) {
+    return parent->abort_reason(std::move(reason));
+  }
+
+  template <class ParentPtr>
+  static const error& abort_reason(ParentPtr parent) {
+    return parent->abort_reason();
+  }
+
+  template <class ParentPtr>
+  void timeout(ParentPtr&, std::string, uint64_t) {
+    // nop
+  }
+
+  // -- properties -------------------------------------------------------------
+
+  auto& read_buffer() noexcept {
+    return read_buf_;
+  }
+
+  const auto& read_buffer() const noexcept {
+    return read_buf_;
+  }
+
+  auto& write_buffer() noexcept {
+    return write_buf_;
+  }
+
+  const auto& write_buffer() const noexcept {
+    return write_buf_;
+  }
+
+  auto& upper_layer() noexcept {
+    return dispatcher_;
+  }
+
+  const auto& upper_layer() const noexcept {
+    return dispatcher_;
+  }
+
+  // -- initialization ---------------------------------------------------------
+
+  template <class ParentPtr>
+  error init(socket_manager* owner, ParentPtr parent, const settings& config) {
+    CAF_LOG_TRACE("");
+    auto default_max_reads = static_cast<uint32_t>(mm::max_consecutive_reads);
+    max_consecutive_reads_ = get_or(
+      config, "caf.middleman.max-consecutive-reads", default_max_reads);
+    if (auto socket_buf_size = send_buffer_size(parent->handle())) {
+      max_write_buf_size_ = *socket_buf_size;
+      CAF_ASSERT(max_write_buf_size_ > 0);
+      write_buf_.reserve(max_write_buf_size_ * 2);
+    } else {
+      CAF_LOG_ERROR("send_buffer_size: " << socket_buf_size.error());
+      return std::move(socket_buf_size.error());
+    }
+    owner->register_reading();
+    auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
+    return dispatcher_.init(owner, this_layer_ptr, config);
+  }
+
+  // -- event callbacks --------------------------------------------------------
+
+  template <class ParentPtr>
+  bool handle_read_event(ParentPtr parent) {
+    CAF_LOG_TRACE(CAF_ARG2("handle", parent->handle().id));
+    auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
+    for (size_t reads = 0; reads < max_consecutive_reads_; ++reads) {
+      read_buf_.resize(max_datagram_size);
+      auto ret = read(parent->handle(), read_buf_);
       if (auto res = get_if<std::pair<size_t, ip_endpoint>>(&ret)) {
         auto& [num_bytes, ep] = *res;
         CAF_LOG_DEBUG("received " << num_bytes << " bytes");
-        this->read_buf_.resize(num_bytes);
-        if (auto err = this->next_layer_.handle_data(*this, this->read_buf_,
-                                                     std::move(ep))) {
-          CAF_LOG_ERROR("handle_data failed: " << err);
+        read_buf_.resize(num_bytes);
+        auto consumed = dispatcher_.consume(this_layer_ptr, read_buf_,
+                                            std::move(ep));
+        if (consumed < 0) {
+          upper_layer_.abort(this_layer_ptr,
+                             parent->abort_reason_or(caf::sec::runtime_error));
+          CAF_LOG_ERROR("consume failed: " << err);
           return false;
+        } else if (consumed < read_buf_.size()) {
+          CAF_LOG_DEBUG("datagram consumed only partially");
         }
-        prepare_next_read();
       } else {
         auto err = get<sec>(ret);
         if (err == sec::unavailable_or_would_block) {
-          break;
+          return true;
         } else {
-          CAF_LOG_DEBUG("read failed" << CAF_ARG(err));
-          this->next_layer_.handle_error(err);
+          CAF_LOG_DEBUG("read failed" << CAF_ARG(reason));
+          parent->abort_reason(reason);
+          auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
+          upper_layer_.abort(this_layer_ptr, reason);
           return false;
         }
       }
     }
-    return true;
   }
 
-  bool handle_write_event(endpoint_manager& manager) override {
-    CAF_LOG_TRACE(CAF_ARG2("handle", this->handle_.id)
-                  << CAF_ARG2("queue-size", packet_queue_.size()));
-    auto fetch_next_message = [&] {
-      if (auto msg = manager.next_message()) {
-        this->next_layer_.write_message(*this, std::move(msg));
-        return true;
-      }
+  template <class ParentPtr>
+  bool handle_write_event(ParentPtr parent) {
+    CAF_LOG_TRACE(CAF_ARG2("handle", parent->handle().id));
+    auto fail = [this, parent](sec reason) {
+      CAF_LOG_DEBUG("read failed" << CAF_ARG(reason));
+      parent->abort_reason(reason);
+      auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
+      upper_layer_.abort(this_layer_ptr, reason);
       return false;
     };
-    do {
-      if (auto err = write_some())
-        return err == sec::unavailable_or_would_block;
-    } while (fetch_next_message());
-    return !packet_queue_.empty();
-  }
-
-  // TODO: remove this function. `resolve` should add workers when needed.
-  error add_new_worker(node_id node, id_type id) {
-    auto worker = this->next_layer_.add_new_worker(*this, node, id);
-    if (!worker)
-      return worker.error();
-    return none;
-  }
-
-  void write_packet(id_type id, span<byte_buffer*> buffers) override {
-    CAF_LOG_TRACE("");
-    CAF_ASSERT(!buffers.empty());
-    if (packet_queue_.empty())
-      this->manager().register_writing();
-    // By convention, the first buffer is a header buffer. Every other buffer is
-    // a payload buffer.
-    packet_queue_.emplace_back(id, buffers);
-  }
-
-  /// Helper struct for managing outgoing packets
-  struct packet {
-    id_type id;
-    buffer_cache_type bytes;
-    size_t size;
-
-    packet(id_type id, span<byte_buffer*> bufs) : id(id) {
-      size = 0;
-      for (auto buf : bufs) {
-        size += buf->size();
-        bytes.emplace_back(std::move(*buf));
+    // Allow the upper layer to add extra data to the write buffer.
+    auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
+    if (!upper_layer_.prepare_send(this_layer_ptr)) {
+      upper_layer_.abort(this_layer_ptr,
+                         parent->abort_reason_or(caf::sec::runtime_error));
+      return false;
+    }
+    while (!write_buf_.empty()) {
+      auto current_datagram_size = datagram_sizes_.front();
+      auto ret = write(parent->handle(),
+                       make_span(write_buf_.data(), datagram_size));
+      if (auto num_bytes = get_if<size_t>(&ret)) {
+        CAF_LOG_DEBUG_IF(*num_bytes < current_datagram_size,
+                         "datagram was written partially");
+        write_buf_.erase(write_buf_.begin(),
+                         write_buf_.begin() + current_datagram_size);
+        datagram_sizes_.pop();
+      } else {
+        return last_socket_error_is_temporary()
+                 ? true
+                 : fail(sec::socket_operation_failed);
       }
     }
-
-    std::vector<byte_buffer*> get_buffer_ptrs() {
-      std::vector<byte_buffer*> ptrs;
-      for (auto& buf : bytes)
-        ptrs.emplace_back(&buf);
-      return ptrs;
-    }
-  };
+    // TODO: !write_buf_.empty() necessary?
+    return !write_buf_.empty() || !upper_layer_.done_sending(this_layer_ptr);
+  }
 
 private:
-  // -- utility functions ------------------------------------------------------
+  /// Holds the next layer.
+  transport_worker_dispatcher dispatcher_;
 
-  void prepare_next_read() {
-    this->read_buf_.resize(max_datagram_size);
-  }
+  /// Caches the config parameter for limiting max. socket operations.
+  size_t max_consecutive_reads_ = 0;
 
-  error write_some() {
-    // Helper function to sort empty buffers back into the right caches.
-    auto recycle = [&]() {
-      auto& front = packet_queue_.front();
-      auto& bufs = front.bytes;
-      auto it = bufs.begin();
-      if (this->header_bufs_.size() < this->header_bufs_.capacity()) {
-        it->clear();
-        this->header_bufs_.emplace_back(std::move(*it++));
-      }
-      for (; it != bufs.end()
-             && this->payload_bufs_.size() < this->payload_bufs_.capacity();
-           ++it) {
-        it->clear();
-        this->payload_bufs_.emplace_back(std::move(*it));
-      }
-      packet_queue_.pop_front();
-    };
-    // Write as many bytes as possible.
-    while (!packet_queue_.empty()) {
-      auto& packet = packet_queue_.front();
-      auto ptrs = packet.get_buffer_ptrs();
-      auto write_ret = write(this->handle_, ptrs, packet.id);
-      if (auto num_bytes = get_if<size_t>(&write_ret)) {
-        CAF_LOG_DEBUG(CAF_ARG(this->handle_.id) << CAF_ARG(*num_bytes));
-        CAF_LOG_WARNING_IF(*num_bytes < packet.size,
-                           "packet was not sent completely");
-        recycle();
-      } else {
-        auto err = get<sec>(write_ret);
-        if (err != sec::unavailable_or_would_block) {
-          CAF_LOG_ERROR("write failed" << CAF_ARG(err));
-          this->next_layer_.handle_error(err);
-        }
-        return err;
-      }
-    }
-    return none;
-  }
+  /// Caches the write buffer size of the socket.
+  size_t max_write_buf_size_ = 0;
 
-  std::deque<packet> packet_queue_;
+  /// Caches incoming data.
+  byte_buffer read_buf_;
+
+  /// Caches outgoing data.
+  byte_buffer write_buf_;
+
+  /// Caches the sizes of all contained datagrams within the `write_buffer_`.
+  std::queue<ptrdiff_t> datagram_sizes_;
+
+  // Caches the write buffer size before adding a datagram to it.
+  size_t datagram_begin_ = 0;
 };
 
 } // namespace caf::net
