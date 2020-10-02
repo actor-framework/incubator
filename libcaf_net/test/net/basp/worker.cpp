@@ -111,11 +111,10 @@ CAF_TEST(deliver serialized message) {
   byte_buffer payload;
   std::vector<strong_actor_ptr> stages;
   binary_serializer sink{sys, payload};
-  if (auto err = sink(node_id{}, self->id(), testee.id(), stages,
-                      make_message(ok_atom_v)))
-    CAF_FAIL("unable to serialize message: " << err);
+  if (!sink.apply_objects(node_id{}, self->id(), testee.id(), stages,
+                          make_message(ok_atom_v)))
+    CAF_FAIL("unable to serialize message: " << sink.get_error());
   net::basp::header hdr{net::basp::message_type::actor_message,
-                        static_cast<uint32_t>(payload.size()),
                         make_message_id().integer_value()};
   CAF_MESSAGE("launch worker");
   w->launch(last_hop, hdr, payload);

@@ -127,15 +127,14 @@ caf_incubator_add_test_suites(caf-net-test
   datagram_socket
   detail.rfc6455
   #datagram_transport
-  #doorman
   header
   ip
   multiplexer
   net.actor_shell
   #net.backend.tcp
-  #net.basp.message_queue
+  net.basp.message_queue
   net.basp.ping_pong
-  #net.basp.worker
+  net.basp.worker
   net.length_prefix_framing
   net.web_socket_server
   network_socket
