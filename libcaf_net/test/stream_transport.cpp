@@ -116,14 +116,6 @@ public:
     return recv_buf_->size();
   }
 
-  void resolve(string_view, const actor&) {
-    // nop
-  }
-
-  strong_actor_ptr make_proxy(const node_id&, const actor_id&) {
-    return nullptr;
-  }
-
   static void handle_error(sec code) {
     CAF_FAIL("handle_error called with " << CAF_ARG(code));
   }

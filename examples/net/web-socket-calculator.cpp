@@ -231,14 +231,6 @@ public:
     return -1;
   }
 
-  void resolve(caf::string_view, const caf::actor&) {
-    // nop
-  }
-
-  caf::strong_actor_ptr make_proxy(const caf::node_id&, const caf::actor_id&) {
-    return nullptr;
-  }
-
 private:
   // Caches incoming text data until finding a newline character.
   std::vector<char> buf_;

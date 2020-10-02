@@ -252,14 +252,6 @@ public:
     return static_cast<ptrdiff_t>(bytes.size());
   }
 
-  void resolve(caf::string_view, const caf::actor&) {
-    // nop
-  }
-
-  caf::strong_actor_ptr make_proxy(const caf::node_id&, const caf::actor_id&) {
-    return nullptr;
-  }
-
 private:
   // Stores a handle to our worker.
   stock::feed feed_;
