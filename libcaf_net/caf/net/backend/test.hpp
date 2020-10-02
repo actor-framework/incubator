@@ -19,8 +19,11 @@
 #pragma once
 
 #include <map>
+#include <mutex>
+#include <tuple>
 
 #include "caf/detail/net_export.hpp"
+#include "caf/net/basp/application.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/middleman_backend.hpp"
 #include "caf/net/socket_manager.hpp"
@@ -30,12 +33,12 @@
 namespace caf::net::backend {
 
 /// Minimal backend for unit testing.
-/// @warning this backend is *not* thread safe.
 class CAF_NET_EXPORT test : public middleman_backend {
 public:
   // -- member types -----------------------------------------------------------
 
-  using peer_entry = std::pair<stream_socket, socket_manager_ptr>;
+  using peer_entry
+    = std::tuple<stream_socket, socket_manager_ptr, basp::application*>;
 
   // -- constructors, destructors, and assignment operators --------------------
 
@@ -62,7 +65,8 @@ public:
   // -- properties -------------------------------------------------------------
 
   stream_socket socket(const node_id& peer_id) {
-    return get_peer(peer_id).first;
+    auto& entry = get_peer(peer_id);
+    return std::get<stream_socket>(entry);
   }
 
   uint16_t port() const noexcept override;
@@ -78,6 +82,8 @@ private:
   std::map<node_id, peer_entry> peers_;
 
   proxy_registry proxies_;
+
+  std::mutex lock_;
 };
 
 } // namespace caf::net::backend

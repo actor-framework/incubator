@@ -53,26 +53,29 @@ void test::stop() {
 }
 
 socket_manager_ptr test::peer(const node_id& id) {
-  return get_peer(id).second;
+  return std::get<socket_manager_ptr>(get_peer(id));
 }
 
 expected<socket_manager_ptr> test::get_or_connect(const uri& locator) {
   if (auto ptr = peer(make_node_id(*locator.authority_only())))
     return ptr;
-  return make_error(sec::runtime_error,
-                    "connecting not implemented in test backend");
+  return make_error(
+    sec::runtime_error,
+    "connecting not implemented in test backend. `emplace` first.");
 }
 
 void test::resolve(const uri& locator, const actor& listener) {
-  auto id = locator.authority_only();
-  if (id)
-    peer(make_node_id(*id))->resolve(locator.path(), listener);
-  else
+  if (auto id = locator.authority_only()) {
+    auto basp_ptr = std::get<basp::application*>(get_peer(make_node_id(*id)));
+    basp_ptr->resolve(locator.path(), listener);
+  } else {
     anon_send(listener, error(basp::ec::invalid_locator));
+  }
 }
 
 strong_actor_ptr test::make_proxy(node_id nid, actor_id aid) {
-  return get_peer(nid).second->make_proxy(nid, aid);
+  auto basp_ptr = std::get<basp::application*>(get_peer(nid));
+  return basp_ptr->make_proxy(nid, aid);
 }
 
 void test::set_last_hop(node_id*) {
@@ -95,21 +98,20 @@ test::peer_entry& test::emplace(const node_id& peer_id, stream_socket first,
     CAF_LOG_ERROR("mgr->init() failed: " << err);
     CAF_RAISE_ERROR("mgr->init() failed");
   }
+  auto basp_ptr = std::addressof(mgr->top_layer());
+  const std::lock_guard<std::mutex> lock(lock_);
   auto& result = peers_[peer_id];
-  result = std::make_pair(first, std::move(mgr));
+  result = std::make_tuple(first, std::move(mgr), basp_ptr);
   return result;
 }
 
 test::peer_entry& test::get_peer(const node_id& id) {
+  const std::lock_guard<std::mutex> lock(lock_);
   auto i = peers_.find(id);
   if (i != peers_.end())
     return i->second;
-  auto sockets = make_stream_socket_pair();
-  if (!sockets) {
-    CAF_LOG_ERROR("make_stream_socket_pair failed: " << sockets.error());
-    CAF_RAISE_ERROR("make_stream_socket_pair failed");
-  }
-  return emplace(id, sockets->first, sockets->second);
+  CAF_LOG_ERROR(make_error(sec::runtime_error, "peer_entry not found"));
+  CAF_RAISE_ERROR("peer_entry not found");
 }
 
 } // namespace caf::net::backend
