@@ -22,13 +22,10 @@
 #include <string>
 
 #include "caf/net/actor_proxy_impl.hpp"
-#include "caf/net/basp/application.hpp"
-#include "caf/net/basp/application_factory.hpp"
 #include "caf/net/basp/ec.hpp"
+#include "caf/net/connection_acceptor.hpp"
 #include "caf/net/defaults.hpp"
-#include "caf/net/doorman.hpp"
 #include "caf/net/ip.hpp"
-#include "caf/net/make_endpoint_manager.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_guard.hpp"
 #include "caf/net/stream_transport.hpp"
@@ -51,11 +48,10 @@ error tcp::init() {
   uint16_t conf_port = get_or<uint16_t>(mm_.system().config(),
                                         "caf.middleman.tcp-port",
                                         defaults::middleman::tcp_port);
-  ip_endpoint ep;
-  auto local_address = std::string("[::]:") + std::to_string(conf_port);
-  if (auto err = detail::parse(local_address, ep))
-    return err;
-  auto acceptor = make_tcp_accept_socket(ep, true);
+  uri::authority_type auth;
+  auth.port = conf_port;
+  auth.host = std::string("[::]");
+  auto acceptor = make_tcp_accept_socket(auth, true);
   if (!acceptor)
     return acceptor.error();
   auto acc_guard = make_socket_guard(*acceptor);
@@ -65,18 +61,16 @@ error tcp::init() {
   if (!port)
     return port.error();
   listening_port_ = *port;
-  CAF_LOG_INFO("doorman spawned on " << CAF_ARG(*port));
-  auto doorman_uri = make_uri("tcp://doorman");
+  CAF_LOG_INFO("connection_acceptor spawned on " << CAF_ARG(*port));
+  auto doorman_uri = make_uri("tcp://connection_acceptor");
   if (!doorman_uri)
     return doorman_uri.error();
-  auto& mpx = mm_.mpx();
-  auto mgr = make_endpoint_manager(
-    mpx, mm_.system(),
-    doorman{acc_guard.release(), basp::application_factory{proxies_}});
-  if (auto err = mgr->init()) {
-    CAF_LOG_ERROR("mgr->init() failed: " << err);
-    return err;
-  }
+  auto add_conn = [this](tcp_stream_socket sock,
+                         multiplexer* mpx) -> socket_manager_ptr {
+    return make_socket_manager<basp::application, length_prefix_framing,
+                               stream_transport>(sock, mpx, proxies_);
+  };
+  mm_.make_acceptor(acc_guard.release(), add_conn);
   return none;
 }
 
@@ -86,43 +80,41 @@ void tcp::stop() {
   peers_.clear();
 }
 
-expected<endpoint_manager_ptr> tcp::get_or_connect(const uri& locator) {
+expected<socket_manager_ptr> tcp::get_or_connect(const uri& locator) {
   if (auto auth = locator.authority_only()) {
     auto id = make_node_id(*auth);
     if (auto ptr = peer(id))
       return ptr;
-    auto host = locator.authority().host;
-    if (auto hostname = get_if<std::string>(&host)) {
-      for (const auto& addr : ip::resolve(*hostname)) {
-        ip_endpoint ep{addr, locator.authority().port};
-        auto sock = make_connected_tcp_stream_socket(ep);
-        if (!sock)
-          continue;
-        else
-          return emplace(id, *sock);
-      }
-    }
+    if (auto res = connect(locator))
+      return res->first;
   }
   return sec::cannot_connect_to_node;
 }
 
-endpoint_manager_ptr tcp::peer(const node_id& id) {
-  return get_peer(id);
+socket_manager_ptr tcp::peer(const node_id& id) {
+  if (auto res = get_peer(id))
+    return res->first;
+  else
+    return nullptr;
 }
 
 void tcp::resolve(const uri& locator, const actor& listener) {
-  if (auto p = get_or_connect(locator))
-    (*p)->resolve(locator, listener);
-  else
-    anon_send(listener, p.error());
+  if (auto auth = locator.authority_only()) {
+    auto nid = make_node_id(*auth);
+    if (auto res = get_peer(nid)) {
+      res->second->resolve(locator.path(), listener);
+      return;
+    } else if (auto res = connect(locator)) {
+      res->second->resolve(locator.path(), listener);
+      return;
+    }
+  }
+  anon_send(listener, make_error(sec::runtime_error, "cannot resolve"));
 }
 
 strong_actor_ptr tcp::make_proxy(node_id nid, actor_id aid) {
-  using impl_type = actor_proxy_impl;
-  using hdl_type = strong_actor_ptr;
-  actor_config cfg;
-  return make_actor<impl_type, hdl_type>(aid, nid, &mm_.system(), cfg,
-                                         peer(nid));
+  auto basp_ptr = get_peer(nid)->second;
+  return basp_ptr->make_proxy(nid, aid);
 }
 
 void tcp::set_last_hop(node_id*) {
@@ -133,11 +125,30 @@ uint16_t tcp::port() const noexcept {
   return listening_port_;
 }
 
-endpoint_manager_ptr tcp::get_peer(const node_id& id) {
+expected<tcp::peer_entry> tcp::connect(const uri& locator) {
+  if (auto res = locator.authority_only()) {
+    auto nid = make_node_id(*res);
+    auto auth = res->authority();
+    auto host = auth.host;
+    if (auto hostname = get_if<std::string>(&host)) {
+      for (const auto& addr : ip::resolve(*hostname)) {
+        ip_endpoint ep{addr, auth.port};
+        if (auto sock = make_connected_tcp_stream_socket(ep))
+          return emplace(nid, *sock);
+        else
+          continue;
+      }
+    }
+  }
+  return sec::cannot_connect_to_node;
+}
+
+tcp::peer_entry* tcp::get_peer(const node_id& nid) {
+  CAF_LOG_TRACE(CAF_ARG(nid));
   const std::lock_guard<std::mutex> lock(lock_);
-  auto i = peers_.find(id);
+  auto i = peers_.find(nid);
   if (i != peers_.end())
-    return i->second;
+    return &i->second;
   return nullptr;
 }
 

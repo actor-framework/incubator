@@ -33,7 +33,7 @@ endfunction()
 
 add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
   src/actor_proxy_impl.cpp
-  #src/net/backend/tcp.cpp
+  src/net/backend/tcp.cpp
   src/net/backend/test.cpp
   src/net/consumer_queue.cpp
   src/basp/application.cpp
@@ -131,7 +131,7 @@ caf_incubator_add_test_suites(caf-net-test
   ip
   multiplexer
   net.actor_shell
-  #net.backend.tcp
+  net.backend.tcp
   net.basp.message_queue
   net.basp.ping_pong
   net.basp.worker
