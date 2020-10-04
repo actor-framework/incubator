@@ -47,7 +47,6 @@
 #include "caf/net/basp/message_queue.hpp"
 #include "caf/net/basp/message_type.hpp"
 #include "caf/net/basp/worker.hpp"
-#include "caf/net/consumer.hpp"
 #include "caf/net/consumer_queue.hpp"
 #include "caf/net/receive_policy.hpp"
 #include "caf/net/socket_manager.hpp"
@@ -62,7 +61,7 @@
 namespace caf::net::basp {
 
 /// An implementation of BASP as an application layer protocol.
-class CAF_NET_EXPORT application : public consumer {
+class CAF_NET_EXPORT application {
 public:
   // -- member types -----------------------------------------------------------
 
@@ -182,11 +181,18 @@ public:
 
   // -- mailbox access ---------------------------------------------------------
 
-  void enqueue(mailbox_element_ptr msg, strong_actor_ptr receiver) override;
+  /// Enqueues an event to the mailbox.
+  template <class... Ts>
+  void enqueue_event(Ts&&... xs) {
+    enqueue(new consumer_queue::event(std::forward<Ts>(xs)...));
+  }
 
-  bool enqueue(consumer_queue::element* ptr) override;
+  /// Enqueues a message to the mailbox.
+  void enqueue(mailbox_element_ptr msg, strong_actor_ptr receiver);
 
 private:
+  bool enqueue(consumer_queue::element* ptr);
+
   consumer_queue::message_ptr next_message() {
     if (mailbox_.blocked())
       return nullptr;

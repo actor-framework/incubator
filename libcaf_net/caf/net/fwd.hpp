@@ -73,6 +73,8 @@ using weak_multiplexer_ptr = std::weak_ptr<multiplexer>;
 
 namespace caf::net::basp {
 
+class application;
+
 enum class ec : uint8_t;
 
 } // namespace caf::net::basp
