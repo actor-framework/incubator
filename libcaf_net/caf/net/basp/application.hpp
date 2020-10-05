@@ -276,7 +276,7 @@ private:
   template <class LowerLayerPtr>
   error dequeue_messages(LowerLayerPtr& down) {
     CAF_LOG_TRACE("");
-    for (size_t count = 0; count < max_throughput_; ++count) {
+    while (down->can_send_more()) {
       auto ptr = next_message();
       if (ptr == nullptr)
         break;

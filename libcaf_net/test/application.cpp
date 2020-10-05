@@ -127,6 +127,11 @@ struct fixture : test_coordinator_fixture<config>, proxy_registry::backend {
   }
 
   template <class LowerLayerPtr>
+  bool can_send_more(LowerLayerPtr&) {
+    return true;
+  }
+
+  template <class LowerLayerPtr>
   void begin_message(LowerLayerPtr&) {
     // nop
   }
