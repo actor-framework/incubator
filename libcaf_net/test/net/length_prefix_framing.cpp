@@ -100,9 +100,10 @@ struct ll_provide_stream_for_messages {
     CAF_CHECK_EQUAL(upper_layer.init(nullptr, this_layer_ptr, cfg), none);
     CAF_CHECK(data_stream.size() != 0);
     while (processed != data_stream.size()) {
-      auto all_data = make_span(data_stream.data(), min_read_size);
-      auto new_data = make_span(data_stream.data(), min_read_size);
-      CAF_MESSAGE("offering " << min_read_size << " bytes");
+      auto size = std::max(max_read_size, data_stream.size());
+      auto all_data = make_span(data_stream.data(), size);
+      auto new_data = make_span(data_stream.data(), size);
+      CAF_MESSAGE("offering " << size << " bytes");
       auto consumed = upper_layer.consume(this_layer_ptr, all_data, new_data);
       CAF_MESSAGE("Layer consumed " << consumed << " bytes");
       CAF_REQUIRE(consumed >= 0);
@@ -118,7 +119,10 @@ struct ll_provide_stream_for_messages {
   template <class LowerLayerPtr>
   void configure_read(LowerLayerPtr&, receive_policy policy) {
     min_read_size = policy.min_size;
+    max_read_size = policy.max_size;
   }
+
+  size_t max_read_size = 0;
 
   size_t min_read_size = 0;
 

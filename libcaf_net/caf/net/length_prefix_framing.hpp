@@ -70,7 +70,7 @@ public:
   error
   init(socket_manager* owner, LowerLayerPtr& down, const settings& config) {
     CAF_LOG_TRACE("");
-    down->configure_read(receive_policy::exactly(header_length));
+    down->configure_read(receive_policy::up_to(2048));
     auto this_layer_ptr = make_message_oriented_layer_ptr(this, down);
     return upper_layer_.init(owner, this_layer_ptr, config);
   }
@@ -164,23 +164,24 @@ public:
   template <class LowerLayerPtr>
   ptrdiff_t consume(LowerLayerPtr& down, byte_span buffer, byte_span) {
     CAF_LOG_TRACE(CAF_ARG2("buffer.size", buffer.size()));
-    if (awaiting_header_) {
-      using detail::from_network_order;
-      CAF_ASSERT(buffer.size() == header_length);
+    using detail::from_network_order;
+    ptrdiff_t consumed = 0;
+    while (buffer.size() > header_length) {
       uint32_t u32_size = 0;
       memcpy(&u32_size, buffer.data(), header_length);
-      msg_size_ = static_cast<size_t>(from_network_order(u32_size));
-      down->configure_read(receive_policy::exactly(msg_size_));
-      awaiting_header_ = false;
-      return header_length;
-    } else {
-      CAF_ASSERT(buffer.size() == msg_size_);
+      auto msg_size = static_cast<size_t>(from_network_order(u32_size));
+      if (buffer.size() < msg_size + header_length) {
+        down->configure_read(receive_policy::exactly(msg_size + header_length));
+        return consumed;
+      }
       auto this_layer_ptr = make_message_oriented_layer_ptr(this, down);
-      upper_layer_.consume(this_layer_ptr, buffer);
-      down->configure_read(receive_policy::exactly(header_length));
-      awaiting_header_ = true;
-      return msg_size_;
+      upper_layer_.consume(this_layer_ptr,
+                           make_span(buffer.data() + header_length, msg_size));
+      consumed += msg_size + header_length;
+      buffer = buffer.subspan(msg_size + header_length);
     }
+    down->configure_read(receive_policy::up_to(2048));
+    return consumed;
   }
 
 private:
@@ -189,12 +190,6 @@ private:
 
   /// Holds the offset within the message buffer for writing the header.
   size_t message_offset_ = 0;
-
-  /// Holds the size of the next message.
-  size_t msg_size_ = 0;
-
-  /// Signals wether a header or payload is expected with the next `consume`.
-  bool awaiting_header_ = true;
 };
 
 } // namespace caf::net
