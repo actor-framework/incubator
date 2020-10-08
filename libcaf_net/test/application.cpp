@@ -77,6 +77,7 @@ struct fixture : test_coordinator_fixture<config>, proxy_registry::backend {
   fixture() : mm(sys), mpx(&mm), proxies(sys, *this), app(proxies) {
     dummy_socket_manager dummy_mgr{socket{42}, &mpx};
     settings cfg;
+    put(cfg, "caf.middleman.workers", size_t{0});
     auto this_layer_ptr = make_message_oriented_layer_ptr(this, this);
     REQUIRE_OK(app.init(&dummy_mgr, this_layer_ptr, cfg));
     uri mars_uri;
@@ -154,6 +155,11 @@ struct fixture : test_coordinator_fixture<config>, proxy_registry::backend {
   template <class LowerLayerPtr>
   void timeout(LowerLayerPtr&, std::string, uint64_t) {
     // nop
+  }
+
+  template <class LowerLayerPtr>
+  auto& abort_reason(LowerLayerPtr&) {
+    return last_error;
   }
 
   template <class LowerLayerPtr>

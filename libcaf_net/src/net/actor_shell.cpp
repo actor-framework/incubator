@@ -200,6 +200,10 @@ actor actor_shell_ptr::as_actor() const noexcept {
   return actor_cast<actor>(ptr_);
 }
 
+actor_addr actor_shell_ptr::as_actor_addr() const noexcept {
+  return actor_cast<actor_addr>(ptr_);
+}
+
 void actor_shell_ptr::detach(error reason) {
   if (auto ptr = get()) {
     ptr->quit(std::move(reason));

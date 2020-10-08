@@ -27,7 +27,6 @@
 #include "caf/byte_buffer.hpp"
 #include "caf/detail/scope_guard.hpp"
 #include "caf/make_actor.hpp"
-#include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/multiplexer.hpp"
 #include "caf/net/socket_guard.hpp"
 #include "caf/net/socket_manager.hpp"

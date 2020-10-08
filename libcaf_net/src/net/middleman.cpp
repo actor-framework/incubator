@@ -23,6 +23,7 @@
 #include "caf/expected.hpp"
 #include "caf/init_global_meta_objects.hpp"
 #include "caf/net/basp/ec.hpp"
+#include "caf/net/basp/msg.hpp"
 #include "caf/net/middleman_backend.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/raise_error.hpp"

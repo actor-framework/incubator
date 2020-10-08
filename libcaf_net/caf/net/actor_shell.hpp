@@ -176,8 +176,11 @@ public:
 
   ~actor_shell_ptr();
 
-  /// Returns an actor handle to the managed actor shell.
+  /// Returns a strong handle to the managed actor shell.
   actor as_actor() const noexcept;
+
+  /// Returns a weak handle to the managed actor shell.
+  actor_addr as_actor_addr() const noexcept;
 
   void detach(error reason);
 

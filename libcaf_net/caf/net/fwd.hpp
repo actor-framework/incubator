@@ -73,15 +73,24 @@ using weak_multiplexer_ptr = std::weak_ptr<multiplexer>;
 
 namespace caf::net::basp {
 
-class application;
-
 enum class ec : uint8_t;
+
+struct local_actor_down_msg;
+struct new_proxy_msg;
+struct resolve_request_msg;
+struct timeout_msg;
+
+class application;
 
 } // namespace caf::net::basp
 
 CAF_BEGIN_TYPE_ID_BLOCK(net_module, detail::net_module_begin)
 
   CAF_ADD_TYPE_ID(net_module, (caf::net::basp::ec))
+  CAF_ADD_TYPE_ID(net_module, (caf::net::basp::local_actor_down_msg))
+  CAF_ADD_TYPE_ID(net_module, (caf::net::basp::new_proxy_msg))
+  CAF_ADD_TYPE_ID(net_module, (caf::net::basp::resolve_request_msg))
+  CAF_ADD_TYPE_ID(net_module, (caf::net::basp::timeout_msg))
 
 CAF_END_TYPE_ID_BLOCK(net_module)
 

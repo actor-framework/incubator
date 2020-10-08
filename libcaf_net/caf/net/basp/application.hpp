@@ -40,14 +40,13 @@
 #include "caf/error.hpp"
 #include "caf/fwd.hpp"
 #include "caf/mailbox_element.hpp"
-#include "caf/net/actor_proxy_impl.hpp"
+#include "caf/net/actor_shell.hpp"
 #include "caf/net/basp/constants.hpp"
 #include "caf/net/basp/ec.hpp"
 #include "caf/net/basp/header.hpp"
-#include "caf/net/basp/message_queue.hpp"
 #include "caf/net/basp/message_type.hpp"
+#include "caf/net/basp/msg.hpp"
 #include "caf/net/basp/worker.hpp"
-#include "caf/net/consumer_queue.hpp"
 #include "caf/net/receive_policy.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/node_id.hpp"
@@ -87,7 +86,7 @@ public:
   template <class LowerLayerPtr>
   error init(socket_manager* owner, LowerLayerPtr down, const settings& cfg) {
     // Initialize member variables.
-    owner_ = owner;
+    self_ = owner->make_actor_shell(down);
     system_ = &owner->system();
     executor_.system_ptr(system_);
     executor_.proxy_registry_ptr(&proxies_);
@@ -97,12 +96,29 @@ public:
       cfg, "caf.middleman.workers",
       std::min(3u, std::thread::hardware_concurrency() / 4u) + 1);
     for (size_t i = 0; i < workers; ++i)
-      hub_->add_new_worker(*queue_, proxies_);
+      hub_.add_new_worker(queue_, proxies_);
+    // Install handlers for BASP-internal messages.
+    self_->set_behavior(
+      [this, down](resolve_request_msg& x) {
+        write_resolve_request(down, x.path, x.listener);
+      },
+      [this, down](new_proxy_msg& x) { new_proxy(down, x.id); },
+      [this, down](local_actor_down_msg& x) {
+        local_actor_down(down, x.id, std::move(x.reason));
+      },
+      [this, down](timeout_msg& x) { timeout(down, std::move(x.type), x.id); });
+    // Everything else is an outgoing message.
+    self_->set_fallback([this, down](message&) -> result<message> {
+      handle_message(down, *self_->current_mailbox_element());
+      return {};
+    });
     // Write handshake.
     auto app_ids = get_or(cfg, "caf.middleman.app-identifiers",
                           application::default_app_ids());
-    return write_message(down, header{message_type::handshake, version},
-                         system().node(), app_ids);
+    if (!write_message(down, header{message_type::handshake, version},
+                       system().node(), app_ids))
+      return down->abort_reason();
+    return none;
   }
 
   template <class LowerLayerPtr>
@@ -110,15 +126,11 @@ public:
     CAF_LOG_TRACE("");
     if (!handshake_complete())
       return true;
-    if (auto err = dequeue_events(down)) {
-      CAF_LOG_ERROR("dequeue_events failed: " << CAF_ARG(err));
-      down->abort_reason(err);
-      return false;
-    }
-    if (auto err = dequeue_messages(down)) {
-      CAF_LOG_ERROR("dequeue_messages failed: " << CAF_ARG(err));
-      down->abort_reason(err);
-      return false;
+    while (down->can_send_more() && self_->consume_message()) {
+      // We set abort_reason in our response handlers in case of an error.
+      if (down->abort_reason())
+        return false;
+      // else: repeat.
     }
     return true;
   }
@@ -126,20 +138,12 @@ public:
   template <class LowerLayerPtr>
   ptrdiff_t consume(LowerLayerPtr& down, byte_span buffer) {
     CAF_LOG_TRACE(CAF_ARG2("buffer.size", buffer.size()));
-    if (auto err = handle(down, buffer)) {
-      CAF_LOG_ERROR("could not handle message: " << CAF_ARG(err));
-      down->abort_reason(err);
-      return -1;
-    }
-    return buffer.size();
+    return handle(down, buffer) ? static_cast<ptrdiff_t>(buffer.size()) : -1;
   }
 
   template <class LowerLayerPtr>
   bool done_sending(LowerLayerPtr&) {
-    CAF_LOG_TRACE("");
-    if (mailbox_.blocked())
-      return true;
-    return (mailbox_.empty() && mailbox_.try_block());
+    return self_->try_block_mailbox();
   }
 
   template <class LowerLayerPtr>
@@ -158,15 +162,17 @@ public:
 
   /// Writes a message to the message buffer of `down`.
   template <class LowerLayerPtr, class... Ts>
-  error write_message(LowerLayerPtr& down, header hdr, Ts&&... xs) {
+  bool write_message(LowerLayerPtr& down, header hdr, Ts&&... xs) {
     CAF_LOG_TRACE(CAF_ARG(hdr));
     down->begin_message();
     auto& buf = down->message_buffer();
     binary_serializer sink{&executor_, buf};
-    if (!sink.apply_objects(hdr, xs...))
-      return sink.get_error();
+    if (!sink.apply_objects(hdr, xs...)) {
+      down->abort_reason(std::move(sink.get_error()));
+      return false;
+    }
     down->end_message();
-    return none;
+    return true;
   }
 
   // -- properties -------------------------------------------------------------
@@ -179,63 +185,8 @@ public:
     return *system_;
   }
 
-  // -- mailbox access ---------------------------------------------------------
-
-  /// Enqueues an event to the mailbox.
-  template <class... Ts>
-  void enqueue_event(Ts&&... xs) {
-    enqueue(new consumer_queue::event(std::forward<Ts>(xs)...));
-  }
-
-  /// Enqueues a message to the mailbox.
-  void enqueue(mailbox_element_ptr msg, strong_actor_ptr receiver);
-
 private:
-  bool enqueue(consumer_queue::element* ptr);
-
-  consumer_queue::message_ptr next_message() {
-    if (mailbox_.blocked())
-      return nullptr;
-    mailbox_.fetch_more();
-    auto& q = std::get<1>(mailbox_.queue().queues());
-    auto ts = q.next_task_size();
-    if (ts == 0)
-      return nullptr;
-    q.inc_deficit(ts);
-    auto result = q.next();
-    if (mailbox_.empty())
-      mailbox_.try_block();
-    return result;
-  }
-
   // -- handling of outgoing messages and events -------------------------------
-
-  template <class LowerLayerPtr>
-  error dequeue_events(LowerLayerPtr& down) {
-    CAF_LOG_TRACE("");
-    if (!mailbox_.blocked()) {
-      mailbox_.fetch_more();
-      auto& q = std::get<0>(mailbox_.queue().queues());
-      do {
-        q.inc_deficit(q.total_task_size());
-        for (auto ptr = q.next(); ptr != nullptr; ptr = q.next()) {
-          auto f = detail::make_overload(
-            [&](consumer_queue::event::resolve_request& x) {
-              write_resolve_request(down, x.path, x.listener);
-            },
-            [&](consumer_queue::event::new_proxy& x) { new_proxy(down, x.id); },
-            [&](consumer_queue::event::local_actor_down& x) {
-              local_actor_down(down, x.id, std::move(x.reason));
-            },
-            [&](consumer_queue::event::timeout& x) {
-              timeout(down, std::move(x.type), x.id);
-            });
-          visit(f, ptr->value);
-        }
-      } while (!q.empty());
-    }
-    return none;
-  }
 
   template <class LowerLayerPtr>
   void write_resolve_request(LowerLayerPtr& down, const std::string& path,
@@ -253,18 +204,16 @@ private:
   template <class LowerLayerPtr>
   void new_proxy(LowerLayerPtr& down, actor_id aid) {
     CAF_LOG_TRACE(CAF_ARG(aid));
-    if (auto err = write_message(down, header{message_type::monitor_message,
-                                              static_cast<uint64_t>(aid)}))
-      down->abort_reason(err);
+    write_message(down, header{message_type::monitor_message,
+                               static_cast<uint64_t>(aid)});
   }
 
   template <class LowerLayerPtr>
   void local_actor_down(LowerLayerPtr& down, actor_id aid, error reason) {
     CAF_LOG_TRACE(CAF_ARG(aid) << CAF_ARG(reason));
-    if (auto err = write_message(
-          down, header{message_type::down_message, static_cast<uint64_t>(aid)},
-          reason))
-      down->abort_reason(err);
+    write_message(
+      down, header{message_type::down_message, static_cast<uint64_t>(aid)},
+      reason);
   }
 
   template <class LowerLayerPtr>
@@ -274,69 +223,69 @@ private:
   }
 
   template <class LowerLayerPtr>
-  error dequeue_messages(LowerLayerPtr& down) {
-    CAF_LOG_TRACE("");
-    while (down->can_send_more()) {
-      auto ptr = next_message();
-      if (ptr == nullptr)
-        break;
-      CAF_ASSERT(ptr->msg != nullptr);
-      CAF_LOG_TRACE(CAF_ARG2("content", ptr->msg->content()));
-      const auto& src = ptr->msg->sender;
-      const auto& dst = ptr->receiver;
-      if (dst == nullptr) {
-        // TODO: valid?
-        return none;
-      }
-      node_id nid{};
-      actor_id aid{0};
-      if (src != nullptr) {
-        auto src_id = src->id();
-        system().registry().put(src_id, src);
-        nid = src->node();
-        aid = src_id;
-      }
-      if (auto err = write_message(
-            down,
-            header{message_type::actor_message, ptr->msg->mid.integer_value()},
-            nid, aid, dst->id(), ptr->msg->stages, ptr->msg->content())) {
-        return err;
-      }
+  void handle_message(LowerLayerPtr& down, mailbox_element& me) {
+    CAF_LOG_TRACE(CAF_ARG2("content", me.content()));
+    const auto& src = me.sender;
+    // The proxy puts the destination at the back.
+    auto dst = std::move(me.stages.back());
+    me.stages.pop_back();
+    if (dst == nullptr) {
+      // TODO: valid?
+      return;
     }
-    return none;
+    node_id nid{};
+    actor_id aid{0};
+    if (src != nullptr) {
+      auto src_id = src->id();
+      system().registry().put(src_id, src);
+      nid = src->node();
+      aid = src_id;
+    }
+    if (auto err = write_message(
+          down, header{message_type::actor_message, me.mid.integer_value()},
+          nid, aid, dst->id(), me.stages, me.payload)) {
+      // TODO: better error handling
+      CAF_LOG_WARNING("failed to write message: " << err);
+    }
   }
 
   // -- handling of incoming messages ------------------------------------------
 
   template <class LowerLayerPtr>
-  error handle(LowerLayerPtr& down, byte_span bytes) {
+  bool handle(LowerLayerPtr& down, byte_span bytes) {
     CAF_LOG_TRACE(CAF_ARG2("bytes.size", bytes.size()));
     if (!handshake_complete_) {
-      if (bytes.size() < header_size)
-        return ec::unexpected_number_of_bytes;
+      if (bytes.size() < header_size) {
+        down->abort_reason(ec::unexpected_number_of_bytes);
+        return false;
+      }
       auto hdr = header::from_bytes(bytes);
-      if (hdr.type != message_type::handshake)
-        return ec::missing_handshake;
-      if (hdr.operation_data != version)
-        return ec::version_mismatch;
-      if (auto err = handle_handshake(down, hdr, bytes.subspan(header_size)))
-        return err;
+      if (hdr.type != message_type::handshake) {
+        down->abort_reason(ec::missing_handshake);
+        return false;
+      }
+      if (hdr.operation_data != version) {
+        down->abort_reason(ec::version_mismatch);
+        return false;
+      }
       handshake_complete_ = true;
-      return none;
-    } else {
-      if (bytes.size() < header_size)
-        return ec::unexpected_number_of_bytes;
-      auto hdr = header::from_bytes(bytes);
-      return handle(down, hdr, bytes.subspan(header_size));
+      return handle_handshake(down, hdr, bytes.subspan(header_size));
     }
+    if (bytes.size() < header_size) {
+      down->abort_reason(ec::unexpected_number_of_bytes);
+      return false;
+    }
+    auto hdr = header::from_bytes(bytes);
+    return handle(down, hdr, bytes.subspan(header_size));
   }
 
   template <class LowerLayerPtr>
-  error handle(LowerLayerPtr& down, header hdr, byte_span payload) {
+  bool handle(LowerLayerPtr& down, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     switch (hdr.type) {
       case message_type::handshake:
-        return ec::unexpected_handshake;
+        down->abort_reason(ec::unexpected_handshake);
+        return false;
       case message_type::actor_message:
         return handle_actor_message(down, hdr, payload);
       case message_type::resolve_request:
@@ -348,41 +297,52 @@ private:
       case message_type::down_message:
         return handle_down_message(down, hdr, payload);
       case message_type::heartbeat:
-        return none;
+        return true;
       default:
-        return ec::unimplemented;
+        down->abort_reason(ec::unimplemented);
+        return false;
     }
   }
 
   template <class LowerLayerPtr>
-  error handle_handshake(LowerLayerPtr&, header hdr, byte_span payload) {
+  bool handle_handshake(LowerLayerPtr& down, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
-    if (hdr.type != message_type::handshake)
-      return ec::missing_handshake;
-    if (hdr.operation_data != version)
-      return ec::version_mismatch;
+    if (hdr.type != message_type::handshake) {
+      down->abort_reason(ec::missing_handshake);
+      return false;
+    }
+    if (hdr.operation_data != version) {
+      down->abort_reason(ec::version_mismatch);
+      return false;
+    }
     node_id peer_id;
     std::vector<std::string> app_ids;
     binary_deserializer source{&executor_, payload};
-    if (!source.apply_objects(peer_id, app_ids))
-      return source.get_error();
-    if (!peer_id || app_ids.empty())
-      return ec::invalid_handshake;
+    if (!source.apply_objects(peer_id, app_ids)) {
+      down->abort_reason(std::move(source.get_error()));
+      return false;
+    }
+    if (!peer_id || app_ids.empty()) {
+      down->abort_reason(ec::invalid_handshake);
+      return false;
+    }
     auto ids = get_or(system().config(), "caf.middleman.app-identifiers",
                       basp::application::default_app_ids());
     auto predicate = [=](const std::string& x) {
       return std::find(ids.begin(), ids.end(), x) != ids.end();
     };
-    if (std::none_of(app_ids.begin(), app_ids.end(), predicate))
-      return ec::app_identifiers_mismatch;
+    if (std::none_of(app_ids.begin(), app_ids.end(), predicate)) {
+      down->abort_reason(ec::app_identifiers_mismatch);
+      return false;
+    }
     peer_id_ = std::move(peer_id);
-    return none;
+    return true;
   }
 
   template <class LowerLayerPtr>
-  error handle_actor_message(LowerLayerPtr&, header hdr, byte_span payload) {
+  bool handle_actor_message(LowerLayerPtr&, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
-    auto worker = hub_->pop();
+    auto worker = hub_.pop();
     if (worker != nullptr) {
       CAF_LOG_DEBUG("launch BASP worker for deserializing an actor_message");
       worker->launch(node_id{}, hdr, payload);
@@ -411,24 +371,28 @@ private:
         byte_span payload_;
         uint64_t msg_id_;
       };
-      handler f{queue_.get(), &proxies_, system_, node_id{}, hdr, payload};
+      handler f{&queue_, &proxies_, system_, node_id{}, hdr, payload};
       f.handle_remote_message(&executor_);
     }
-    return none;
+    return true;
   }
 
   template <class LowerLayerPtr>
-  error
+  bool
   handle_resolve_request(LowerLayerPtr& down, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     CAF_ASSERT(hdr.type == message_type::resolve_request);
     size_t path_size = 0;
     binary_deserializer source{&executor_, payload};
-    if (!source.begin_sequence(path_size))
-      return source.get_error();
+    if (!source.begin_sequence(path_size)) {
+      down->abort_reason(std::move(source.get_error()));
+      return false;
+    }
     // We expect the received buffer to contain the path only.
-    if (path_size != source.remaining())
-      return ec::invalid_payload;
+    if (path_size != source.remaining()) {
+      down->abort_reason(ec::invalid_payload);
+      return false;
+    }
     auto remainder = source.remainder();
     string_view path{reinterpret_cast<const char*>(remainder.data()),
                      remainder.size()};
@@ -449,13 +413,14 @@ private:
   }
 
   template <class LowerLayerPtr>
-  error handle_resolve_response(LowerLayerPtr&, header hdr, byte_span payload) {
+  bool
+  handle_resolve_response(LowerLayerPtr& down, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     CAF_ASSERT(hdr.type == message_type::resolve_response);
     auto i = pending_resolves_.find(hdr.operation_data);
     if (i == pending_resolves_.end()) {
-      CAF_LOG_ERROR("received unknown ID in resolve_response message");
-      return none;
+      CAF_LOG_WARNING("received unknown ID in resolve_response message");
+      return true;
     }
     auto guard = detail::make_scope_guard([&] { pending_resolves_.erase(i); });
     actor_id aid;
@@ -463,51 +428,53 @@ private:
     binary_deserializer source{&executor_, payload};
     if (!source.apply_objects(aid, ifs)) {
       anon_send(i->second, sec::remote_lookup_failed);
-      return source.get_error();
+      down->abort_reason(std::move(source.get_error()));
+      return false;
     }
-    if (aid == 0) {
+    if (aid == 0)
       anon_send(i->second, strong_actor_ptr{nullptr}, std::move(ifs));
-      return none;
-    }
-    anon_send(i->second, proxies_.get_or_put(peer_id_, aid), std::move(ifs));
-    return none;
+    else
+      anon_send(i->second, proxies_.get_or_put(peer_id_, aid), std::move(ifs));
+    return true;
   }
 
   template <class LowerLayerPtr>
-  error
+  bool
   handle_monitor_message(LowerLayerPtr& down, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
-    if (!payload.empty())
-      return ec::unexpected_payload;
+    if (!payload.empty()) {
+      down->abort_reason(ec::unexpected_payload);
+      return false;
+    }
     auto aid = static_cast<actor_id>(hdr.operation_data);
-    auto hdl = system().registry().get(aid);
-    if (hdl != nullptr) {
-      hdl->get()->attach_functor([this, aid](error reason) mutable {
-        this->enqueue_event(aid, std::move(reason));
+    if (auto hdl = system().registry().get(aid)) {
+      auto wself = self_.as_actor_addr();
+      hdl->get()->attach_functor([aid, wself](error reason) mutable {
+        if (auto sref = actor_cast<actor>(wself))
+          anon_send(sref, local_actor_down_msg{aid, std::move(reason)});
       });
     } else {
       error reason = exit_reason::unknown;
       return write_message(
         down, header{message_type::down_message, hdr.operation_data}, reason);
     }
-    return none;
+    return true;
   }
 
   template <class LowerLayerPtr>
-  error handle_down_message(LowerLayerPtr&, header hdr, byte_span payload) {
+  bool handle_down_message(LowerLayerPtr& down, header hdr, byte_span payload) {
     CAF_LOG_TRACE(CAF_ARG(hdr) << CAF_ARG2("payload.size", payload.size()));
     error reason;
     binary_deserializer source{&executor_, payload};
-    if (!source.apply_objects(reason))
-      return source.get_error();
+    if (!source.apply_objects(reason)) {
+      down->abort_reason(std::move(source.get_error()));
+      return false;
+    }
     proxies_.erase(peer_id_, hdr.operation_data, std::move(reason));
-    return none;
+    return true;
   }
 
   // -- member variables -------------------------------------------------------
-
-  // Stores incoming actor messages.
-  consumer_queue::type mailbox_;
 
   /// Stores a pointer to the parent actor system.
   actor_system* system_ = nullptr;
@@ -530,21 +497,17 @@ private:
   /// Points to the factory object for generating proxies.
   proxy_registry& proxies_;
 
-  /// Points to the socket manager that owns this applications.
-  socket_manager* owner_ = nullptr;
-
-  // Guards access to owner_.
-  std::mutex owner_mtx_;
-
   size_t max_throughput_ = 0;
 
   /// Provides pointers to the actor system as well as the registry,
   /// serializers and deserializer.
   scoped_execution_unit executor_;
 
-  std::unique_ptr<message_queue> queue_;
+  message_queue queue_;
 
-  std::unique_ptr<hub_type> hub_;
+  caf::net::actor_shell_ptr self_;
+
+  hub_type hub_;
 };
 
 } // namespace caf::net::basp

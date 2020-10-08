@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright 2011-2019 Dominik Charousset                                     *
+ * Copyright 2011-2020 Dominik Charousset                                     *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
  * (at your option) under the terms and conditions of the Boost Software      *
@@ -16,28 +16,31 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#pragma once
+#include "caf/net/basp/actor_proxy_impl.hpp"
 
-#include "caf/actor_proxy.hpp"
-#include "caf/net/fwd.hpp"
+#include "caf/mailbox_element.hpp"
+#include "caf/net/basp/msg.hpp"
+#include "caf/send.hpp"
 
-namespace caf::net {
+namespace caf::net::basp {
 
-/// Implements a simple proxy forwarding all operations to a manager.
-class actor_proxy_impl : public actor_proxy {
-public:
-  using super = actor_proxy;
+actor_proxy_impl::actor_proxy_impl(actor_config& cfg, actor app)
+  : super(cfg), app_(std::move(app)) {
+  CAF_ASSERT(app != nullptr);
+  anon_send(app, new_proxy_msg{id()});
+}
 
-  actor_proxy_impl(actor_config& cfg, basp::application* app);
+actor_proxy_impl::~actor_proxy_impl() {
+  // nop
+}
 
-  ~actor_proxy_impl() override;
+void actor_proxy_impl::enqueue(mailbox_element_ptr msg, execution_unit* eu) {
+  msg->stages.push_back(ctrl());
+  app_->enqueue(std::move(msg), eu);
+}
 
-  void enqueue(mailbox_element_ptr what, execution_unit* context) override;
+void actor_proxy_impl::kill_proxy(execution_unit* ctx, error rsn) {
+  cleanup(std::move(rsn), ctx);
+}
 
-  void kill_proxy(execution_unit* ctx, error rsn) override;
-
-private:
-  basp::application* app_;
-};
-
-} // namespace caf::net
+} // namespace caf::net::basp

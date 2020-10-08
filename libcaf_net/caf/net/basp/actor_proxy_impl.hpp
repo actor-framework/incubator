@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright 2011-2019 Dominik Charousset                                     *
+ * Copyright 2011-2020 Dominik Charousset                                     *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
  * (at your option) under the terms and conditions of the Boost Software      *
@@ -16,35 +16,28 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#include "caf/net/actor_proxy_impl.hpp"
+#pragma once
 
-#include "caf/actor_system.hpp"
-#include "caf/expected.hpp"
-#include "caf/logger.hpp"
-#include "caf/net/basp/application.hpp"
+#include "caf/actor.hpp"
+#include "caf/actor_proxy.hpp"
 
-namespace caf::net {
+namespace caf::net::basp {
 
-actor_proxy_impl::actor_proxy_impl(actor_config& cfg,
-                                   caf::net::basp::application* app)
-  : super(cfg), app_(app) {
-  CAF_ASSERT(app != nullptr);
-  app_->enqueue_event(id());
-}
+/// Implements a simple proxy forwarding all operations to a manager.
+class actor_proxy_impl : public actor_proxy {
+public:
+  using super = actor_proxy;
 
-actor_proxy_impl::~actor_proxy_impl() {
-  // nop
-}
+  actor_proxy_impl(actor_config& cfg, actor app);
 
-void actor_proxy_impl::enqueue(mailbox_element_ptr msg, execution_unit*) {
-  CAF_PUSH_AID(0);
-  CAF_ASSERT(msg != nullptr);
-  CAF_LOG_SEND_EVENT(msg);
-  app_->enqueue(std::move(msg), ctrl());
-}
+  ~actor_proxy_impl() override;
 
-void actor_proxy_impl::kill_proxy(execution_unit* ctx, error rsn) {
-  cleanup(std::move(rsn), ctx);
-}
+  void enqueue(mailbox_element_ptr what, execution_unit* context) override;
 
-} // namespace caf::net
+  void kill_proxy(execution_unit* ctx, error rsn) override;
+
+private:
+  actor app_;
+};
+
+} // namespace caf::net::basp

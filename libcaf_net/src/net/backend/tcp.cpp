@@ -21,7 +21,6 @@
 #include <mutex>
 #include <string>
 
-#include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/basp/ec.hpp"
 #include "caf/net/connection_acceptor.hpp"
 #include "caf/net/defaults.hpp"

@@ -19,7 +19,6 @@
 #include "caf/net/backend/test.hpp"
 
 #include "caf/expected.hpp"
-#include "caf/net/actor_proxy_impl.hpp"
 #include "caf/net/basp/application.hpp"
 #include "caf/net/basp/ec.hpp"
 #include "caf/net/length_prefix_framing.hpp"

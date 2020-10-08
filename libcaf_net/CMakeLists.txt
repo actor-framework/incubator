@@ -32,10 +32,6 @@ endfunction()
 # -- add library targets -------------------------------------------------------
 
 add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
-  src/actor_proxy_impl.cpp
-  src/net/backend/tcp.cpp
-  src/net/backend/test.cpp
-  src/net/consumer_queue.cpp
   src/basp/application.cpp
   src/basp/ec_strings.cpp
   src/basp/message_type_strings.cpp
@@ -50,6 +46,10 @@ add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
   src/message_queue.cpp
   src/multiplexer.cpp
   src/net/actor_shell.cpp
+  src/net/backend/tcp.cpp
+  src/net/backend/test.cpp
+  src/net/basp/actor_proxy_impl.cpp
+  src/net/consumer_queue.cpp
   src/net/middleman.cpp
   src/net/middleman_backend.cpp
   src/net/packet_writer.cpp

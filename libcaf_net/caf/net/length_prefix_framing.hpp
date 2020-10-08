@@ -117,7 +117,12 @@ public:
   }
 
   template <class LowerLayerPtr>
-  void abort_reason(LowerLayerPtr& down, error reason) {
+  static auto& abort_reason(LowerLayerPtr& down) {
+    return down->abort_reason();
+  }
+
+  template <class LowerLayerPtr>
+  static void abort_reason(LowerLayerPtr& down, error reason) {
     return down->abort_reason(std::move(reason));
   }
 
