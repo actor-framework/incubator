@@ -20,18 +20,21 @@
 
 #include <unordered_map>
 
+#include "caf/byte_span.hpp"
+#include "caf/ip_endpoint.hpp"
 #include "caf/logger.hpp"
-#include "caf/net/consumer_queue.hpp"
 #include "caf/net/fwd.hpp"
-#include "caf/net/packet_writer_decorator.hpp"
+#include "caf/net/ip.hpp"
 #include "caf/net/transport_worker.hpp"
+#include "caf/node_id.hpp"
 #include "caf/sec.hpp"
 #include "caf/send.hpp"
+#include "caf/settings.hpp"
 
 namespace caf::net {
 
 /// Implements a dispatcher that dispatches between transport and workers.
-template <class Factory, class IdType>
+template <class Application, class Factory, class IdType>
 class transport_worker_dispatcher {
 public:
   // -- member types -----------------------------------------------------------
@@ -40,95 +43,111 @@ public:
 
   using factory_type = Factory;
 
-  using application_type = typename factory_type::application_type;
+  using worker_type = transport_worker<Application, id_type>;
 
-  using worker_type = transport_worker<application_type, id_type>;
-
-  using worker_ptr = transport_worker_ptr<application_type, id_type>;
+  using worker_ptr = transport_worker_ptr<Application, id_type>;
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  explicit transport_worker_dispatcher(factory_type factory)
-    : factory_(std::move(factory)) {
+  explicit transport_worker_dispatcher(std::string protocol_tag,
+                                       factory_type factory)
+    : factory_(std::move(factory)), protocol_tag_(std::move(protocol_tag)) {
     // nop
+  }
+
+  ~transport_worker_dispatcher() = default;
+
+  // -- initialization ---------------------------------------------------------
+
+  template <class LowerLayerPtr>
+  error init(socket_manager* owner, LowerLayerPtr, const settings& config) {
+    CAF_ASSERT(workers_by_id_.empty());
+    owner_ = owner;
+    config_ = config;
+    return none;
+  }
+
+  // -- properties -------------------------------------------------------------
+
+  auto& upper_layer(id_type id) noexcept {
+    if (auto worker = find_worker(id))
+      return worker;
+    CAF_RAISE_ERROR("Worker not found");
+  }
+
+  const auto& upper_layer() const noexcept {
+    if (auto worker = find_worker(id))
+      return worker;
+    CAF_RAISE_ERROR("Worker not found");
   }
 
   // -- member functions -------------------------------------------------------
 
-  template <class Parent>
-  error init(Parent&) {
-    CAF_ASSERT(workers_by_id_.empty());
-    return none;
-  }
-
-  template <class Parent>
-  error handle_data(Parent& parent, span<const byte> data, id_type id) {
+  template <class LowerLayerPtr>
+  error consume(LowerLayerPtr down, const_byte_span data, id_type id) {
     if (auto worker = find_worker(id))
-      return worker->handle_data(parent, data);
-    // TODO: Where to get node_id from here?
-    auto worker = add_new_worker(parent, node_id{}, id);
-    if (worker)
-      return (*worker)->handle_data(parent, data);
+      return worker->consume(down, data, delta);
+    auto locator = make_uri(protocol_tag + "://" + to_string(id));
+    if (!locator)
+      return locator.error();
+    if (auto worker = add_new_worker(down, make_node_id(*locator), id))
+      return (*worker)->->consume(down, data, delta);
     else
       return std::move(worker.error());
   }
 
-  template <class Parent>
-  void
-  write_message(Parent& parent, std::unique_ptr<consumer_queue::message> msg) {
-    auto receiver = msg->receiver;
-    if (!receiver)
-      return;
-    auto nid = receiver->node();
-    if (auto worker = find_worker(nid)) {
-      worker->write_message(parent, std::move(msg));
-      return;
+  // -- role: upper layer ------------------------------------------------------
+
+  template <class LowerLayerPtr>
+  bool prepare_send(LowerLayerPtr down) {
+    for (auto& p : workers_by_node_) {
+      if (!p->second.prepare_send(down))
+        return false;
     }
-    // TODO: where to get id_type from here?
-    if (auto worker = add_new_worker(parent, nid, id_type{}))
-      (*worker)->write_message(parent, std::move(msg));
+    return true;
   }
 
-  template <class Parent>
-  void resolve(Parent& parent, const uri& locator, const actor& listener) {
-    if (auto worker = find_worker(make_node_id(locator)))
-      worker->resolve(parent, locator.path(), listener);
-    else
-      anon_send(listener,
-                make_error(sec::runtime_error, "could not resolve node"));
-  }
-
-  template <class Parent>
-  void new_proxy(Parent& parent, const node_id& nid, actor_id id) {
-    if (auto worker = find_worker(nid))
-      worker->new_proxy(parent, nid, id);
-  }
-
-  template <class Parent>
-  void local_actor_down(Parent& parent, const node_id& nid, actor_id id,
-                        error reason) {
-    if (auto worker = find_worker(nid))
-      worker->local_actor_down(parent, nid, id, std::move(reason));
-  }
-
-  template <class... Ts>
-  void set_timeout(uint64_t timeout_id, id_type id, Ts&&...) {
-    workers_by_timeout_id_.emplace(timeout_id, workers_by_id_.at(id));
-  }
-
-  template <class Parent>
-  void timeout(Parent& parent, std::string tag, uint64_t id) {
-    if (auto worker = workers_by_timeout_id_.at(id)) {
-      worker->timeout(parent, std::move(tag), id);
-      workers_by_timeout_id_.erase(id);
+  template <class LowerLayerPtr>
+  bool done_sending(LowerLayerPtr& down) {
+    for (auto& p : workers_by_node_) {
+      if (!p->second.done_sending(down))
+        return false;
     }
+    return true;
   }
+
+  template <class LowerLayerPtr>
+  void abort(LowerLayerPtr& down, const error& reason) {
+    for (auto& p : workers_by_node_)
+      p->second.abort(down, reason);
+  }
+
+  // TODO: This is needed.
+  // template <class Parent>
+  // void shutdown(Parent& parent) {
+  //   for (auto& p : )
+  //     p.second->shutdown(parent);
+  // }
 
   void handle_error(sec error) {
-    for (const auto& p : workers_by_id_) {
-      auto worker = p.second;
-      worker->handle_error(error);
+    for (const auto& p : workers_by_id_)
+      p.second->handle_error(error);
+  }
+
+  template <class Parent>
+  expected<worker_ptr> emplace(Parent& parent, const uri& locator) {
+    auto& auth = locator.authority();
+    ip_address addr;
+    if (auto hostname = get_if<std::string>(&auth.host)) {
+      auto addrs = ip::resolve(*hostname);
+      if (addrs.empty())
+        return sec::remote_lookup_failed;
+      addr = addrs.at(0);
+    } else {
+      addr = *get_if<ip_address>(&auth.host);
     }
+    return add_new_worker(parent, make_node_id(*locator.authority_only()),
+                          ip_endpoint{addr, auth.port});
   }
 
   template <class Parent>
@@ -137,10 +156,10 @@ public:
     CAF_LOG_TRACE(CAF_ARG(node) << CAF_ARG(id));
     auto application = factory_.make();
     auto worker = std::make_shared<worker_type>(std::move(application), id);
-    if (auto err = worker->init(parent))
-      return err;
     workers_by_id_.emplace(std::move(id), worker);
     workers_by_node_.emplace(std::move(node), worker);
+    if (auto err = worker->init(parent))
+      return err;
     return worker;
   }
 
@@ -156,20 +175,26 @@ private:
   template <class Key>
   worker_ptr find_worker_impl(const std::unordered_map<Key, worker_ptr>& map,
                               const Key& key) {
-    if (map.count(key) == 0) {
-      CAF_LOG_DEBUG("could not find worker: " << CAF_ARG(key));
+    if (map.count(key) == 0)
       return nullptr;
-    }
     return map.at(key);
   }
 
   // -- worker lookups ---------------------------------------------------------
 
   std::unordered_map<id_type, worker_ptr> workers_by_id_;
+
   std::unordered_map<node_id, worker_ptr> workers_by_node_;
+
   std::unordered_map<uint64_t, worker_ptr> workers_by_timeout_id_;
 
+  socket_manager* owner_;
+
+  const settings config_;
+
   factory_type factory_;
-};
+
+  std::string protocol_tag = "";
+}; // namespace caf::net
 
 } // namespace caf::net
