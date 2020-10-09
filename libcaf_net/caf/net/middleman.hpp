@@ -107,8 +107,6 @@ public:
 
   // -- remoting ---------------------------------------------------------------
 
-  expected<endpoint_manager_ptr> connect(const uri& locator);
-
   // Publishes an actor.
   template <class Handle>
   void publish(Handle whom, const std::string& path) {

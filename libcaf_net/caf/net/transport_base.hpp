@@ -84,13 +84,6 @@ public:
     return *reinterpret_cast<transport_type*>(this);
   }
 
-  /// Returns a reference to the `endpoint_manager` of this transport.
-  /// @pre `init` must be called before calling this getter.
-  endpoint_manager& manager() {
-    CAF_ASSERT(manager_);
-    return *manager_;
-  }
-
   // -- transport member functions ---------------------------------------------
 
   /// Initializes this transport.

@@ -108,10 +108,6 @@ void middleman::add_module_options(actor_system_config&) {
   */
 }
 
-expected<endpoint_manager_ptr> middleman::connect(const uri&) {
-  return sec::feature_disabled;
-}
-
 void middleman::resolve(const uri&, const actor& listener) {
   anon_send(listener, error{sec::feature_disabled});
 }

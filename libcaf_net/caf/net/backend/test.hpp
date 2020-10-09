@@ -21,7 +21,6 @@
 #include <map>
 
 #include "caf/detail/net_export.hpp"
-#include "caf/net/endpoint_manager.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/middleman_backend.hpp"
 #include "caf/net/stream_socket.hpp"

@@ -45,7 +45,6 @@ enum class ec : uint8_t;
 
 class actor_shell;
 class actor_shell_ptr;
-class endpoint_manager;
 class middleman;
 class middleman_backend;
 class multiplexer;
@@ -64,7 +63,6 @@ struct udp_datagram_socket;
 
 // -- smart pointers -----------------------------------------------------------
 
-using endpoint_manager_ptr = intrusive_ptr<endpoint_manager>;
 using middleman_backend_ptr = std::unique_ptr<middleman_backend>;
 using multiplexer_ptr = std::shared_ptr<multiplexer>;
 using socket_manager_ptr = intrusive_ptr<socket_manager>;

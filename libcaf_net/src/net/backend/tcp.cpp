@@ -28,7 +28,6 @@
 #include "caf/net/defaults.hpp"
 #include "caf/net/doorman.hpp"
 #include "caf/net/ip.hpp"
-#include "caf/net/make_endpoint_manager.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_guard.hpp"
 #include "caf/net/stream_transport.hpp"
@@ -65,18 +64,6 @@ error tcp::init() {
   if (!port)
     return port.error();
   listening_port_ = *port;
-  CAF_LOG_INFO("doorman spawned on " << CAF_ARG(*port));
-  auto doorman_uri = make_uri("tcp://doorman");
-  if (!doorman_uri)
-    return doorman_uri.error();
-  auto& mpx = mm_.mpx();
-  auto mgr = make_endpoint_manager(
-    mpx, mm_.system(),
-    doorman{acc_guard.release(), basp::application_factory{proxies_}});
-  if (auto err = mgr->init()) {
-    CAF_LOG_ERROR("mgr->init() failed: " << err);
-    return err;
-  }
   return none;
 }
 
