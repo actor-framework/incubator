@@ -151,11 +151,13 @@ endif()
 # -- utility targets -----------------------------------------------------------
 
 if(CAF_INC_ENABLE_UTILITY_TARGETS)
-  add_executable(caf-generate-enum-strings
-                 EXCLUDE_FROM_ALL
-                 cmake/caf-generate-enum-strings.cpp)
-  add_custom_target(consistency-check)
-  add_custom_target(update-enum-strings)
+  if(NOT TARGET caf-generate-enum-strings)
+    add_executable(caf-generate-enum-strings
+                   EXCLUDE_FROM_ALL
+                   cmake/caf-generate-enum-strings.cpp)
+    add_custom_target(consistency-check)
+    add_custom_target(update-enum-strings)
+  endif()
   # adds a consistency check that verifies that `cpp_file` is still valid by
   # re-generating the file and comparing it to the existing file
   function(caf_incubator_add_enum_consistency_check hpp_file cpp_file)
