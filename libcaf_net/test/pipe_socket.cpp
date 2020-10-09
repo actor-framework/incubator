@@ -24,7 +24,7 @@
 #include "caf/test/dsl.hpp"
 
 #include "caf/byte.hpp"
-#include "caf/byte_buffer.hpp"
+#include "caf/detail/caf_net_backports.hpp"
 
 using namespace caf;
 using namespace caf::net;

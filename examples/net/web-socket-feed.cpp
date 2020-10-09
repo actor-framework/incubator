@@ -29,10 +29,10 @@
 
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
-#include "caf/byte_span.hpp"
 #include "caf/event_based_actor.hpp"
 #include "caf/exec_main.hpp"
 #include "caf/ip_endpoint.hpp"
+#include "caf/ipv4_address.hpp"
 #include "caf/net/actor_shell.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_manager.hpp"
@@ -62,16 +62,13 @@ struct info {
 };
 
 template <class Inspector>
-bool inspect(Inspector& f, info& x) {
-  return f.object(x).fields(f.field("symbol", x.symbol),
-                            f.field("currency", x.currency),
-                            f.field("open", x.open), f.field("high", x.high),
-                            f.field("low", x.low));
+typename Inspector::result_type inspect(Inspector& f, info& x) {
+  return f(x.symbol, x.currency, x.open, x.high, x.low);
 }
 
-using listener = caf::typed_actor<caf::result<void>(info)>;
+using listener = caf::typed_actor<caf::reacts_to<info>>;
 
-using feed = caf::typed_actor<caf::result<void>(caf::subscribe_atom, listener)>;
+using feed = caf::typed_actor<caf::reacts_to<caf::subscribe_atom, listener>>;
 
 } // namespace stock
 
@@ -90,7 +87,7 @@ CAF_END_TYPE_ID_BLOCK(web_socket_feed)
 
 // -- implementation of the feed actor -----------------------------------------
 
-using random_feed = stock::feed::extend<caf::result<void>(caf::update_atom)>;
+using random_feed = stock::feed::extend<caf::reacts_to<caf::update_atom>>;
 
 struct random_feed_state {
   random_feed_state() : val_dist(0, 100000), index_dist(0, 19) {

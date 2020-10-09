@@ -21,13 +21,47 @@
 #include "caf/callback.hpp"
 #include "caf/config.hpp"
 #include "caf/detail/default_invoke_result_visitor.hpp"
-#include "caf/detail/sync_request_bouncer.hpp"
 #include "caf/invoke_message_result.hpp"
 #include "caf/logger.hpp"
 #include "caf/net/multiplexer.hpp"
 #include "caf/net/socket_manager.hpp"
 
 namespace caf::net {
+
+namespace {
+
+/// Drains a mailbox and sends an error message to each unhandled request.
+struct bouncer {
+  error rsn;
+
+  explicit bouncer(error r) : rsn(std::move(r)) {
+    // nop
+  }
+
+  void operator()(const strong_actor_ptr& sender, const message_id& mid) const {
+    if (sender && mid.is_request())
+      sender->enqueue(nullptr, mid.response_id(),
+                      make_message(make_error(sec::request_receiver_down)),
+                      // TODO: this breaks out of the execution unit
+                      nullptr);
+  }
+
+  intrusive::task_result operator()(const mailbox_element& e) const {
+    (*this)(e.sender, e.mid);
+    return intrusive::task_result::resume;
+  }
+
+  /// Unwrap WDRR queues. Nesting WDRR queues results in a Key/Queue prefix for
+  /// each layer of nesting.
+  template <class Key, class Queue, class... Ts>
+  intrusive::task_result
+  operator()(const Key&, const Queue&, const Ts&... xs) const {
+    (*this)(xs...);
+    return intrusive::task_result::resume;
+  }
+};
+
+} // namespace
 
 // -- constructors, destructors, and assignment operators ----------------------
 
@@ -75,21 +109,44 @@ bool actor_shell::consume_message() {
     auto mid = msg->mid;
     if (!mid.is_response()) {
       detail::default_invoke_result_visitor<actor_shell> visitor{this};
-      if (auto result = bhvr_(msg->payload)) {
+      if (auto result = bhvr_(msg->content())) {
         visitor(*result);
       } else {
-        auto fallback_result = (*fallback_)(msg->payload);
+#if CAF_VERSION < 1800
+        auto m = msg->move_content_to_message();
+        auto fallback_result = fallback_(m);
+        switch (fallback_result.flag) {
+          case rt_value:
+            visitor(fallback_result.value);
+            break;
+          case rt_error:
+            visitor(fallback_result.err);
+            break;
+          case rt_delegated:
+            // nop
+            break;
+          case rt_skip:
+            visitor(none);
+        }
+#else
+        auto fallback_result = (*fallback_)(msg->content());
         visit(visitor, fallback_result);
+#endif
       }
     } else if (auto i = multiplexed_responses_.find(mid);
                i != multiplexed_responses_.end()) {
       auto bhvr = std::move(i->second);
       multiplexed_responses_.erase(i);
-      auto res = bhvr(msg->payload);
+      auto res = bhvr(msg->content());
       if (!res) {
         CAF_LOG_DEBUG("got unexpected_response");
+#if CAF_VERSION < 1800
         auto err_msg = make_message(
-          make_error(sec::unexpected_response, std::move(msg->payload)));
+          make_error(sec::unexpected_response, msg->move_content_to_message()));
+#else
+        auto err_msg = make_message(
+          make_error(sec::unexpected_response, std::move(msg->content())));
+#endif
         bhvr(err_msg);
       }
     }
@@ -116,11 +173,6 @@ void actor_shell::enqueue(mailbox_element_ptr ptr, execution_unit*) {
   CAF_LOG_SEND_EVENT(ptr);
   auto mid = ptr->mid;
   auto sender = ptr->sender;
-  auto collects_metrics = getf(abstract_actor::collects_metrics_flag);
-  if (collects_metrics) {
-    ptr->set_enqueue_time();
-    metrics_.mailbox_size->inc();
-  }
   switch (mailbox().push_back(std::move(ptr))) {
     case intrusive::inbox_result::unblocked_reader: {
       CAF_LOG_ACCEPT_EVENT(true);
@@ -135,11 +187,8 @@ void actor_shell::enqueue(mailbox_element_ptr ptr, execution_unit*) {
     }
     case intrusive::inbox_result::queue_closed: {
       CAF_LOG_REJECT_EVENT();
-      home_system().base_metrics().rejected_messages->inc();
-      if (collects_metrics)
-        metrics_.mailbox_size->dec();
       if (mid.is_request()) {
-        detail::sync_request_bouncer f{exit_reason()};
+        bouncer f{exit_reason()};
         f(sender, mid);
       }
       break;
@@ -172,13 +221,9 @@ bool actor_shell::cleanup(error&& fail_state, execution_unit* host) {
   // Clear mailbox.
   if (!mailbox_.closed()) {
     mailbox_.close();
-    detail::sync_request_bouncer bounce{fail_state};
+    bouncer bounce{fail_state};
     auto dropped = mailbox_.queue().new_round(1000, bounce).consumed_items;
     while (dropped > 0) {
-      if (getf(abstract_actor::collects_metrics_flag)) {
-        auto val = static_cast<int64_t>(dropped);
-        metrics_.mailbox_size->dec(val);
-      }
       dropped = mailbox_.queue().new_round(1000, bounce).consumed_items;
     }
   }

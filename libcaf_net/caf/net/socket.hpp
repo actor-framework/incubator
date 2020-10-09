@@ -23,6 +23,7 @@
 #include <type_traits>
 
 #include "caf/config.hpp"
+#include "caf/detail/caf_net_backports.hpp"
 #include "caf/detail/comparable.hpp"
 #include "caf/detail/net_export.hpp"
 #include "caf/fwd.hpp"
@@ -55,8 +56,11 @@ struct CAF_NET_EXPORT socket : detail::comparable<socket> {
 
 /// @relates socket
 template <class Inspector>
-bool inspect(Inspector& f, socket& x) {
-  return f.object(x).fields(f.field("id", x.id));
+auto inspect(Inspector& f, socket& x) {
+  if constexpr (detail::is_legacy_inspector<Inspector>)
+    return f(x.id);
+  else
+    return f.object(x).fields(f.field("id", x.id));
 }
 
 /// Denotes the invalid socket.

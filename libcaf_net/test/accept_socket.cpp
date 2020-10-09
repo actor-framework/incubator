@@ -21,9 +21,7 @@
 #include "caf/net/tcp_accept_socket.hpp"
 
 #include "caf/binary_serializer.hpp"
-#include "caf/net/endpoint_manager.hpp"
 #include "caf/net/ip.hpp"
-#include "caf/net/make_endpoint_manager.hpp"
 #include "caf/net/multiplexer.hpp"
 #include "caf/net/socket_guard.hpp"
 #include "caf/net/tcp_stream_socket.hpp"

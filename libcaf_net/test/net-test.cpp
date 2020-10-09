@@ -7,7 +7,9 @@
 
 int main(int argc, char** argv) {
   using namespace caf;
+#if CAF_VERSION >= 1800
   net::middleman::init_global_meta_objects();
   core::init_global_meta_objects();
+#endif
   return test::main(argc, argv);
 }

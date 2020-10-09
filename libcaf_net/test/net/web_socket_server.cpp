@@ -22,7 +22,7 @@
 
 #include "net-test.hpp"
 
-#include "caf/byte_span.hpp"
+#include "caf/detail/caf_net_backports.hpp"
 #include "caf/net/multiplexer.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/net/stream_socket.hpp"
@@ -91,8 +91,8 @@ struct fixture : host_fixture {
                       std::vector<byte>& out) {
     std::vector<byte> payload{bytes.begin(), bytes.end()};
     auto key = static_cast<uint32_t>(rng());
-    detail::rfc6455::mask_data(key, payload);
-    detail::rfc6455::assemble_frame(opcode, key, payload, out);
+    detail::rfc6455::mask_data(key, byte_span{payload});
+    detail::rfc6455::assemble_frame(opcode, key, byte_span{payload}, out);
   }
 
   void rfc6455_append(span<const byte> bytes, std::vector<byte>& out) {
@@ -115,6 +115,10 @@ struct fixture : host_fixture {
 
   void push(string_view str) {
     push(detail::rfc6455::text_frame, as_bytes(make_span(str)));
+  }
+
+  void push(const std::string& str) {
+    push(string_view{str});
   }
 
   mock_stream_transport<net::web_socket_server<app_t>> transport;
@@ -140,8 +144,8 @@ constexpr auto opening_handshake
 } // namespace
 
 #define CHECK_SETTING(key, expected_value)                                     \
-  if (CAF_CHECK(holds_alternative<std::string>(app->cfg, key)))                \
-    CAF_CHECK_EQUAL(get<std::string>(app->cfg, key), expected_value);
+  CAF_REQUIRE(holds_alternative<std::string>(app->cfg, key));                  \
+  CAF_CHECK_EQUAL(get<std::string>(app->cfg, key), expected_value)
 
 CAF_TEST_FIXTURE_SCOPE(web_socket_tests, fixture)
 

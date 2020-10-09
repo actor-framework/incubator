@@ -18,8 +18,10 @@
 
 #pragma once
 
+#include <functional>
+
 #include "caf/actor_traits.hpp"
-#include "caf/callback.hpp"
+#include "caf/detail/caf_net_backports.hpp"
 #include "caf/detail/net_export.hpp"
 #include "caf/detail/unordered_flat_map.hpp"
 #include "caf/extend.hpp"
@@ -67,7 +69,7 @@ public:
 
   using mailbox_type = intrusive::fifo_inbox<mailbox_policy>;
 
-  using fallback_handler = unique_callback_ptr<result<message>(message&)>;
+  using fallback_handler = std::function<result<message>(message&)>;
 
   // -- constructors, destructors, and assignment operators --------------------
 
@@ -89,7 +91,7 @@ public:
   /// Overrides the default handler for unexpected messages.
   template <class F>
   void set_fallback(F f) {
-    fallback_ = make_type_erased_callback(std::move(f));
+    fallback_ = std::move(f);
   }
 
   // -- mailbox access ---------------------------------------------------------

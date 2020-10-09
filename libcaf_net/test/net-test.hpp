@@ -73,6 +73,10 @@ public:
     push(caf::as_bytes(caf::make_span(str)));
   }
 
+  void push(const std::string& str) {
+    push(caf::string_view{str});
+  }
+
   size_t unconsumed() const noexcept {
     return read_buf_.size();
   }

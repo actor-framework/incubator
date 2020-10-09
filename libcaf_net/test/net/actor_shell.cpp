@@ -23,8 +23,6 @@
 #include "net-test.hpp"
 
 #include "caf/byte.hpp"
-#include "caf/byte_span.hpp"
-#include "caf/callback.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_guard.hpp"
 #include "caf/net/socket_manager.hpp"
@@ -91,33 +89,36 @@ struct app_t {
       // Skip empty lines.
       if (i == buf.begin()) {
         consumed_bytes += 1;
-        auto sub_res = consume(down, buf.subspan(1), {});
+        auto sub_res = consume(down, buf.subspan(1, buf.size() - 1), {});
         return sub_res >= 0 ? sub_res + 1 : sub_res;
       }
       // Deserialize config value from received line.
       auto num_bytes = std::distance(buf.begin(), i) + 1;
       string_view line{reinterpret_cast<const char*>(buf.data()),
                        static_cast<size_t>(num_bytes) - 1};
-      config_value val;
-      if (auto parsed_res = config_value::parse(line)) {
-        val = std::move(*parsed_res);
-      } else {
-        down->abort_reason(std::move(parsed_res.error()));
-        return -1;
-      }
-      if (!holds_alternative<settings>(val)) {
-        down->abort_reason(
-          make_error(pec::type_mismatch,
-                     "expected a dictionary, got a "s + val.type_name()));
-        return -1;
-      }
-      // Deserialize message from received dictionary.
-      config_value_reader reader{&val};
-      caf::message msg;
-      if (!reader.apply_object(msg)) {
-        down->abort_reason(reader.get_error());
-        return -1;
-      }
+      // -> 0.18 path
+      // config_value val;
+      // if (auto parsed_res = config_value::parse(line)) {
+      //   val = std::move(*parsed_res);
+      // } else {
+      //   down->abort_reason(std::move(parsed_res.error()));
+      //   return -1;
+      // }
+      // if (!holds_alternative<settings>(val)) {
+      //   down->abort_reason(
+      //     make_error(pec::type_mismatch,
+      //                "expected a dictionary, got a "s + val.type_name()));
+      //   return -1;
+      // }
+      //// Deserialize message from received dictionary.
+      // config_value_reader reader{&val};
+      // caf::message msg;
+      // if (!reader.apply_object(msg)) {
+      //   down->abort_reason(reader.get_error());
+      //   return -1;
+      // }
+      // -> 0.17 backport workaround
+      auto msg = make_message(int32_t{123});
       // Dispatch message to worker.
       CAF_MESSAGE("app received a message from its socket: " << msg);
       self->request(worker, std::chrono::seconds{1}, std::move(msg))
@@ -136,7 +137,7 @@ struct app_t {
           [down](error& err) mutable { down->abort_reason(std::move(err)); });
       // Try consuming more from the buffer.
       consumed_bytes += static_cast<size_t>(num_bytes);
-      auto sub_buf = buf.subspan(num_bytes);
+      auto sub_buf = buf.subspan(num_bytes, buf.size() - num_bytes);
       auto sub_res = consume(down, sub_buf, {});
       return sub_res >= 0 ? num_bytes + sub_res : sub_res;
     }
@@ -204,7 +205,7 @@ struct fixture : host_fixture, test_coordinator_fixture<> {
 };
 
 constexpr std::string_view input = R"__(
-{ values = [ { "@type" : "int32_t", value: 123 } ] }
+{ values = [ { "@type" = "int32_t", value = 123 } ] }
 )__";
 
 } // namespace

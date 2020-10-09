@@ -35,10 +35,6 @@ namespace caf::net {
 /// Manages the lifetime of a single socket and handles any I/O events on it.
 class CAF_NET_EXPORT socket_manager : public ref_counted {
 public:
-  // -- member types -----------------------------------------------------------
-
-  using fallback_handler = unique_callback_ptr<result<message>(message&)>;
-
   // -- constructors, destructors, and assignment operators --------------------
 
   /// @pre `handle != invalid_socket`

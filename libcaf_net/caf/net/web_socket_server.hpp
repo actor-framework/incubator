@@ -20,10 +20,8 @@
 
 #include <algorithm>
 
-#include "caf/byte_span.hpp"
-#include "caf/detail/encode_base64.hpp"
+#include "caf/detail/caf_net_backports.hpp"
 #include "caf/error.hpp"
-#include "caf/hash/sha1.hpp"
 #include "caf/logger.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/receive_policy.hpp"
@@ -143,7 +141,7 @@ public:
       return -1;
     ptrdiff_t sub_result = 0;
     if (offset < buffer.size()) {
-      auto remainder = buffer.subspan(offset);
+      auto remainder = buffer.subspan(offset, buffer.size() - offset);
       CAF_LOG_TRACE(CAF_ARG2("socket", down->handle().id)
                     << CAF_ARG2("remainder", remainder.size()));
       sub_result = upper_layer_.consume(down, remainder, remainder);
@@ -174,7 +172,7 @@ private:
     auto [method, request_uri, version] = split2(first_line, " ");
     auto& hdr = cfg_["web-socket"].as_dictionary();
     if (method != "GET") {
-      auto err = make_error(pec::invalid_argument,
+      auto err = make_error(pec::illegal_argument,
                             "invalid operation: expected GET, got "
                               + to_string(method));
       down->abort_reason(std::move(err));
@@ -189,8 +187,8 @@ private:
     for_each_line(remainder, [&fields](string_view line) {
       if (auto sep = std::find(line.begin(), line.end(), ':');
           sep != line.end()) {
-        auto key = trim({line.begin(), sep});
-        auto val = trim({sep + 1, line.end()});
+        auto key = trim(detail::make_string_view(line.begin(), sep));
+        auto val = trim(detail::make_string_view(sep + 1, line.end()));
         if (!key.empty())
           put(fields, key, val);
       }
@@ -241,7 +239,7 @@ private:
       auto line_end = std::search(pos, input.end(), eol.begin(), eol.end());
       if (line_end == input.end())
         return;
-      f(string_view{pos, line_end});
+      f(detail::make_string_view(pos, line_end));
       pos = line_end + eol.size();
     }
   }
@@ -260,7 +258,8 @@ private:
                                                    string_view sep) {
     auto i = std::search(str.begin(), str.end(), sep.begin(), sep.end());
     if (i != str.end())
-      return {{str.begin(), i}, {i + sep.size(), str.end()}};
+      return {detail::make_string_view(str.begin(), i),
+              detail::make_string_view(i + sep.size(), str.end())};
     return {{str}, {}};
   }
 

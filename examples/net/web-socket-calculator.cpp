@@ -38,10 +38,10 @@
 
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
-#include "caf/byte_span.hpp"
 #include "caf/event_based_actor.hpp"
 #include "caf/exec_main.hpp"
 #include "caf/ip_endpoint.hpp"
+#include "caf/ipv4_address.hpp"
 #include "caf/net/actor_shell.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_manager.hpp"
@@ -50,6 +50,8 @@
 #include "caf/tag/mixed_message_oriented.hpp"
 
 #include <cstdint>
+#include <regex>
+#include <string>
 
 // -- custom message types -----------------------------------------------------
 
@@ -65,8 +67,8 @@ struct addition {
 };
 
 template <class Inspector>
-bool inspect(Inspector& f, addition& x) {
-  return f.object(x).fields(f.field("x", x.x), f.field("y", x.y));
+typename Inspector::result_type inspect(Inspector& f, addition& x) {
+  return f(x.x, x.y);
 }
 
 struct subtraction {
@@ -75,8 +77,27 @@ struct subtraction {
 };
 
 template <class Inspector>
-bool inspect(Inspector& f, subtraction& x) {
-  return f.object(x).fields(f.field("x", x.x), f.field("y", x.y));
+typename Inspector::result_type inspect(Inspector& f, subtraction& x) {
+  return f(x.x, x.y);
+}
+
+caf::error parse_msg(const caf::string_view& line, caf::message& msg) {
+  std::regex rx{R"__(.+"@type" = "(\S+)", x = (\d+), y = (\d+).+)__"};
+  std::cmatch pieces;
+  if (std::regex_match(line.begin(), line.end(), pieces, rx)) {
+    auto t = pieces[1].str();
+    auto x = pieces[2].str();
+    auto y = pieces[3].str();
+    if (t == "task::addition") {
+      msg = caf::make_message(addition{std::stoi(x), std::stoi(y)});
+      return caf::none;
+    }
+    if (t == "task::subtraction") {
+      msg = caf::make_message(subtraction{std::stoi(x), std::stoi(y)});
+      return caf::none;
+    }
+  }
+  return caf::sec::invalid_argument;
 }
 
 } // namespace task
@@ -180,22 +201,14 @@ public:
         buf_.erase(buf_.begin(), buf_.begin() + 1);
         continue;
       }
-      // Deserialize config value / message from received line.
+      // Deserialize message from received line.
       auto num_bytes = std::distance(buf_.begin(), i) + 1;
       caf::string_view line{buf_.data(), static_cast<size_t>(num_bytes) - 1};
       std::cout << "*** [socket " << down->handle().id << "] INPUT: " << line
                 << "\n";
-      caf::config_value val;
-      if (auto parsed_val = caf::config_value::parse(line)) {
-        val = std::move(*parsed_val);
-      } else {
-        down->abort_reason(std::move(parsed_val.error()));
-        return -1;
-      }
-      caf::config_value_reader reader{&val};
       caf::message msg;
-      if (!reader.apply_object(msg)) {
-        down->abort_reason(reader.get_error());
+      if (auto err = task::parse_msg(line, msg)) {
+        down->abort_reason(std::move(err));
         return -1;
       }
       // Dispatch message to worker.

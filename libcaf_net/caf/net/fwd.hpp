@@ -21,6 +21,7 @@
 #include <memory>
 
 #include "caf/intrusive_ptr.hpp"
+#include "caf/type_id.hpp"
 
 namespace caf::net {
 
@@ -77,7 +78,7 @@ enum class ec : uint8_t;
 
 } // namespace caf::net::basp
 
-CAF_BEGIN_TYPE_ID_BLOCK(net_module, detail::net_module_begin)
+CAF_BEGIN_TYPE_ID_BLOCK(net_module, caf::detail::net_module_begin)
 
   CAF_ADD_TYPE_ID(net_module, (caf::net::basp::ec))
 

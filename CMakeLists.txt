@@ -3,6 +3,8 @@ project(CAF_INC CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 # -- includes ------------------------------------------------------------------
 
 include(CMakePackageConfigHelpers) # For creating .cmake files
@@ -15,6 +17,7 @@ include(GenerateExportHeader)      # Auto-generates dllexport macros
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON
     CACHE INTERNAL "Write JSON compile commands database")
+
 # -- general options -----------------------------------------------------------
 
 option(BUILD_SHARED_LIBS "Build shared library targets" ON)
@@ -50,16 +53,23 @@ if(CAF_INC_ENABLE_STANDALONE_BUILD)
   FetchContent_Declare(
     actor_framework
     GIT_REPOSITORY https://github.com/actor-framework/actor-framework.git
-    GIT_TAG        4f8609b
+    GIT_TAG        0.17.6
   )
   FetchContent_Populate(actor_framework)
-  set(CAF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
-  set(CAF_ENABLE_IO_MODULE OFF CACHE BOOL "" FORCE)
-  set(CAF_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+  set(CAF_NO_EXAMPLES ON CACHE BOOL "" FORCE)
+  set(CAF_NO_TOOLS ON CACHE BOOL "" FORCE)
+  set(CAF_NO_UNIT_TESTS ON CACHE BOOL "" FORCE)
   set(CAF_ENABLE_TOOLS OFF CACHE BOOL "" FORCE)
-  set(CAF_ENABLE_OPENSSL_MODULE OFF CACHE BOOL "" FORCE)
-  set(CAF_SANITIZERS "${CAF_INC_SANITIZERS}" CACHE STRING "" FORCE)
+  set(CAF_NO_IO ON CACHE BOOL "" FORCE)
+  set(CAF_NO_OPENCL ON CACHE BOOL "" FORCE)
+  set(CAF_NO_OPENSSL ON CACHE BOOL "" FORCE)
+  set(CAF_NO_PYTHON ON CACHE BOOL "" FORCE)
   add_subdirectory(${actor_framework_SOURCE_DIR} ${actor_framework_BINARY_DIR})
+  add_library(CAF::core ALIAS libcaf_core_shared)
+  add_library(CAF::test INTERFACE IMPORTED)
+  set_target_properties(CAF::test PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${actor_framework_SOURCE_DIR}/libcaf_test"
+    INTERFACE_LINK_LIBRARIES "CAF::core")
 else()
   find_package(CAF COMPONENTS core test REQUIRED)
   message(STATUS "Found CAF version ${CAF_VERSION}: ${CAF_DIR}")
@@ -204,10 +214,6 @@ add_dependencies(uninstall caf-incubator-uninstall)
 
 if(CAF_INC_ENABLE_NET_MODULE)
   add_subdirectory(libcaf_net)
-endif()
-
-if(CAF_INC_ENABLE_NET_MODULE)
-  add_subdirectory(libcaf_bb)
 endif()
 
 if(CAF_INC_ENABLE_EXAMPLES)

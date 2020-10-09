@@ -23,6 +23,7 @@
 #include "caf/test/dsl.hpp"
 
 #include "caf/byte.hpp"
+#include "caf/detail/caf_net_backports.hpp"
 #include "caf/span.hpp"
 #include "caf/string_view.hpp"
 
@@ -36,6 +37,10 @@ namespace {
 
 struct fixture {
   using impl = detail::rfc6455;
+
+  auto bytes(byte_span xs) {
+    return std::vector<byte>{xs.begin(), xs.end()};
+  }
 
   auto bytes(std::initializer_list<uint8_t> xs) {
     std::vector<byte> result;
@@ -58,20 +63,20 @@ CAF_TEST_FIXTURE_SCOPE(rfc6455_tests, fixture)
 CAF_TEST(masking) {
   auto key = uint32_t{0xDEADC0DE};
   auto data = bytes({0x12, 0x34, 0x45, 0x67, 0x89, 0x9A});
-  auto masked_data = data;
+  auto masked_data = byte_span{data};
   CAF_MESSAGE("masking XORs the repeated key to data");
   impl::mask_data(key, masked_data);
-  CAF_CHECK_EQUAL(masked_data, bytes({
-                                 0x12 ^ 0xDE,
-                                 0x34 ^ 0xAD,
-                                 0x45 ^ 0xC0,
-                                 0x67 ^ 0xDE,
-                                 0x89 ^ 0xDE,
-                                 0x9A ^ 0xAD,
-                               }));
+  CAF_CHECK_EQUAL(bytes(masked_data), bytes({
+                                        0x12 ^ 0xDE,
+                                        0x34 ^ 0xAD,
+                                        0x45 ^ 0xC0,
+                                        0x67 ^ 0xDE,
+                                        0x89 ^ 0xDE,
+                                        0x9A ^ 0xAD,
+                                      }));
   CAF_MESSAGE("masking masked data again gives the original data");
   impl::mask_data(key, masked_data);
-  CAF_CHECK_EQUAL(masked_data, data);
+  CAF_CHECK_EQUAL(bytes(masked_data), data);
 }
 
 CAF_TEST(no mask key plus small data) {

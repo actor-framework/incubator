@@ -19,7 +19,7 @@
 #pragma once
 
 #include "caf/byte.hpp"
-#include "caf/byte_span.hpp"
+#include "caf/detail/caf_net_backports.hpp"
 #include "caf/detail/rfc6455.hpp"
 #include "caf/net/mixed_message_oriented_layer_ptr.hpp"
 #include "caf/sec.hpp"
@@ -242,13 +242,13 @@ public:
         }
         payload_buf_.insert(payload_buf_.end(), payload.begin(), payload.end());
       }
-      // Advance to next frame in the input.
-      buffer = buffer.subspan(frame_size);
-      if (buffer.empty()) {
-        down->configure_read(receive_policy::up_to(2048));
-        return consumed + static_cast<ptrdiff_t>(frame_size);
-      }
+      // Advance to next frame in the input or stop when hitting the end.
       consumed += static_cast<ptrdiff_t>(frame_size);
+      if (buffer.size() == frame_size) {
+        down->configure_read(receive_policy::up_to(2048));
+        return consumed;
+      }
+      buffer = buffer.subspan(frame_size, buffer.size() - frame_size);
     }
   }
 
@@ -261,12 +261,16 @@ private:
       case detail::rfc6455::text_frame: {
         string_view text{reinterpret_cast<const char*>(payload.data()),
                          payload.size()};
-        return upper_layer_.consume_text(this_layer_ptr(down), text);
+        return upper_layer_.consume_text(this_layer_ptr(down), text) >= 0;
       }
       case detail::rfc6455::binary_frame:
-        return upper_layer_.consume_binary(this_layer_ptr(down), payload);
+        return upper_layer_.consume_binary(this_layer_ptr(down), payload) >= 0;
       case detail::rfc6455::connection_close:
+#if CAF_VERISON < 1800
+        down->abort_reason(sec::end_of_stream);
+#else
         down->abort_reason(sec::connection_closed);
+#endif
         return false;
       case detail::rfc6455::ping:
         ship_pong(down, payload);
@@ -298,10 +302,11 @@ private:
     uint32_t mask_key = 0;
     if (mask_outgoing_frames) {
       mask_key = static_cast<uint32_t>(rng_());
-      detail::rfc6455::mask_data(mask_key, buf);
+      detail::rfc6455::mask_data(mask_key, span<T>{buf});
     }
     down->begin_output();
-    detail::rfc6455::assemble_frame(mask_key, buf, down->output_buffer());
+    detail::rfc6455::assemble_frame(mask_key, span<const T>{buf},
+                                    down->output_buffer());
     down->end_output();
     buf.clear();
   }

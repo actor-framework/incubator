@@ -20,8 +20,8 @@
 
 #include <deque>
 
-#include "caf/byte_buffer.hpp"
 #include "caf/defaults.hpp"
+#include "caf/detail/caf_net_backports.hpp"
 #include "caf/fwd.hpp"
 #include "caf/logger.hpp"
 #include "caf/net/fwd.hpp"
@@ -215,7 +215,7 @@ public:
         if (offset_ < min_read_size_)
           continue;
         auto bytes = make_span(read_buf_.data(), offset_);
-        auto delta = bytes.subspan(delta_offset_);
+        auto delta = bytes.subspan(delta_offset_, bytes.size() - delta_offset_);
         ptrdiff_t consumed = upper_layer_.consume(this_layer_ptr, bytes, delta);
         CAF_LOG_DEBUG(CAF_ARG2("socket", parent->handle().id)
                       << CAF_ARG(consumed));

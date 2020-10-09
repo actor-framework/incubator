@@ -27,7 +27,7 @@
 #include <tuple>
 
 #include "caf/byte.hpp"
-#include "caf/byte_buffer.hpp"
+#include "caf/detail/caf_net_backports.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/net/stream_socket.hpp"
 #include "caf/span.hpp"

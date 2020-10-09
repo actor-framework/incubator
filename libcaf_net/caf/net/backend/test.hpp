@@ -33,10 +33,6 @@ namespace caf::net::backend {
 /// @warning this backend is *not* thread safe.
 class CAF_NET_EXPORT test : public middleman_backend {
 public:
-  // -- member types -----------------------------------------------------------
-
-  using peer_entry = std::pair<stream_socket, endpoint_manager_ptr>;
-
   // -- constructors, destructors, and assignment operators --------------------
 
   test(middleman& mm);
@@ -48,12 +44,6 @@ public:
   error init() override;
 
   void stop() override;
-
-  endpoint_manager_ptr peer(const node_id& id) override;
-
-  expected<endpoint_manager_ptr> get_or_connect(const uri& locator) override;
-
-  void resolve(const uri& locator, const actor& listener) override;
 
   strong_actor_ptr make_proxy(node_id nid, actor_id aid) override;
 
@@ -71,11 +61,7 @@ public:
                       stream_socket second);
 
 private:
-  peer_entry& get_peer(const node_id& id);
-
   middleman& mm_;
-
-  std::map<node_id, peer_entry> peers_;
 
   proxy_registry proxies_;
 };
