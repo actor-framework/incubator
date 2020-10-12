@@ -155,7 +155,7 @@ protected:
 
   socket handle_;
 
-  operation mask_;
+  std::atomic<operation> mask_;
 
   multiplexer* parent_;
 

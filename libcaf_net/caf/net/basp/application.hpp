@@ -135,12 +135,9 @@ public:
   template <class LowerLayerPtr>
   bool done_sending(LowerLayerPtr&) {
     CAF_LOG_TRACE("");
-    std::unique_lock<std::mutex> guard{mailbox_mtx_};
-    done_writing_ = mailbox_.blocked();
-    if (done_writing_)
+    if (mailbox_.blocked())
       return true;
-    done_writing_ = (mailbox_.empty() && mailbox_.try_block());
-    return done_writing_;
+    return (mailbox_.empty() && mailbox_.try_block());
   }
 
   template <class LowerLayerPtr>
@@ -507,8 +504,6 @@ private:
 
   // -- member variables -------------------------------------------------------
 
-  std::atomic<bool> done_writing_ = true;
-
   // Stores incoming actor messages.
   consumer_queue::type mailbox_;
 
@@ -535,9 +530,6 @@ private:
 
   /// Points to the socket manager that owns this applications.
   socket_manager* owner_ = nullptr;
-
-  // Guards access to mailbox_.
-  std::mutex mailbox_mtx_;
 
   // Guards access to owner_.
   std::mutex owner_mtx_;
