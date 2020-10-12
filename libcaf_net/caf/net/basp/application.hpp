@@ -137,9 +137,11 @@ public:
   template <class LowerLayerPtr>
   bool done_sending(LowerLayerPtr&) {
     CAF_LOG_TRACE("");
-    if (mailbox_.blocked())
+    done_writing_ = mailbox_.blocked();
+    if (done_writing_)
       return true;
-    return (mailbox_.empty() && mailbox_.try_block());
+    done_writing_ = (mailbox_.empty() && mailbox_.try_block());
+    return done_writing_;
   }
 
   template <class LowerLayerPtr>
@@ -505,6 +507,8 @@ private:
   }
 
   // -- member variables -------------------------------------------------------
+
+  std::atomic<bool> done_writing_ = true;
 
   // Stores incoming actor messages.
   consumer_queue::type mailbox_;

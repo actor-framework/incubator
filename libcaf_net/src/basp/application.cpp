@@ -83,8 +83,15 @@ bool application::enqueue(consumer_queue::element* ptr) {
   CAF_LOG_TRACE("");
   switch (mailbox_.push_back(ptr)) {
     case intrusive::inbox_result::success:
+      if (done_writing_)
+        std::cout << "inbox_result::success + done_writing_!!! RACE!"
+                  << std::endl;
       return true;
     case intrusive::inbox_result::unblocked_reader: {
+      if (!done_writing_)
+        std::cout
+          << "inbox_result::unblocked_reader + not done writing!!! RACE!"
+          << std::endl;
       std::unique_lock<std::mutex> guard{owner_mtx_};
       if (owner_)
         owner_->mpx().register_writing(owner_);
