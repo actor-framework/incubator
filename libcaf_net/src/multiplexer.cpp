@@ -158,8 +158,12 @@ void multiplexer::register_writing(const socket_manager_ptr& mgr) {
     } else if (mgr->mask_add(operation::write)) {
       add(mgr);
     }
+    std::cout << "[" << node() << "]handled register writing for "
+              << mgr->handle().id << " from pipe" << std::endl;
   } else {
     write_to_pipe(pollset_updater::register_writing_code, mgr);
+    std::cout << "[" << node() << "] wrote register_writing_code for "
+              << mgr->handle().id << " to pipe" << std::endl;
   }
 }
 
@@ -312,6 +316,8 @@ short multiplexer::handle(const socket_manager_ptr& mgr, short events,
     if (!mgr->handle_write_event()) {
       mgr->mask_del(operation::write);
       events &= ~output_mask;
+      std::cout << "[" << node() << "] deleted write flag for "
+                << mgr->handle().id << "" << std::endl;
     }
   }
   if (checkerror && ((revents & error_mask) != 0)) {

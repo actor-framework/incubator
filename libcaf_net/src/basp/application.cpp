@@ -84,16 +84,18 @@ bool application::enqueue(consumer_queue::element* ptr) {
   switch (mailbox_.push_back(ptr)) {
     case intrusive::inbox_result::success:
       if ((owner_->mask() & operation::write) != operation::write)
-        std::cout << "inbox_result::success + NOT WRITING!!! RACE!"
+        std::cout << "[" << owner_->mpx().node()
+                  << "] socket = " << owner_->handle().id
+                  << " inbox_result::success + NOT WRITING!!! RACE!"
                   << std::endl;
       return true;
     case intrusive::inbox_result::unblocked_reader: {
       if ((owner_->mask() & operation::write) == operation::write)
-        std::cout << "inbox_result::unblocked_reader + WRITING!!! RACE!"
+        std::cout << "[" << owner_->mpx().node()
+                  << "] socket = " << owner_->handle().id
+                  << " inbox_result::unblocked_reader + WRITING!!! RACE! "
                   << std::endl;
-      std::unique_lock<std::mutex> guard{owner_mtx_};
-      if (owner_)
-        owner_->mpx().register_writing(owner_);
+      owner_->register_writing();
       return true;
     }
     default:

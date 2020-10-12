@@ -22,6 +22,7 @@
 #include <mutex>
 #include <thread>
 
+#include "caf/actor_system.hpp"
 #include "caf/detail/net_export.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/operation.hpp"
@@ -73,6 +74,10 @@ public:
 
   /// Returns the enclosing @ref actor_system.
   actor_system& system();
+
+  std::string node() {
+    return to_string(system().node());
+  }
 
   // -- thread-safe signaling --------------------------------------------------
 

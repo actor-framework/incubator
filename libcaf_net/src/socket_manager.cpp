@@ -53,14 +53,10 @@ bool socket_manager::mask_del(operation flag) noexcept {
 }
 
 void socket_manager::register_reading() {
-  if ((mask() & operation::read) == operation::read)
-    return;
   parent_->register_reading(this);
 }
 
 void socket_manager::register_writing() {
-  if ((mask() & operation::write) == operation::write)
-    return;
   parent_->register_writing(this);
 }
 
