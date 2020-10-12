@@ -211,7 +211,7 @@ public:
   }
   void handle_error(sec code) override {
     abort_reason_ = code;
-    return protocol_.abort(this, abort_reason_);
+    protocol_.abort(this, abort_reason_);
   }
 
   auto& protocol() noexcept {

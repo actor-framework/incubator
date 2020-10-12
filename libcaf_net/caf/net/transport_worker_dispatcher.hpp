@@ -92,15 +92,18 @@ public:
   // -- member functions -------------------------------------------------------
 
   template <class LowerLayerPtr>
-  ptrdiff_t consume(LowerLayerPtr down, const_byte_span bytes,
-                    const_byte_span delta, id_type id) {
+  ptrdiff_t consume(LowerLayerPtr down, const_byte_span bytes, id_type id) {
     if (auto worker = find_worker(id))
-      return worker->consume(down, bytes, delta);
+      return worker->consume(down, bytes);
+    CAF_LOG_TRACE("no worker present for " << CAF_ARG(id));
     if (auto locator = make_uri(protocol_tag_ + "://" + to_string(id))) {
       if (auto worker = add_new_worker(down, make_node_id(*locator), id))
-        return (*worker)->consume(down, bytes, delta);
+        return (*worker)->consume(down, bytes);
+      else
+        CAF_LOG_ERROR("could not add new worker " << CAF_ARG(worker.error()));
+    } else {
+      CAF_LOG_ERROR("could not make uri " << CAF_ARG(locator.error()));
     }
-    CAF_LOG_ERROR("could not add new worker " << CAF_ARG(worker.error()));
     return -1;
   }
 

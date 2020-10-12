@@ -116,10 +116,6 @@ public:
     return recv_buf_->size();
   }
 
-  static void handle_error(sec code) {
-    CAF_FAIL("handle_error called with " << CAF_ARG(code));
-  }
-
   template <class ParentPtr>
   static void abort(ParentPtr, const error& reason) {
     CAF_FAIL("abort called with " << CAF_ARG(reason));

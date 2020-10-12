@@ -26,6 +26,7 @@
 #include "caf/fwd.hpp"
 #include "caf/ip_endpoint.hpp"
 #include "caf/logger.hpp"
+#include "caf/net/datagram_oriented_layer_ptr.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/net/transport_base.hpp"
@@ -39,6 +40,7 @@ namespace caf::net {
 
 /// Implements a udp_transport policy that manages a datagram socket.
 
+template <class Factory>
 class datagram_transport {
 public:
   // Maximal UDP-packet size
@@ -51,13 +53,15 @@ public:
 
   using output_tag = tag::datagram_oriented;
 
+  using dispatcher_type = transport_worker_dispatcher<Factory, ip_endpoint>;
+
   using socket_type = udp_datagram_socket;
 
   // -- constructors, destructors, and assignment operators --------------------
 
   template <class... Ts>
   explicit datagram_transport(Ts&&... xs)
-    : dispatcher_(std::forward<Ts>(xs)...) {
+    : dispatcher_("udp", std::forward<Ts>(xs)...) {
     // nop
   }
 
@@ -67,7 +71,7 @@ public:
 
   template <class ParentPtr>
   bool can_send_more(ParentPtr) const noexcept {
-    return write_buf_.size() < max_write_buf_size_;
+    return datagram_buf_.size() < max_datagram_buf_size_;
   }
 
   template <class ParentPtr>
@@ -76,20 +80,21 @@ public:
   }
 
   template <class ParentPtr>
-  void begin_datagram(ParentPtr parent) {
-    if (write_buf_.empty())
+  void begin_datagram(ParentPtr parent, ip_endpoint ep) {
+    if (datagram_buf_.empty())
       parent->register_writing();
-    datagram_begin_ = write_buf_.size();
+    datagram_begin_ = datagram_buf_.size();
+    endpoints_.emplace(std::move(ep));
   }
 
   template <class ParentPtr>
   byte_buffer& datagram_buffer(ParentPtr) {
-    return write_buf_;
+    return datagram_buf_;
   }
 
   template <class ParentPtr>
-  static constexpr void end_datagram(ParentPtr) {
-    auto datagram_end = write_buf_.size();
+  void end_datagram(ParentPtr) {
+    auto datagram_end = datagram_buf_.size();
     datagram_sizes_.emplace(datagram_end - datagram_begin_);
   }
 
@@ -118,12 +123,12 @@ public:
     return read_buf_;
   }
 
-  auto& write_buffer() noexcept {
-    return write_buf_;
+  auto& datagram_buffer() noexcept {
+    return datagram_buf_;
   }
 
-  const auto& write_buffer() const noexcept {
-    return write_buf_;
+  const auto& datagram_buffer() const noexcept {
+    return datagram_buf_;
   }
 
   auto& upper_layer() noexcept {
@@ -139,13 +144,14 @@ public:
   template <class ParentPtr>
   error init(socket_manager* owner, ParentPtr parent, const settings& config) {
     CAF_LOG_TRACE("");
-    auto default_max_reads = static_cast<uint32_t>(mm::max_consecutive_reads);
+    auto default_max_reads
+      = static_cast<uint32_t>(defaults::middleman::max_consecutive_reads);
     max_consecutive_reads_ = get_or(
       config, "caf.middleman.max-consecutive-reads", default_max_reads);
     if (auto socket_buf_size = send_buffer_size(parent->handle())) {
-      max_write_buf_size_ = *socket_buf_size;
-      CAF_ASSERT(max_write_buf_size_ > 0);
-      write_buf_.reserve(max_write_buf_size_ * 2);
+      max_datagram_buf_size_ = *socket_buf_size;
+      CAF_ASSERT(max_datagram_buf_size_ > 0);
+      datagram_buf_.reserve(max_datagram_buf_size_ * 2);
     } else {
       CAF_LOG_ERROR("send_buffer_size: " << socket_buf_size.error());
       return std::move(socket_buf_size.error());
@@ -171,83 +177,96 @@ public:
         auto consumed = dispatcher_.consume(this_layer_ptr, read_buf_,
                                             std::move(ep));
         if (consumed < 0) {
-          upper_layer_.abort(this_layer_ptr,
-                             parent->abort_reason_or(caf::sec::runtime_error));
-          CAF_LOG_ERROR("consume failed: " << err);
+          dispatcher_.abort(this_layer_ptr,
+                            parent->abort_reason_or(caf::sec::runtime_error));
+          CAF_LOG_ERROR("consume failed: " << caf::sec::runtime_error);
           return false;
-        } else if (consumed < read_buf_.size()) {
+        } else if (static_cast<size_t>(consumed) < read_buf_.size()) {
           CAF_LOG_DEBUG("datagram consumed only partially");
         }
       } else {
         auto err = get<sec>(ret);
-        if (err == sec::unavailable_or_would_block) {
-          return true;
-        } else {
-          CAF_LOG_DEBUG("read failed" << CAF_ARG(reason));
-          parent->abort_reason(reason);
+        if (err != sec::unavailable_or_would_block) {
+          CAF_LOG_DEBUG("read failed" << CAF_ARG(err));
+          parent->abort_reason(err);
           auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
-          upper_layer_.abort(this_layer_ptr, reason);
+          dispatcher_.abort(this_layer_ptr, err);
           return false;
         }
       }
     }
+    return true;
   }
 
   template <class ParentPtr>
   bool handle_write_event(ParentPtr parent) {
+    std::cout << "handle_write_event" << std::endl;
     CAF_LOG_TRACE(CAF_ARG2("handle", parent->handle().id));
     auto fail = [this, parent](sec reason) {
       CAF_LOG_DEBUG("read failed" << CAF_ARG(reason));
       parent->abort_reason(reason);
       auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
-      upper_layer_.abort(this_layer_ptr, reason);
+      dispatcher_.abort(this_layer_ptr, reason);
       return false;
     };
     // Allow the upper layer to add extra data to the write buffer.
     auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
-    if (!upper_layer_.prepare_send(this_layer_ptr)) {
-      upper_layer_.abort(this_layer_ptr,
-                         parent->abort_reason_or(caf::sec::runtime_error));
+    if (!dispatcher_.prepare_send(this_layer_ptr)) {
+      dispatcher_.abort(this_layer_ptr,
+                        parent->abort_reason_or(caf::sec::runtime_error));
       return false;
     }
-    while (!write_buf_.empty()) {
+    while (!datagram_buf_.empty()) {
       auto current_datagram_size = datagram_sizes_.front();
+      auto current_endpoint = endpoints_.front();
       auto ret = write(parent->handle(),
-                       make_span(write_buf_.data(), datagram_size));
+                       make_span(datagram_buf_.data(), current_datagram_size),
+                       current_endpoint);
       if (auto num_bytes = get_if<size_t>(&ret)) {
-        CAF_LOG_DEBUG_IF(*num_bytes < current_datagram_size,
+        CAF_LOG_DEBUG_IF(*num_bytes
+                           < static_cast<size_t>(current_datagram_size),
                          "datagram was written partially");
-        write_buf_.erase(write_buf_.begin(),
-                         write_buf_.begin() + current_datagram_size);
+        datagram_buf_.erase(datagram_buf_.begin(),
+                            datagram_buf_.begin() + current_datagram_size);
         datagram_sizes_.pop();
+        endpoints_.pop();
       } else {
         return last_socket_error_is_temporary()
                  ? true
                  : fail(sec::socket_operation_failed);
       }
     }
-    // TODO: !write_buf_.empty() necessary?
-    return !write_buf_.empty() || !upper_layer_.done_sending(this_layer_ptr);
+    // TODO: !datagram_buf_.empty() necessary?
+    return !datagram_buf_.empty() || !dispatcher_.done_sending(this_layer_ptr);
+  }
+
+  template <class ParentPtr>
+  void abort(ParentPtr parent, const error& reason) {
+    auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
+    dispatcher_.abort(this_layer_ptr, reason);
   }
 
 private:
-  /// Holds the next layer.
-  transport_worker_dispatcher dispatcher_;
+  /// Holds the dispatching layer.
+  dispatcher_type dispatcher_;
 
   /// Caches the config parameter for limiting max. socket operations.
   size_t max_consecutive_reads_ = 0;
 
   /// Caches the write buffer size of the socket.
-  size_t max_write_buf_size_ = 0;
+  size_t max_datagram_buf_size_ = 0;
 
   /// Caches incoming data.
   byte_buffer read_buf_;
 
   /// Caches outgoing data.
-  byte_buffer write_buf_;
+  byte_buffer datagram_buf_;
 
   /// Caches the sizes of all contained datagrams within the `write_buffer_`.
   std::queue<ptrdiff_t> datagram_sizes_;
+
+  /// Caches the sizes of all contained datagrams within the `write_buffer_`.
+  std::queue<ip_endpoint> endpoints_;
 
   // Caches the write buffer size before adding a datagram to it.
   size_t datagram_begin_ = 0;

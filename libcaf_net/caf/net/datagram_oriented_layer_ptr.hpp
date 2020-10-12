@@ -49,6 +49,11 @@ public:
       lptr_->begin_datagram(llptr_);
     }
 
+    template <class IdType>
+    void begin_datagram(IdType id) {
+      lptr_->begin_datagram(llptr_, std::move(id));
+    }
+
     byte_buffer& datagram_buffer() {
       return lptr_->datagram_buffer(llptr_);
     }
@@ -95,7 +100,7 @@ public:
 
 private:
   mutable access access_;
-};
+}; // namespace caf::net
 
 template <class Layer, class LowerLayerPtr>
 auto make_datagram_oriented_layer_ptr(Layer* this_layer, LowerLayerPtr down) {

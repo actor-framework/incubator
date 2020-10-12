@@ -16,7 +16,7 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#define CAF_SUITE datagram_transport
+#define CAF_SUITE net.datagram_transport
 
 #include "caf/net/datagram_transport.hpp"
 
@@ -26,20 +26,18 @@
 #include "caf/binary_serializer.hpp"
 #include "caf/byte.hpp"
 #include "caf/byte_buffer.hpp"
-#include "caf/detail/socket_sys_includes.hpp"
 #include "caf/make_actor.hpp"
 #include "caf/net/actor_proxy_impl.hpp"
-#include "caf/net/endpoint_manager.hpp"
-#include "caf/net/endpoint_manager_impl.hpp"
 #include "caf/net/ip.hpp"
-#include "caf/net/make_endpoint_manager.hpp"
 #include "caf/net/multiplexer.hpp"
+#include "caf/net/socket_guard.hpp"
+#include "caf/net/socket_manager.hpp"
 #include "caf/net/udp_datagram_socket.hpp"
 #include "caf/span.hpp"
+#include "caf/tag/datagram_oriented.hpp"
 
 using namespace caf;
 using namespace caf::net;
-using namespace caf::net::ip;
 
 namespace {
 
@@ -47,142 +45,113 @@ using byte_buffer_ptr = std::shared_ptr<byte_buffer>;
 
 constexpr string_view hello_manager = "hello manager!";
 
-class dummy_application_factory;
-
-struct fixture : test_coordinator_fixture<>, host_fixture {
-  fixture() : shared_buf(std::make_shared<byte_buffer>(1024)) {
-    mpx = std::make_shared<multiplexer>();
-    if (auto err = mpx->init())
-      CAF_FAIL("mpx->init failed: " << err);
-    mpx->set_thread_id();
-    CAF_CHECK_EQUAL(mpx->num_socket_managers(), 1u);
-    auto addresses = local_addresses("localhost");
-    CAF_CHECK(!addresses.empty());
-    ep = ip_endpoint(*addresses.begin(), 0);
-    auto send_pair = unbox(make_udp_datagram_socket(ep));
-    send_socket = send_pair.first;
-    auto receive_pair = unbox(make_udp_datagram_socket(ep));
-    recv_socket = receive_pair.first;
-    ep.port(receive_pair.second);
-    CAF_MESSAGE("sending message to " << CAF_ARG(ep));
-    if (auto err = nonblocking(recv_socket, true))
-      CAF_FAIL("nonblocking() returned an error: " << err);
-  }
-
-  ~fixture() {
-    close(send_socket);
-    close(recv_socket);
-  }
-
-  bool handle_io_event() override {
-    return mpx->poll_once(false);
-  }
-
-  error read_from_socket(udp_datagram_socket sock, byte_buffer& buf) {
-    uint8_t receive_attempts = 0;
-    variant<std::pair<size_t, ip_endpoint>, sec> read_ret;
-    do {
-      read_ret = read(sock, buf);
-      if (auto read_res = get_if<std::pair<size_t, ip_endpoint>>(&read_ret)) {
-        buf.resize(read_res->first);
-      } else if (get<sec>(read_ret) != sec::unavailable_or_would_block) {
-        return make_error(get<sec>(read_ret), "read failed");
-      }
-      if (++receive_attempts > 100)
-        return make_error(sec::runtime_error,
-                          "too many unavailable_or_would_blocks");
-    } while (read_ret.index() != 0);
-    return none;
-  }
-
-  multiplexer_ptr mpx;
-  byte_buffer_ptr shared_buf;
-  ip_endpoint ep;
-  udp_datagram_socket send_socket;
-  udp_datagram_socket recv_socket;
-};
-
 class dummy_application {
 public:
-  explicit dummy_application(byte_buffer_ptr rec_buf)
-    : rec_buf_(std::move(rec_buf)){
+  using input_tag = tag::datagram_oriented;
+
+  explicit dummy_application(byte_buffer_ptr recv_buf)
+    : recv_buf_(std::move(recv_buf)){
       // nop
     };
 
-  template <class Parent>
-  error init(Parent&) {
+  ~dummy_application() = default;
+
+  template <class LowerLayerPtr>
+  error init(socket_manager*, LowerLayerPtr, const settings&) {
     return none;
   }
 
-  template <class Parent>
-  error write_message(Parent& parent,
-                      std::unique_ptr<endpoint_manager_queue::message> msg) {
-    auto payload_buf = parent.next_payload_buffer();
-    binary_serializer sink{parent.system(), payload_buf};
-    if (auto err = sink(msg->msg->payload))
-      CAF_FAIL("serializing failed: " << err);
-    parent.write_packet(payload_buf);
-    return none;
+  template <class LowerLayerPtr>
+  bool prepare_send(LowerLayerPtr down) {
+    CAF_MESSAGE("prepare_send called");
+    down->begin_datagram();
+    auto& buf = down->datagram_buffer();
+    auto data = as_bytes(make_span(hello_manager));
+    buf.insert(buf.end(), data.begin(), data.end());
+    down->end_datagram();
+    return true;
   }
 
-  template <class Parent>
-  error handle_data(Parent&, span<const byte> data) {
-    rec_buf_->clear();
-    rec_buf_->insert(rec_buf_->begin(), data.begin(), data.end());
-    return none;
+  template <class LowerLayerPtr>
+  bool done_sending(LowerLayerPtr) {
+    CAF_MESSAGE("done_sending called");
+    return true;
   }
 
-  template <class Parent>
-  void resolve(Parent& parent, string_view path, const actor& listener) {
-    actor_id aid = 42;
-    auto uri = unbox(make_uri("test:/id/42"));
-    auto nid = make_node_id(uri);
-    actor_config cfg;
-    endpoint_manager_ptr ptr{&parent.manager()};
-    auto p = make_actor<actor_proxy_impl, strong_actor_ptr>(
-      aid, nid, &parent.system(), cfg, std::move(ptr));
-    anon_send(listener, resolve_atom_v, std::string{path.begin(), path.end()},
-              p);
+  template <class LowerLayerPtr>
+  size_t consume(LowerLayerPtr, const_byte_span data) {
+    recv_buf_->clear();
+    recv_buf_->insert(recv_buf_->begin(), data.begin(), data.end());
+    CAF_MESSAGE("Received " << recv_buf_->size()
+                            << " bytes in dummy_application");
+    return recv_buf_->size();
   }
 
-  template <class Parent>
-  void new_proxy(Parent&, actor_id) {
-    // nop
+  static void handle_error(sec code) {
+    CAF_FAIL("handle_error called with " << CAF_ARG(code));
   }
 
-  template <class Parent>
-  void local_actor_down(Parent&, actor_id, error) {
-    // nop
-  }
-
-  template <class Parent>
-  void timeout(Parent&, const std::string&, uint64_t) {
-    // nop
-  }
-
-  void handle_error(sec sec) {
-    CAF_FAIL("handle_error called: " << to_string(sec));
+  template <class LowerLayerPtr>
+  static void abort(LowerLayerPtr, const error& reason) {
+    CAF_FAIL("abort called with " << CAF_ARG(reason));
   }
 
 private:
-  byte_buffer_ptr rec_buf_;
+  byte_buffer_ptr recv_buf_;
 };
 
 class dummy_application_factory {
 public:
+  using input_tag = tag::datagram_oriented;
+
   using application_type = dummy_application;
 
-  explicit dummy_application_factory(byte_buffer_ptr buf)
-    : buf_(std::move(buf)) {
+  explicit dummy_application_factory(byte_buffer_ptr recv_buf)
+    : recv_buf_(std::move(recv_buf)) {
     // nop
   }
 
   dummy_application make() {
-    return dummy_application{buf_};
+    return dummy_application{recv_buf_};
   }
 
 private:
-  byte_buffer_ptr buf_;
+  byte_buffer_ptr recv_buf_;
+};
+
+struct fixture : test_coordinator_fixture<>, host_fixture {
+  fixture()
+    : mpx(nullptr),
+      send_buf(std::make_shared<byte_buffer>(1024)),
+      recv_buf(std::make_shared<byte_buffer>(1024)) {
+    if (auto err = mpx.init())
+      CAF_FAIL("mpx.init failed: " << CAF_ARG(err));
+    mpx.set_thread_id();
+    CAF_CHECK_EQUAL(mpx.num_socket_managers(), 1u);
+    auto addresses = ip::local_addresses("localhost");
+    CAF_CHECK(!addresses.empty());
+    ep = ip_endpoint(*addresses.begin(), 0);
+    auto send_pair = unbox(make_udp_datagram_socket(ep));
+    send_socket = make_socket_guard(send_pair.first);
+    auto receive_pair = unbox(make_udp_datagram_socket(ep));
+    recv_socket = make_socket_guard(receive_pair.first);
+    ep.port(receive_pair.second);
+    CAF_MESSAGE("sending message to " << CAF_ARG(ep));
+    if (auto err = nonblocking(recv_socket.socket(), true))
+      CAF_FAIL("nonblocking() returned an error: " << err);
+  }
+
+  bool handle_io_event() override {
+    return mpx.poll_once(false);
+  }
+
+  multiplexer mpx;
+  byte_buffer_ptr send_buf;
+  byte_buffer_ptr recv_buf;
+  ip_endpoint ep;
+  socket_guard<udp_datagram_socket> send_socket;
+  socket_guard<udp_datagram_socket> recv_socket;
+  settings config;
 };
 
 } // namespace
@@ -190,59 +159,47 @@ private:
 CAF_TEST_FIXTURE_SCOPE(datagram_transport_tests, fixture)
 
 CAF_TEST(receive) {
-  using transport_type = datagram_transport<dummy_application_factory>;
-  if (auto err = nonblocking(recv_socket, true))
+  if (auto err = nonblocking(recv_socket.socket(), true))
     CAF_FAIL("nonblocking() returned an error: " << err);
-  auto mgr = make_endpoint_manager(
-    mpx, sys,
-    transport_type{recv_socket, dummy_application_factory{shared_buf}});
-  CAF_CHECK_EQUAL(mgr->init(), none);
-  auto mgr_impl = mgr.downcast<endpoint_manager_impl<transport_type>>();
-  CAF_CHECK(mgr_impl != nullptr);
-  auto& transport = mgr_impl->transport();
-  transport.configure_read(net::receive_policy::exactly(hello_manager.size()));
-  CAF_CHECK_EQUAL(mpx->num_socket_managers(), 2u);
-  CAF_CHECK_EQUAL(write(send_socket, as_bytes(make_span(hello_manager)), ep),
-                  hello_manager.size());
-  CAF_MESSAGE("wrote " << hello_manager.size() << " bytes.");
+  auto mgr = make_socket_manager<dummy_application_factory, datagram_transport>(
+    recv_socket.release(), &mpx, recv_buf);
+  CAF_CHECK_EQUAL(mgr->init(config), none);
+  CAF_CHECK_EQUAL(mpx.num_socket_managers(), 2u);
+  auto write_res = write(send_socket.socket(),
+                         as_bytes(make_span(hello_manager)), ep);
+  if (auto err = get_if<sec>(&write_res))
+    CAF_FAIL("write_failed " << CAF_ARG2("error", *err));
+  auto written = get<size_t>(write_res);
+  CAF_CHECK_EQUAL(hello_manager.size(), written);
+  CAF_MESSAGE("wrote " << written << " bytes.");
   run();
-  CAF_CHECK_EQUAL(string_view(reinterpret_cast<char*>(shared_buf->data()),
-                              shared_buf->size()),
+  CAF_CHECK_EQUAL(string_view(reinterpret_cast<char*>(recv_buf->data()),
+                              recv_buf->size()),
                   hello_manager);
 }
 
-CAF_TEST(resolve and proxy communication) {
-  using transport_type = datagram_transport<dummy_application_factory>;
-  byte_buffer recv_buf(1024);
-  auto uri = unbox(make_uri("test:/id/42"));
-  auto mgr = make_endpoint_manager(
-    mpx, sys,
-    transport_type{send_socket, dummy_application_factory{shared_buf}});
-  CAF_CHECK_EQUAL(mgr->init(), none);
-  auto mgr_impl = mgr.downcast<endpoint_manager_impl<transport_type>>();
-  CAF_CHECK(mgr_impl != nullptr);
-  auto& transport = mgr_impl->transport();
-  CAF_CHECK_EQUAL(transport.add_new_worker(make_node_id(uri), ep), none);
-  run();
-  mgr->resolve(uri, self);
-  run();
-  self->receive(
-    [&](resolve_atom, const std::string&, const strong_actor_ptr& p) {
-      CAF_MESSAGE("got a proxy, send a message to it");
-      self->send(actor_cast<actor>(p), "hello proxy!");
-    },
-    after(std::chrono::seconds(0)) >>
-      [&] { CAF_FAIL("manager did not respond with a proxy."); });
-  run();
-  CAF_CHECK_EQUAL(read_from_socket(recv_socket, recv_buf), none);
-  CAF_MESSAGE("receive buffer contains " << recv_buf.size() << " bytes");
-  message msg;
-  binary_deserializer source{sys, recv_buf};
-  CAF_CHECK_EQUAL(source(msg), none);
-  if (msg.match_elements<std::string>())
-    CAF_CHECK_EQUAL(msg.get_as<std::string>(0), "hello proxy!");
-  else
-    CAF_ERROR("expected a string, got: " << to_string(msg));
+CAF_TEST(send) {
+  byte_buffer buf;
+  auto mgr = make_socket_manager<dummy_application_factory, datagram_transport>(
+    send_socket.release(), &mpx, recv_buf);
+  CAF_CHECK_EQUAL(mgr->init(config), none);
+  CAF_CHECK_EQUAL(mpx.num_socket_managers(), 2u);
+  auto& dispatcher = mgr->protocol().upper_layer();
+  auto worker = dispatcher.add_new_worker(this, node_id{}, ep);
+  if (!worker)
+    CAF_FAIL("add_new_worker failed " << CAF_ARG2("err", worker.error()));
+  mgr->register_writing();
+  while (handle_io_event())
+    ;
+  buf.resize(hello_manager.size());
+  auto read_res = read(recv_socket.socket(), make_span(buf));
+  if (auto err = get_if<sec>(&read_res))
+    CAF_FAIL("read failed" << CAF_ARG(*err));
+  auto [received_bytes, ep] = get<std::pair<size_t, ip_endpoint>>(read_res);
+  CAF_MESSAGE("received " << received_bytes << " bytes");
+  buf.resize(received_bytes);
+  CAF_CHECK_EQUAL(string_view(reinterpret_cast<char*>(buf.data()), buf.size()),
+                  hello_manager);
 }
 
 CAF_TEST_FIXTURE_SCOPE_END()

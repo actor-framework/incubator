@@ -54,7 +54,7 @@ public:
   }
 
   template <class LowerLayerPtr>
-  ptrdiff_t consume(LowerLayerPtr, const_byte_span bytes, const_byte_span) {
+  ptrdiff_t consume(LowerLayerPtr, const_byte_span bytes) {
     rec_buf_->push_back(static_cast<byte>(id_));
     return bytes.size();
   }
@@ -165,8 +165,7 @@ struct fixture : host_fixture {
 };
 
 #define CHECK_CONSUME(testcase)                                                \
-  CAF_CHECK_EQUAL(dispatcher.consume(this, const_byte_span{},                  \
-                                     const_byte_span{}, testcase.ep),          \
+  CAF_CHECK_EQUAL(dispatcher.consume(this, const_byte_span{}, testcase.ep),    \
                   none);                                                       \
   CAF_CHECK_EQUAL(buf->size(), 1u);                                            \
   CAF_CHECK_EQUAL(static_cast<byte>(testcase.worker_id), buf->at(0));          \

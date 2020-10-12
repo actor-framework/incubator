@@ -19,6 +19,7 @@
 #pragma once
 
 #include "caf/logger.hpp"
+#include "caf/net/datagram_oriented_layer_ptr.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/unit.hpp"
 
@@ -46,6 +47,38 @@ public:
     return upper_layer_.init(owner, down, config);
   }
 
+  // -- interface for the upper layer ------------------------------------------
+
+  template <class LowerLayerPtr>
+  void begin_datagram(LowerLayerPtr down) {
+    down->begin_datagram(id_);
+  }
+
+  template <class LowerLayerPtr>
+  byte_buffer& datagram_buffer(LowerLayerPtr down) {
+    return down->datagram_buffer();
+  }
+
+  template <class LowerLayerPtr>
+  void end_datagram(LowerLayerPtr down) {
+    down->end_datagram();
+  }
+
+  template <class LowerLayerPtr>
+  bool can_send_more(LowerLayerPtr down) const noexcept {
+    return down->can_send_more();
+  }
+
+  template <class LowerLayerPtr>
+  void abort_reason(LowerLayerPtr down, error reason) {
+    return down->abort_reason(std::move(reason));
+  }
+
+  template <class LowerLayerPtr>
+  void timeout(LowerLayerPtr down, std::string type, uint64_t id) {
+    down->timeout(std::move(type), id);
+  }
+
   // -- properties -------------------------------------------------------------
 
   auto& upper_layer() noexcept {
@@ -60,23 +93,26 @@ public:
 
   template <class LowerLayerPtr>
   bool prepare_send(LowerLayerPtr down) {
-    return upper_layer_.prepare_send(down);
+    auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, down);
+    return upper_layer_.prepare_send(this_layer_ptr);
   }
 
   template <class LowerLayerPtr>
   bool done_sending(LowerLayerPtr down) {
-    return upper_layer_.done_sending(down);
+    auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, down);
+    return upper_layer_.done_sending(this_layer_ptr);
   }
 
   template <class LowerLayerPtr>
   void abort(LowerLayerPtr down, const error& reason) {
-    upper_layer_.abort(down, reason);
+    auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, down);
+    upper_layer_.abort(this_layer_ptr, reason);
   }
 
   template <class LowerLayerPtr>
-  ptrdiff_t
-  consume(LowerLayerPtr down, const_byte_span buffer, const_byte_span delta) {
-    return upper_layer_.consume(down, buffer, delta);
+  ptrdiff_t consume(LowerLayerPtr down, const_byte_span buffer) {
+    auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, down);
+    return upper_layer_.consume(this_layer_ptr, buffer);
   }
 
 private:
