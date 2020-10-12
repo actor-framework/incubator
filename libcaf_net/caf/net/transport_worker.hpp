@@ -19,98 +19,74 @@
 #pragma once
 
 #include "caf/logger.hpp"
-#include "caf/net/consumer_queue.hpp"
 #include "caf/net/fwd.hpp"
-#include "caf/net/packet_writer_decorator.hpp"
 #include "caf/unit.hpp"
 
 namespace caf::net {
 
 /// Implements a worker for transport protocols.
-template <class Application, class IdType>
+template <class UpperLayer, class IdType>
 class transport_worker {
 public:
   // -- member types -----------------------------------------------------------
 
   using id_type = IdType;
 
-  using application_type = Application;
-
   // -- constructors, destructors, and assignment operators --------------------
 
-  explicit transport_worker(application_type application,
-                            id_type id = id_type{})
-    : application_(std::move(application)), id_(std::move(id)) {
+  template <class... Ts>
+  transport_worker(Ts&&... xs) : upper_layer_(std::forward<Ts>(xs)...) {
     // nop
+  }
+
+  ~transport_worker() = default;
+
+  // -- initialization ---------------------------------------------------------
+
+  template <class LowerLayerPtr>
+  error
+  init(socket_manager* owner, LowerLayerPtr down, const settings& config) {
+    CAF_LOG_TRACE("");
+    return upper_layer_.init(owner, down, config);
   }
 
   // -- properties -------------------------------------------------------------
 
-  application_type& application() noexcept {
-    return application_;
+  auto& upper_layer() noexcept {
+    return upper_layer_;
   }
 
-  const application_type& application() const noexcept {
-    return application_;
+  const auto& upper_layer() const noexcept {
+    return upper_layer_;
   }
 
-  const id_type& id() const noexcept {
-    return id_;
+  // -- interface for the lower layer ------------------------------------------
+
+  template <class LowerLayerPtr>
+  bool prepare_send(LowerLayerPtr down) {
+    return upper_layer_.prepare_send(down);
   }
 
-  // -- member functions -------------------------------------------------------
-
-  template <class Parent>
-  error init(Parent& parent) {
-    auto writer = make_packet_writer_decorator(*this, parent);
-    return application_.init(writer);
+  template <class LowerLayerPtr>
+  bool done_sending(LowerLayerPtr down) {
+    return upper_layer_.done_sending(down);
   }
 
-  template <class Parent>
-  error handle_data(Parent& parent, span<const byte> data) {
-    auto writer = make_packet_writer_decorator(*this, parent);
-    return application_.handle_data(writer, data);
+  template <class LowerLayerPtr>
+  void abort(LowerLayerPtr down, const error& reason) {
+    upper_layer_.abort(down, reason);
   }
 
-  template <class Parent>
-  void
-  write_message(Parent& parent, std::unique_ptr<consumer_queue::message> msg) {
-    auto writer = make_packet_writer_decorator(*this, parent);
-    if (auto err = application_.write_message(writer, std::move(msg)))
-      CAF_LOG_ERROR("write_message failed: " << err);
-  }
-
-  template <class Parent>
-  void resolve(Parent& parent, string_view path, const actor& listener) {
-    auto writer = make_packet_writer_decorator(*this, parent);
-    application_.resolve(writer, path, listener);
-  }
-
-  template <class Parent>
-  void new_proxy(Parent& parent, const node_id&, actor_id id) {
-    auto writer = make_packet_writer_decorator(*this, parent);
-    application_.new_proxy(writer, id);
-  }
-
-  template <class Parent>
-  void
-  local_actor_down(Parent& parent, const node_id&, actor_id id, error reason) {
-    auto writer = make_packet_writer_decorator(*this, parent);
-    application_.local_actor_down(writer, id, std::move(reason));
-  }
-
-  template <class Parent>
-  void timeout(Parent& parent, std::string tag, uint64_t id) {
-    auto writer = make_packet_writer_decorator(*this, parent);
-    application_.timeout(writer, std::move(tag), id);
-  }
-
-  void handle_error(sec error) {
-    application_.handle_error(error);
+  template <class LowerLayerPtr>
+  ptrdiff_t consume(LowerLayerPtr down, byte_span buffer, byte_span delta) {
+    upper_layer_.consume(down, buffer, delta);
   }
 
 private:
-  application_type application_;
+  /// Holds the upper layer.
+  UpperLayer upper_layer_;
+
+  /// Holds the id of this worker.
   id_type id_;
 };
 

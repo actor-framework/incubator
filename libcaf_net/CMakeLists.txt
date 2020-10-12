@@ -126,7 +126,7 @@ caf_incubator_add_test_suites(caf-net-test
   convert_ip_endpoint
   datagram_socket
   detail.rfc6455
-  datagram_transport
+  #datagram_transport
   header
   ip
   multiplexer
@@ -146,7 +146,6 @@ caf_incubator_add_test_suites(caf-net-test
   stream_transport
   #string_application
   tcp_sockets
-  #transport_worker
-  #transport_worker_dispatcher
+  transport_worker_dispatcher
   udp_datagram_socket
 )

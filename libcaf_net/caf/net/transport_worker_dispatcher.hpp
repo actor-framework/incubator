@@ -71,13 +71,13 @@ public:
 
   auto& upper_layer(id_type id) noexcept {
     if (auto worker = find_worker(id))
-      return worker;
+      return worker->upper_layer();
     CAF_RAISE_ERROR("Worker not found");
   }
 
-  const auto& upper_layer() const noexcept {
+  auto& upper_layer(node_id id) noexcept {
     if (auto worker = find_worker(id))
-      return worker;
+      return worker->upper_layer();
     CAF_RAISE_ERROR("Worker not found");
   }
 
@@ -86,12 +86,12 @@ public:
   template <class LowerLayerPtr>
   error consume(LowerLayerPtr down, const_byte_span data, id_type id) {
     if (auto worker = find_worker(id))
-      return worker->consume(down, data, delta);
+      return worker->consume(down, data);
     auto locator = make_uri(protocol_tag + "://" + to_string(id));
     if (!locator)
       return locator.error();
     if (auto worker = add_new_worker(down, make_node_id(*locator), id))
-      return (*worker)->->consume(down, data, delta);
+      return (*worker)->consume(down, data);
     else
       return std::move(worker.error());
   }
@@ -120,18 +120,6 @@ public:
   void abort(LowerLayerPtr& down, const error& reason) {
     for (auto& p : workers_by_node_)
       p->second.abort(down, reason);
-  }
-
-  // TODO: This is needed.
-  // template <class Parent>
-  // void shutdown(Parent& parent) {
-  //   for (auto& p : )
-  //     p.second->shutdown(parent);
-  // }
-
-  void handle_error(sec error) {
-    for (const auto& p : workers_by_id_)
-      p.second->handle_error(error);
   }
 
   template <class Parent>
@@ -164,6 +152,8 @@ public:
   }
 
 private:
+  // -- worker lookups ---------------------------------------------------------
+
   worker_ptr find_worker(const node_id& nid) {
     return find_worker_impl(workers_by_node_, nid);
   }
@@ -179,8 +169,6 @@ private:
       return nullptr;
     return map.at(key);
   }
-
-  // -- worker lookups ---------------------------------------------------------
 
   std::unordered_map<id_type, worker_ptr> workers_by_id_;
 
