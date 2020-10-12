@@ -30,28 +30,36 @@
 #include "caf/sec.hpp"
 #include "caf/send.hpp"
 #include "caf/settings.hpp"
+#include "caf/tag/datagram_oriented.hpp"
 
 namespace caf::net {
 
 /// Implements a dispatcher that dispatches between transport and workers.
-template <class Application, class Factory, class IdType>
+template <class Factory, class IdType>
 class transport_worker_dispatcher {
 public:
   // -- member types -----------------------------------------------------------
+
+  using input_tag = tag::datagram_oriented;
+
+  using output_tag = tag::datagram_oriented;
 
   using id_type = IdType;
 
   using factory_type = Factory;
 
-  using worker_type = transport_worker<Application, id_type>;
+  using application_type = typename factory_type::application_type;
 
-  using worker_ptr = transport_worker_ptr<Application, id_type>;
+  using worker_type = transport_worker<application_type, id_type>;
+
+  using worker_ptr = transport_worker_ptr<application_type, id_type>;
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  explicit transport_worker_dispatcher(std::string protocol_tag,
-                                       factory_type factory)
-    : factory_(std::move(factory)), protocol_tag_(std::move(protocol_tag)) {
+  template <class... Ts>
+  transport_worker_dispatcher(std::string protocol_tag, Ts&&... xs)
+    : protocol_tag_(std::move(protocol_tag)),
+      factory_(std::forward<Ts>(xs)...) {
     // nop
   }
 
@@ -84,16 +92,16 @@ public:
   // -- member functions -------------------------------------------------------
 
   template <class LowerLayerPtr>
-  error consume(LowerLayerPtr down, const_byte_span data, id_type id) {
+  ptrdiff_t consume(LowerLayerPtr down, const_byte_span bytes,
+                    const_byte_span delta, id_type id) {
     if (auto worker = find_worker(id))
-      return worker->consume(down, data);
-    auto locator = make_uri(protocol_tag + "://" + to_string(id));
-    if (!locator)
-      return locator.error();
-    if (auto worker = add_new_worker(down, make_node_id(*locator), id))
-      return (*worker)->consume(down, data);
-    else
-      return std::move(worker.error());
+      return worker->consume(down, bytes, delta);
+    if (auto locator = make_uri(protocol_tag_ + "://" + to_string(id))) {
+      if (auto worker = add_new_worker(down, make_node_id(*locator), id))
+        return (*worker)->consume(down, bytes, delta);
+    }
+    CAF_LOG_ERROR("could not add new worker " << CAF_ARG(worker.error()));
+    return -1;
   }
 
   // -- role: upper layer ------------------------------------------------------
@@ -101,29 +109,29 @@ public:
   template <class LowerLayerPtr>
   bool prepare_send(LowerLayerPtr down) {
     for (auto& p : workers_by_node_) {
-      if (!p->second.prepare_send(down))
+      if (!p.second->prepare_send(down))
         return false;
     }
     return true;
   }
 
   template <class LowerLayerPtr>
-  bool done_sending(LowerLayerPtr& down) {
+  bool done_sending(LowerLayerPtr down) {
     for (auto& p : workers_by_node_) {
-      if (!p->second.done_sending(down))
+      if (!p.second->done_sending(down))
         return false;
     }
     return true;
   }
 
   template <class LowerLayerPtr>
-  void abort(LowerLayerPtr& down, const error& reason) {
+  void abort(LowerLayerPtr down, const error& reason) {
     for (auto& p : workers_by_node_)
-      p->second.abort(down, reason);
+      p.second->abort(down, reason);
   }
 
-  template <class Parent>
-  expected<worker_ptr> emplace(Parent& parent, const uri& locator) {
+  template <class LowerLayerPtr>
+  expected<worker_ptr> emplace(LowerLayerPtr down, const uri& locator) {
     auto& auth = locator.authority();
     ip_address addr;
     if (auto hostname = get_if<std::string>(&auth.host)) {
@@ -134,19 +142,19 @@ public:
     } else {
       addr = *get_if<ip_address>(&auth.host);
     }
-    return add_new_worker(parent, make_node_id(*locator.authority_only()),
+    return add_new_worker(down, make_node_id(*locator.authority_only()),
                           ip_endpoint{addr, auth.port});
   }
 
-  template <class Parent>
+  template <class LowerLayerPtr>
   expected<worker_ptr>
-  add_new_worker(Parent& parent, node_id node, id_type id) {
+  add_new_worker(LowerLayerPtr down, node_id node, id_type id) {
     CAF_LOG_TRACE(CAF_ARG(node) << CAF_ARG(id));
     auto application = factory_.make();
     auto worker = std::make_shared<worker_type>(std::move(application), id);
     workers_by_id_.emplace(std::move(id), worker);
     workers_by_node_.emplace(std::move(node), worker);
-    if (auto err = worker->init(parent))
+    if (auto err = worker->init(owner_, down, config_))
       return err;
     return worker;
   }
@@ -176,13 +184,13 @@ private:
 
   std::unordered_map<uint64_t, worker_ptr> workers_by_timeout_id_;
 
-  socket_manager* owner_;
+  socket_manager* owner_ = nullptr;
 
-  const settings config_;
+  settings config_;
+
+  std::string protocol_tag_ = "";
 
   factory_type factory_;
-
-  std::string protocol_tag = "";
-}; // namespace caf::net
+};
 
 } // namespace caf::net

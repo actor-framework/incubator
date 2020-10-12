@@ -35,7 +35,7 @@ class datagram_transport;
 template <class Application, class IdType = unit_t>
 class transport_worker;
 
-template <class Application, class Transport, class IdType = unit_t>
+template <class Transport, class IdType = unit_t>
 class transport_worker_dispatcher;
 
 enum class ec : uint8_t;

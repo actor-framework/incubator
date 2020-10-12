@@ -16,7 +16,7 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#define CAF_SUITE transport_worker_dispatcher
+#define CAF_SUITE net.transport_worker_dispatcher
 
 #include "caf/net/transport_worker_dispatcher.hpp"
 
@@ -37,22 +37,6 @@ namespace {
 
 using byte_buffer_ptr = std::shared_ptr<byte_buffer>;
 
-constexpr string_view hello_test = "hello_test";
-
-struct dummy_actor : public monitorable_actor {
-  dummy_actor(actor_config& cfg) : monitorable_actor(cfg) {
-    // nop
-  }
-
-  void enqueue(mailbox_element_ptr, execution_unit*) override {
-    // nop
-  }
-
-  void setup_metrics() {
-    // nop
-  }
-};
-
 class dummy_application {
 public:
   dummy_application(byte_buffer_ptr rec_buf, uint8_t id)
@@ -63,39 +47,37 @@ public:
 
   ~dummy_application() = default;
 
-  template <class Parent>
-  error init(Parent&) {
+  template <class LowerLayerPtr>
+  error init(socket_manager*, LowerLayerPtr, const settings&) {
     rec_buf_->push_back(static_cast<byte>(id_));
     return none;
   }
 
-  template <class Parent>
-  error write_message(Parent& parent,
-                      std::unique_ptr<endpoint_manager_queue::message> ptr) {
+  template <class LowerLayerPtr>
+  ptrdiff_t consume(LowerLayerPtr, const_byte_span bytes, const_byte_span) {
     rec_buf_->push_back(static_cast<byte>(id_));
-    auto data = ptr->msg->content().get_as<byte_buffer>(0);
-    parent.write_packet(data);
-    return none;
+    return bytes.size();
   }
 
-  template <class Parent>
-  error handle_data(Parent&, span<const byte>) {
+  template <class LowerLayerPtr>
+  bool prepare_send(LowerLayerPtr) {
     rec_buf_->push_back(static_cast<byte>(id_));
-    return none;
+    return true;
   }
 
-  template <class Manager>
-  void resolve(Manager&, const std::string&, actor) {
+  template <class LowerLayerPtr>
+  bool done_sending(LowerLayerPtr) {
+    rec_buf_->push_back(static_cast<byte>(id_));
+    return true;
+  }
+
+  template <class LowerLayerPtr>
+  void abort(LowerLayerPtr, const error&) {
     rec_buf_->push_back(static_cast<byte>(id_));
   }
 
-  template <class Transport>
-  void timeout(Transport&, const std::string&, uint64_t) {
-    rec_buf_->push_back(static_cast<byte>(id_));
-  }
-
-  void handle_error(sec) {
-    rec_buf_->push_back(static_cast<byte>(id_));
+  uint8_t id() {
+    return id_;
   }
 
 private:
@@ -119,45 +101,6 @@ public:
 private:
   byte_buffer_ptr buf_;
   uint8_t application_cnt_;
-};
-
-struct dummy_transport {
-  using transport_type = dummy_transport;
-
-  using factory_type = dummy_application_factory;
-
-  using application_type = dummy_application;
-
-  dummy_transport(actor_system& sys, byte_buffer_ptr buf)
-    : sys_(sys), buf_(std::move(buf)) {
-    // nop
-  }
-
-  template <class IdType>
-  void write_packet(IdType, span<byte_buffer*> buffers) {
-    for (auto buf : buffers)
-      buf_->insert(buf_->end(), buf->begin(), buf->end());
-  }
-
-  actor_system& system() {
-    return sys_;
-  }
-
-  transport_type& transport() {
-    return *this;
-  }
-
-  byte_buffer next_header_buffer() {
-    return {};
-  }
-
-  byte_buffer next_payload_buffer() {
-    return {};
-  }
-
-private:
-  actor_system& sys_;
-  byte_buffer_ptr buf_;
 };
 
 struct testdata {
@@ -193,28 +136,8 @@ struct fixture : host_fixture {
   using dispatcher_type
     = transport_worker_dispatcher<dummy_application_factory, ip_endpoint>;
 
-  fixture()
-    : buf{std::make_shared<byte_buffer>()},
-      dispatcher{dummy_application_factory{buf}},
-      dummy{sys, buf} {
+  fixture() : buf{std::make_shared<byte_buffer>()}, dispatcher{"test", buf} {
     add_new_workers();
-  }
-
-  std::unique_ptr<net::endpoint_manager_queue::message>
-  make_dummy_message(node_id nid) {
-    actor_id aid = 42;
-    auto test_span = as_bytes(make_span(hello_test));
-    byte_buffer payload(test_span.begin(), test_span.end());
-    actor_config cfg;
-    auto p = make_actor<dummy_actor, strong_actor_ptr>(aid, nid, &sys, cfg);
-    auto receiver = actor_cast<strong_actor_ptr>(p);
-    if (!receiver)
-      CAF_FAIL("failed to cast receiver to a strong_actor_ptr");
-    mailbox_element::forwarding_stack stack;
-    auto elem = make_mailbox_element(nullptr, make_message_id(12345),
-                                     std::move(stack), make_message(payload));
-    return detail::make_unique<endpoint_manager_queue::message>(std::move(elem),
-                                                                receiver);
   }
 
   bool contains(byte x) {
@@ -223,27 +146,15 @@ struct fixture : host_fixture {
 
   void add_new_workers() {
     for (auto& data : test_data) {
-      auto worker = dispatcher.add_new_worker(dummy, data.nid, data.ep);
+      auto worker = dispatcher.add_new_worker(this, data.nid, data.ep);
       if (!worker)
         CAF_FAIL("add_new_worker returned an error: " << worker.error());
     }
     buf->clear();
   }
 
-  void test_write_message(testdata& testcase) {
-    auto msg = make_dummy_message(testcase.nid);
-    if (!msg->receiver)
-      CAF_FAIL("receiver is null");
-    CAF_MESSAGE(CAF_ARG(msg));
-    dispatcher.write_message(dummy, std::move(msg));
-  }
-
-  actor_system_config cfg{};
-  actor_system sys{cfg};
-
   byte_buffer_ptr buf;
   dispatcher_type dispatcher;
-  dummy_transport dummy;
 
   std::vector<testdata> test_data{
     {0, make_node_id("http:file"_u), "[::1]:1"_ep},
@@ -253,69 +164,62 @@ struct fixture : host_fixture {
   };
 };
 
-#define CHECK_HANDLE_DATA(testcase)                                            \
-  CAF_CHECK_EQUAL(                                                             \
-    dispatcher.handle_data(dummy, span<const byte>{}, testcase.ep), none);     \
+#define CHECK_CONSUME(testcase)                                                \
+  CAF_CHECK_EQUAL(dispatcher.consume(this, const_byte_span{},                  \
+                                     const_byte_span{}, testcase.ep),          \
+                  none);                                                       \
   CAF_CHECK_EQUAL(buf->size(), 1u);                                            \
   CAF_CHECK_EQUAL(static_cast<byte>(testcase.worker_id), buf->at(0));          \
   buf->clear();
 
-#define CHECK_WRITE_MESSAGE(testcase)                                          \
-  test_write_message(testcase);                                                \
-  CAF_CHECK_EQUAL(buf->size(), hello_test.size() + 1u);                        \
-  CAF_CHECK_EQUAL(static_cast<byte>(testcase.worker_id), buf->at(0));          \
-  CAF_CHECK_EQUAL(                                                             \
-    memcmp(buf->data() + 1, hello_test.data(), hello_test.size()), 0);         \
-  buf->clear();
+#define CHECK_DISPATCHING(function)                                            \
+  function;                                                                    \
+  CAF_CHECK(contains(byte(0)));                                                \
+  CAF_CHECK(contains(byte(1)));                                                \
+  CAF_CHECK(contains(byte(2)));                                                \
+  CAF_CHECK(contains(byte(3)))
 
-#define CHECK_TIMEOUT(testcase)                                                \
-  dispatcher.set_timeout(1u, testcase.ep);                                     \
-  dispatcher.timeout(dummy, "dummy", 1u);                                      \
-  CAF_CHECK_EQUAL(buf->size(), 1u);                                            \
-  CAF_CHECK_EQUAL(static_cast<byte>(testcase.worker_id), buf->at(0));          \
-  buf->clear();
+#define CHECK_UPPER_LAYER(no)                                                  \
+  {                                                                            \
+    auto& res = dispatcher.upper_layer(test_data.at(no).nid);                  \
+    CAF_CHECK_EQUAL(res.id(), no);                                             \
+    res = dispatcher.upper_layer(test_data.at(no).ep);                         \
+    CAF_CHECK_EQUAL(res.id(), no);                                             \
+  }
 
 } // namespace
 
 CAF_TEST_FIXTURE_SCOPE(transport_worker_dispatcher_test, fixture)
 
 CAF_TEST(init) {
-  dispatcher_type dispatcher{dummy_application_factory{buf}};
-  CAF_CHECK_EQUAL(dispatcher.init(dummy), none);
+  const settings cfg;
+  CAF_CHECK_EQUAL(dispatcher.init(nullptr, this, cfg), none);
 }
 
-CAF_TEST(handle_data) {
-  CHECK_HANDLE_DATA(test_data.at(0));
-  CHECK_HANDLE_DATA(test_data.at(1));
-  CHECK_HANDLE_DATA(test_data.at(2));
-  CHECK_HANDLE_DATA(test_data.at(3));
+CAF_TEST(upper layer) {
+  CHECK_UPPER_LAYER(0);
+  CHECK_UPPER_LAYER(1);
+  CHECK_UPPER_LAYER(2);
+  CHECK_UPPER_LAYER(3);
 }
 
-CAF_TEST(write_message write_packet) {
-  CHECK_WRITE_MESSAGE(test_data.at(0));
-  CHECK_WRITE_MESSAGE(test_data.at(1));
-  CHECK_WRITE_MESSAGE(test_data.at(2));
-  CHECK_WRITE_MESSAGE(test_data.at(3));
+CAF_TEST(consume) {
+  CHECK_CONSUME(test_data.at(0));
+  CHECK_CONSUME(test_data.at(1));
+  CHECK_CONSUME(test_data.at(2));
+  CHECK_CONSUME(test_data.at(3));
 }
 
-CAF_TEST(resolve) {
-  // TODO think of a test for this
+CAF_TEST(prepare_send) {
+  CHECK_DISPATCHING(dispatcher.prepare_send(this));
 }
 
-CAF_TEST(timeout) {
-  CHECK_TIMEOUT(test_data.at(0));
-  CHECK_TIMEOUT(test_data.at(1));
-  CHECK_TIMEOUT(test_data.at(2));
-  CHECK_TIMEOUT(test_data.at(3));
+CAF_TEST(done_sending) {
+  CHECK_DISPATCHING(dispatcher.done_sending(this));
 }
 
-CAF_TEST(handle_error) {
-  dispatcher.handle_error(sec::unavailable_or_would_block);
-  CAF_CHECK_EQUAL(buf->size(), 4u);
-  CAF_CHECK(contains(byte(0)));
-  CAF_CHECK(contains(byte(1)));
-  CAF_CHECK(contains(byte(2)));
-  CAF_CHECK(contains(byte(3)));
+CAF_TEST(abort) {
+  CHECK_DISPATCHING(dispatcher.abort(this, make_error(sec::runtime_error)));
 }
 
 CAF_TEST_FIXTURE_SCOPE_END()

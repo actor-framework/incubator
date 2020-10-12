@@ -28,14 +28,10 @@ namespace caf::net {
 template <class UpperLayer, class IdType>
 class transport_worker {
 public:
-  // -- member types -----------------------------------------------------------
-
-  using id_type = IdType;
-
   // -- constructors, destructors, and assignment operators --------------------
 
-  template <class... Ts>
-  transport_worker(Ts&&... xs) : upper_layer_(std::forward<Ts>(xs)...) {
+  transport_worker(UpperLayer upper_layer, IdType id)
+    : upper_layer_(std::move(upper_layer)), id_(std::move(id)) {
     // nop
   }
 
@@ -78,8 +74,9 @@ public:
   }
 
   template <class LowerLayerPtr>
-  ptrdiff_t consume(LowerLayerPtr down, byte_span buffer, byte_span delta) {
-    upper_layer_.consume(down, buffer, delta);
+  ptrdiff_t
+  consume(LowerLayerPtr down, const_byte_span buffer, const_byte_span delta) {
+    return upper_layer_.consume(down, buffer, delta);
   }
 
 private:
@@ -87,7 +84,7 @@ private:
   UpperLayer upper_layer_;
 
   /// Holds the id of this worker.
-  id_type id_;
+  IdType id_;
 };
 
 template <class Application, class IdType = unit_t>
