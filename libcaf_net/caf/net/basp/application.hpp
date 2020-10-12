@@ -91,8 +91,6 @@ public:
     system_ = &owner->system();
     executor_.system_ptr(system_);
     executor_.proxy_registry_ptr(&proxies_);
-    max_throughput_ = get_or(cfg, "caf.scheduler.max-throughput",
-                             defaults::scheduler::max_throughput);
     auto workers = get_or<size_t>(
       cfg, "caf.middleman.workers",
       std::min(3u, std::thread::hardware_concurrency() / 4u) + 1);
@@ -137,6 +135,7 @@ public:
   template <class LowerLayerPtr>
   bool done_sending(LowerLayerPtr&) {
     CAF_LOG_TRACE("");
+    std::unique_lock<std::mutex> guard{mailbox_mtx_};
     done_writing_ = mailbox_.blocked();
     if (done_writing_)
       return true;
@@ -537,10 +536,11 @@ private:
   /// Points to the socket manager that owns this applications.
   socket_manager* owner_ = nullptr;
 
+  // Guards access to mailbox_.
+  std::mutex mailbox_mtx_;
+
   // Guards access to owner_.
   std::mutex owner_mtx_;
-
-  size_t max_throughput_ = 0;
 
   /// Provides pointers to the actor system as well as the registry,
   /// serializers and deserializer.

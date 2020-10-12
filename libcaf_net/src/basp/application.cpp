@@ -81,6 +81,9 @@ void application::enqueue(mailbox_element_ptr msg, strong_actor_ptr receiver) {
 
 bool application::enqueue(consumer_queue::element* ptr) {
   CAF_LOG_TRACE("");
+  done_writing_ = mailbox_.blocked()
+                  || (mailbox_.empty() && mailbox_.try_block());
+  std::unique_lock<std::mutex> guard{mailbox_mtx_};
   switch (mailbox_.push_back(ptr)) {
     case intrusive::inbox_result::success:
       if (done_writing_)
