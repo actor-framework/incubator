@@ -100,7 +100,7 @@ public:
 
   template <class ParentPtr>
   static void abort_reason(ParentPtr parent, error reason) {
-    return parent->abort_reason(std::move(reason));
+    parent->abort_reason(std::move(reason));
   }
 
   template <class ParentPtr>

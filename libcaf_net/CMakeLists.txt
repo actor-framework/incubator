@@ -136,6 +136,7 @@ caf_incubator_add_test_suites(caf-net-test
   net.basp.ping_pong
   net.basp.worker
   net.length_prefix_framing
+  net.slicing
   net.web_socket_server
   network_socket
   pipe_socket
