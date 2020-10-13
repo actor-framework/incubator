@@ -21,15 +21,18 @@
 #include "caf/detail/net_export.hpp"
 #include "caf/error.hpp"
 #include "caf/net/basp/application.hpp"
+#include "caf/net/slicing.hpp"
 #include "caf/proxy_registry.hpp"
+#include "caf/tag/datagram_oriented.hpp"
 
 namespace caf::net::basp {
 
 /// Factory for basp::application.
-/// @relates doorman
 class CAF_NET_EXPORT application_factory {
 public:
-  using application_type = basp::application;
+  using input_type = tag::datagram_oriented;
+
+  using application_type = slicing<basp::application>;
 
   application_factory(proxy_registry& proxies) : proxies_(proxies) {
     // nop

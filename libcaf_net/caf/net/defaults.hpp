@@ -33,8 +33,8 @@ CAF_NET_EXPORT extern const size_t max_payload_buffers;
 /// Maximum number of cached buffers for sending headers.
 CAF_NET_EXPORT extern const size_t max_header_buffers;
 
-/// Port to listen on for tcp.
-CAF_NET_EXPORT extern const uint16_t tcp_port;
+/// Port to listen on.
+constexpr auto port = uint16_t{0};
 
 /// Caps how much Bytes a stream transport pushes to its write buffer before
 /// stopping to read from its message queue. Default TCP send buffer is 16kB (at

@@ -61,6 +61,7 @@ add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
   src/stream_socket.cpp
   src/tcp_accept_socket.cpp
   src/tcp_stream_socket.cpp
+  src/net/backend/udp.cpp
   src/udp_datagram_socket.cpp
   src/worker.cpp
 )
@@ -132,6 +133,7 @@ caf_incubator_add_test_suites(caf-net-test
   multiplexer
   net.actor_shell
   net.backend.tcp
+  net.backend.udp
   net.basp.message_queue
   net.basp.ping_pong
   net.basp.worker
