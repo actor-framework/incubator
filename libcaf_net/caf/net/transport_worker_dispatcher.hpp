@@ -25,6 +25,7 @@
 #include "caf/logger.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/ip.hpp"
+#include "caf/net/socket_manager.hpp"
 #include "caf/net/transport_worker.hpp"
 #include "caf/node_id.hpp"
 #include "caf/sec.hpp"
@@ -52,16 +53,26 @@ public:
 
   using worker_type = transport_worker<application_type, id_type>;
 
-  using worker_ptr = transport_worker_ptr<application_type, id_type>;
+  using worker_ptr = std::shared_ptr<worker_type>;
 
   // -- constructors, destructors, and assignment operators --------------------
 
   template <class... Ts>
-  transport_worker_dispatcher(std::string protocol_tag, Ts&&... xs)
+  explicit transport_worker_dispatcher(std::string protocol_tag, Ts&&... xs)
     : protocol_tag_(std::move(protocol_tag)),
       factory_(std::forward<Ts>(xs)...) {
     // nop
   }
+
+  transport_worker_dispatcher(const transport_worker_dispatcher&) = delete;
+
+  transport_worker_dispatcher& operator=(const transport_worker_dispatcher&)
+    = delete;
+
+  transport_worker_dispatcher& operator=(transport_worker_dispatcher&&)
+    = delete;
+
+  transport_worker_dispatcher(transport_worker_dispatcher&&) = delete;
 
   ~transport_worker_dispatcher() = default;
 
@@ -72,6 +83,7 @@ public:
     CAF_ASSERT(workers_by_id_.empty());
     owner_ = owner;
     config_ = config;
+    this_node = owner->mpx().system().node();
     return factory_.init(config);
   }
 
@@ -107,11 +119,14 @@ public:
 
   template <class LowerLayerPtr>
   ptrdiff_t consume(LowerLayerPtr down, const_byte_span bytes, id_type id) {
-    if (auto worker = find_worker(id))
+    if (auto worker = find_worker(id)) {
+      std::cout << "existing worker" << std::endl;
       return worker->consume(down, bytes);
+    }
     CAF_LOG_TRACE("no worker present for " << CAF_ARG(id));
     if (auto locator = make_uri(protocol_tag_ + "://" + to_string(id))) {
-      if (auto worker = add_new_worker(down, make_node_id(*locator), id))
+      if (auto worker
+          = add_new_worker(down, make_node_id(*locator->authority_only()), id))
         return (*worker)->consume(down, bytes);
       else
         CAF_LOG_ERROR("could not add new worker " << CAF_ARG(worker.error()));
@@ -166,10 +181,17 @@ public:
   template <class LowerLayerPtr>
   expected<worker_ptr>
   add_new_worker(LowerLayerPtr down, node_id node, id_type id) {
+    std::cout << "Adding new worker for id = " << to_string(id)
+              << " and node = " << to_string(node) << std::endl;
     CAF_LOG_TRACE(CAF_ARG(node) << CAF_ARG(id));
     auto worker = factory_.make(id);
     workers_by_id_.emplace(std::move(id), worker);
     workers_by_node_.emplace(std::move(node), worker);
+    std::cout << "add  -> id_map.size() = " << workers_by_id_.size()
+              << " ptr = " << &workers_by_id_ << std::endl;
+    std::cout << "add  -> nd_map.size() = " << workers_by_node_.size()
+              << " ptr = " << &workers_by_node_ << std::endl
+              << std::endl;
     if (auto err = worker->init(owner_, down, config_))
       return err;
     return worker;
@@ -179,16 +201,27 @@ private:
   // -- worker lookups ---------------------------------------------------------
 
   worker_ptr find_worker(const node_id& nid) {
+    std::cout << "THIS NODE = " << to_string(this_node) << std::endl;
+    std::cout << "find -> id_map.size() = " << workers_by_id_.size()
+              << " ptr = " << &workers_by_id_ << std::endl;
+    std::cout << "find -> nd_map.size() = " << workers_by_node_.size()
+              << " ptr = " << &workers_by_node_ << std::endl;
     return find_worker_impl(workers_by_node_, nid);
   }
 
   worker_ptr find_worker(const id_type& id) {
+    std::cout << "THIS NODE = " << to_string(this_node) << std::endl;
+    std::cout << "find -> id_map.size() = " << workers_by_id_.size()
+              << " ptr = " << &workers_by_id_ << std::endl;
+    std::cout << "find -> nd_map.size() = " << workers_by_node_.size()
+              << " ptr = " << &workers_by_node_ << std::endl;
     return find_worker_impl(workers_by_id_, id);
   }
 
   template <class Key>
-  worker_ptr find_worker_impl(const std::unordered_map<Key, worker_ptr>& map,
-                              const Key& key) {
+  static worker_ptr
+  find_worker_impl(const std::unordered_map<Key, worker_ptr>& map,
+                   const Key& key) {
     if (map.count(key) == 0)
       return nullptr;
     return map.at(key);
@@ -204,9 +237,11 @@ private:
 
   settings config_;
 
-  std::string protocol_tag_ = "";
+  std::string protocol_tag_;
 
   factory_type factory_;
-}; // namespace caf::net
+
+  node_id this_node;
+};
 
 } // namespace caf::net

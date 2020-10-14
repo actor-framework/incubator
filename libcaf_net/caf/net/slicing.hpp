@@ -81,9 +81,8 @@ public:
   // -- interface for the upper layer ------------------------------------------
 
   template <class LowerLayerPtr>
-  void begin_message(LowerLayerPtr down) {
+  void begin_message(LowerLayerPtr) {
     CAF_LOG_TRACE("");
-    down->begin_datagram();
   }
 
   template <class LowerLayerPtr>
@@ -96,6 +95,7 @@ public:
     CAF_LOG_TRACE("");
     if (output_buffer_.size() <= max_payload_size) {
       // Simply send the message
+      down->begin_datagram();
       auto& buf = down->datagram_buffer();
       binary_serializer sink(nullptr, buf);
       if (!sink.apply_object(slicing_header{1, 1})) {
@@ -212,8 +212,7 @@ private:
     auto num_slices = calc_num_slices();
     auto& buf = down->datagram_buffer();
     for (size_t slice = 1; slice <= num_slices; ++slice) {
-      if (slice != 1)
-        down->begin_datagram();
+      down->begin_datagram();
       binary_serializer sink{nullptr, buf};
       if (!sink.apply_object(slicing_header{slice, num_slices})) {
         CAF_LOG_ERROR(

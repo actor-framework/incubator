@@ -68,16 +68,25 @@ class planet : public test_coordinator_fixture<config> {
 public:
   planet()
     : mm(this->sys.network_manager()), mpx(this->sys.network_manager().mpx()) {
+    backend().emplace(cfg.sock, cfg.port);
     mpx.set_thread_id();
-    backend()->emplace(cfg.sock, cfg.port);
   }
+
+  planet(const planet&) = delete;
+  planet& operator=(const planet&) = delete;
+  planet(planet&&) = delete;
+  planet& operator=(planet&&) = delete;
 
   std::string locator_str() {
     return cfg.this_node_str;
   }
 
-  net::backend::udp* backend() {
-    return dynamic_cast<net::backend::udp*>(mm.backend("udp"));
+  void this_node(std::string me) {
+    std::cout << me << ": " << to_string(sys.node()) << std::endl;
+  }
+
+  net::backend::udp& backend() const {
+    return *dynamic_cast<net::backend::udp*>(mm.backend("udp"));
   }
 
   net::middleman& mm;
@@ -86,7 +95,7 @@ public:
 
 struct fixture : host_fixture {
   bool handle_io_event() {
-    return mars.mpx.poll_once(false) || earth.mpx.poll_once(false);
+    return mars.handle_io_events() || earth.handle_io_events();
   }
 
   planet earth;
@@ -103,15 +112,23 @@ CAF_TEST(resolve) {
   auto locator = unbox(make_uri(earth.locator_str() + "/name/dummy"));
   CAF_MESSAGE("resolving " << CAF_ARG(locator));
   mars.mm.resolve(locator, mars.self);
+
+  mars.mpx.poll_once(false);
   mars.mpx.poll_once(false);
   earth.mpx.poll_once(false);
-  mars.mpx.poll_once(false);
   earth.mpx.poll_once(false);
   mars.mpx.poll_once(false);
-  earth.mpx.poll_once(false);
   mars.mpx.poll_once(false);
   earth.mpx.poll_once(false);
+  earth.mpx.poll_once(false);
   mars.mpx.poll_once(false);
+  mars.mpx.poll_once(false);
+  earth.mpx.poll_once(false);
+  earth.mpx.poll_once(false);
+  mars.mpx.poll_once(false);
+  mars.mpx.poll_once(false);
+  earth.mpx.poll_once(false);
+  earth.mpx.poll_once(false);
 
   mars.self->receive(
     [](strong_actor_ptr& ptr, const std::set<std::string>&) {

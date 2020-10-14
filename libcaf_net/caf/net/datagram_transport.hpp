@@ -65,6 +65,14 @@ public:
     // nop
   }
 
+  datagram_transport(const datagram_transport&) = delete;
+
+  datagram_transport& operator=(const datagram_transport&) = delete;
+
+  datagram_transport& operator=(datagram_transport&&) = delete;
+
+  datagram_transport(datagram_transport&&) = delete;
+
   ~datagram_transport() = default;
 
   // -- interface for stream_oriented_layer_ptr --------------------------------
@@ -154,6 +162,7 @@ public:
   error init(socket_manager* owner, ParentPtr parent, const settings& config) {
     CAF_LOG_TRACE("");
     owner_ = owner;
+    this_node = owner->mpx().system().node();
     auto default_max_reads
       = static_cast<uint32_t>(defaults::middleman::max_consecutive_reads);
     max_consecutive_reads_ = get_or(
@@ -183,6 +192,8 @@ public:
       if (auto res = get_if<std::pair<size_t, ip_endpoint>>(&ret)) {
         auto& [num_bytes, ep] = *res;
         CAF_LOG_DEBUG("received " << num_bytes << " bytes");
+        std::cout << to_string(this_node) << " received " << num_bytes
+                  << " from " << to_string(ep) << std::endl;
         read_buf_.resize(num_bytes);
         auto consumed = dispatcher_.consume(this_layer_ptr, read_buf_,
                                             std::move(ep));
@@ -233,6 +244,8 @@ public:
                        make_span(datagram_buf_.data(), current_datagram_size),
                        current_endpoint);
       if (auto num_bytes = get_if<size_t>(&ret)) {
+        std::cout << to_string(this_node) << " wrote " << *num_bytes << " to  "
+                  << to_string(current_endpoint) << std::endl;
         CAF_LOG_DEBUG_IF(*num_bytes
                            < static_cast<size_t>(current_datagram_size),
                          "datagram was written partially");
@@ -246,8 +259,7 @@ public:
                  : fail(sec::socket_operation_failed);
       }
     }
-    // TODO: !datagram_buf_.empty() necessary?
-    return !datagram_buf_.empty() || !dispatcher_.done_sending(this_layer_ptr);
+    return !dispatcher_.done_sending(this_layer_ptr);
   }
 
   template <class ParentPtr>
@@ -259,6 +271,8 @@ public:
 private:
   /// Holds the dispatching layer.
   dispatcher_type dispatcher_;
+
+  node_id this_node;
 
   socket_manager* owner_ = nullptr;
 

@@ -44,10 +44,14 @@ class CAF_NET_EXPORT udp : public middleman_backend {
     socket_manager_impl<datagram_transport<basp::application_factory>>>;
 
 public:
-  // -- constructors, destructors, and assignment operators
-  // --------------------
+  // -- constructors, destructors, and assignment operator ---------------------
 
   udp(middleman& mm);
+
+  udp(const udp&) = delete;
+  udp& operator=(const udp&) = delete;
+  udp(udp&&) = delete;
+  udp& operator=(udp&&) = delete;
 
   ~udp() override;
 
@@ -77,7 +81,7 @@ public:
 
 private:
   auto top_layer(node_id nid) {
-    return mgr_->protocol().top_layer(nid);
+    return mgr_->protocol().top_layer(std::move(nid));
   }
 
   auto top_layer(const uri& locator) {

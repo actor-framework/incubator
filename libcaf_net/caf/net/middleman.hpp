@@ -54,6 +54,11 @@ public:
 
   explicit middleman(actor_system& sys);
 
+  middleman(const middleman&) = delete;
+  middleman& operator=(const middleman&) = delete;
+  middleman(middleman&&) = delete;
+  middleman& operator=(middleman&&) = delete;
+
   ~middleman() override;
 
   // -- socket manager functions -----------------------------------------------

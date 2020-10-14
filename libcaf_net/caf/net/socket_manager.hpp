@@ -182,6 +182,14 @@ public:
     // nop
   }
 
+  socket_manager_impl(const socket_manager_impl&) = delete;
+
+  socket_manager_impl& operator=(const socket_manager_impl&) = delete;
+
+  socket_manager_impl& operator=(socket_manager_impl&&) = delete;
+
+  socket_manager_impl(socket_manager_impl&&) = delete;
+
   // -- initialization ---------------------------------------------------------
 
   error init(const settings& config) override {
