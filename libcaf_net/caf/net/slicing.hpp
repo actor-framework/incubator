@@ -142,6 +142,10 @@ public:
     return upper_layer_;
   }
 
+  auto top_layer() {
+    return upper_layer_.top_layer();
+  }
+
   // -- role: upper layer ------------------------------------------------------
 
   template <class LowerLayerPtr>
@@ -179,12 +183,13 @@ public:
     auto this_layer_ptr = make_message_oriented_layer_ptr(this, down);
     if (header.of == 1) {
       return upper_layer_.consume(this_layer_ptr,
-                                  buffer.subspan(slicing_header_size));
+                                  buffer.subspan(slicing_header_size))
+             + slicing_header_size;
     } else {
       receive_buf_.insert(receive_buf_.end(),
                           buffer.begin() + slicing_header_size, buffer.end());
       if (header.no == header.of) {
-        [[maybe_unused]] auto consumed = upper_layer_.consume(down,
+        [[maybe_unused]] auto consumed = upper_layer_.consume(this_layer_ptr,
                                                               receive_buf_);
         CAF_ASSERT(consumed == receive_buf_.size());
         receive_buf_.clear();

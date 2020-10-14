@@ -20,8 +20,10 @@
 
 #include "caf/detail/net_export.hpp"
 #include "caf/error.hpp"
+#include "caf/ip_endpoint.hpp"
 #include "caf/net/basp/application.hpp"
 #include "caf/net/slicing.hpp"
+#include "caf/net/transport_worker.hpp"
 #include "caf/proxy_registry.hpp"
 #include "caf/tag/datagram_oriented.hpp"
 
@@ -30,21 +32,25 @@ namespace caf::net::basp {
 /// Factory for basp::application.
 class CAF_NET_EXPORT application_factory {
 public:
-  using input_type = tag::datagram_oriented;
+  using input_tag = tag::datagram_oriented;
 
   using application_type = slicing<basp::application>;
+
+  using worker_type = transport_worker<application_type, ip_endpoint>;
+
+  using worker_ptr = std::shared_ptr<worker_type>;
 
   application_factory(proxy_registry& proxies) : proxies_(proxies) {
     // nop
   }
 
-  template <class Parent>
-  error init(Parent&) {
+  template <class LowerLayerPtr>
+  error init(LowerLayerPtr) {
     return none;
   }
 
-  application_type make() const {
-    return application_type{proxies_};
+  worker_ptr make(ip_endpoint id) const {
+    return std::make_shared<worker_type>(id, proxies_);
   }
 
 private:

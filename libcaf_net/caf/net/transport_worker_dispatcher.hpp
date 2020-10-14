@@ -72,21 +72,35 @@ public:
     CAF_ASSERT(workers_by_id_.empty());
     owner_ = owner;
     config_ = config;
-    return none;
+    return factory_.init(config);
   }
 
   // -- properties -------------------------------------------------------------
 
-  auto& upper_layer(id_type id) noexcept {
-    if (auto worker = find_worker(id))
-      return worker->upper_layer();
-    CAF_RAISE_ERROR("Worker not found");
+  auto& upper_layer(node_id nid) {
+    return find_worker(nid)->upper_layer();
   }
 
-  auto& upper_layer(node_id id) noexcept {
-    if (auto worker = find_worker(id))
-      return worker->upper_layer();
-    CAF_RAISE_ERROR("Worker not found");
+  basp::application* top_layer(node_id nid) {
+    auto worker = find_worker(nid);
+    if (worker)
+      return worker->top_layer();
+    return nullptr;
+  }
+
+  // TODO: Leaving this return type only to get the benchmarks running.
+  template <class LowerLayerPtr>
+  basp::application* top_layer(LowerLayerPtr down, const uri& locator) {
+    auto auth = locator.authority_only();
+    if (!auth)
+      return nullptr;
+    auto nid = make_node_id(*auth);
+    auto worker = find_worker(nid);
+    if (worker)
+      return worker->top_layer();
+    if (auto res = emplace(down, locator))
+      return (*res)->top_layer();
+    return nullptr;
   }
 
   // -- member functions -------------------------------------------------------
@@ -153,8 +167,7 @@ public:
   expected<worker_ptr>
   add_new_worker(LowerLayerPtr down, node_id node, id_type id) {
     CAF_LOG_TRACE(CAF_ARG(node) << CAF_ARG(id));
-    auto application = factory_.make();
-    auto worker = std::make_shared<worker_type>(std::move(application), id);
+    auto worker = factory_.make(id);
     workers_by_id_.emplace(std::move(id), worker);
     workers_by_node_.emplace(std::move(node), worker);
     if (auto err = worker->init(owner_, down, config_))
@@ -194,6 +207,6 @@ private:
   std::string protocol_tag_ = "";
 
   factory_type factory_;
-};
+}; // namespace caf::net
 
 } // namespace caf::net

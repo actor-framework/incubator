@@ -25,7 +25,6 @@
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_guard.hpp"
 #include "caf/net/socket_manager.hpp"
-#include "caf/net/stream_transport.hpp"
 #include "caf/net/udp_datagram_socket.hpp"
 #include "caf/send.hpp"
 
@@ -63,7 +62,7 @@ void udp::stop() {
 }
 
 expected<socket_manager_ptr> udp::get_or_connect(const uri&) {
-  return make_error(sec::runtime_error, "connect called on udp backend");
+  return make_error(sec::runtime_error, "get_or_connect called on udp backend");
 }
 
 socket_manager_ptr udp::peer(const node_id&) {
@@ -71,15 +70,20 @@ socket_manager_ptr udp::peer(const node_id&) {
 }
 
 void udp::resolve(const uri& locator, const actor& listener) {
-  mgr_->top_layer().resolve(locator, listener);
+  auto basp = top_layer(locator);
+  if (basp)
+    basp->resolve(locator.path(), listener);
+  else
+    anon_send(listener,
+              make_error(sec::runtime_error, "could not get basp application"));
 }
 
 strong_actor_ptr udp::make_proxy(node_id nid, actor_id aid) {
-  using impl_type = actor_proxy_impl;
-  using hdl_type = strong_actor_ptr;
-  actor_config cfg;
-  return make_actor<impl_type, hdl_type>(aid, nid, &mm_.system(), cfg,
-                                         peer(nid));
+  auto basp = top_layer(nid);
+  if (basp)
+    return basp->make_proxy(nid, aid);
+  CAF_LOG_ERROR("could not get basp application");
+  return nullptr;
 }
 
 void udp::set_last_hop(node_id*) {
@@ -94,7 +98,7 @@ expected<socket_manager_ptr> udp::emplace(udp_datagram_socket sock,
     return err;
   auto& mpx = mm_.mpx();
   const std::lock_guard<std::mutex> lock(lock_);
-  auto mgr = make_socket_manager<basp::application_factory, datagram_transport>(
+  mgr_ = make_socket_manager<basp::application_factory, datagram_transport>(
     guard.release(), &mpx, basp::application_factory{proxies_});
   settings cfg;
   if (auto err = mgr_->init(cfg)) {

@@ -179,6 +179,10 @@ public:
     return *system_;
   }
 
+  application* top_layer() {
+    return this;
+  }
+
   // -- mailbox access ---------------------------------------------------------
 
   /// Enqueues an event to the mailbox.

@@ -89,13 +89,22 @@ struct dummy_application_factory {
 public:
   using application_type = dummy_application;
 
+  using worker_type = transport_worker<application_type, ip_endpoint>;
+
+  using worker_ptr = std::shared_ptr<worker_type>;
+
   dummy_application_factory(byte_buffer_ptr buf)
     : buf_(std::move(buf)), application_cnt_(0) {
     // nop
   }
 
-  dummy_application make() {
-    return dummy_application{buf_, application_cnt_++};
+  template <class LowerLayerPtr>
+  error init(LowerLayerPtr) {
+    return none;
+  }
+
+  worker_ptr make(ip_endpoint id) {
+    return std::make_shared<worker_type>(id, buf_, application_cnt_);
   }
 
 private:
@@ -181,8 +190,6 @@ struct fixture : host_fixture {
 #define CHECK_UPPER_LAYER(no)                                                  \
   {                                                                            \
     auto& res = dispatcher.upper_layer(test_data.at(no).nid);                  \
-    CAF_CHECK_EQUAL(res.id(), no);                                             \
-    res = dispatcher.upper_layer(test_data.at(no).ep);                         \
     CAF_CHECK_EQUAL(res.id(), no);                                             \
   }
 

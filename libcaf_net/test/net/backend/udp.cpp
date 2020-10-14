@@ -55,7 +55,7 @@ struct config : actor_system_config {
     auto this_node = unbox(make_uri(this_node_str));
     CAF_MESSAGE("datagram_socket spawned on " << CAF_ARG(this_node) << " "
                                               << CAF_ARG(sock.id));
-    put(content, "middleman.this-node", this_node);
+    put(content, "caf.middleman.this-node", this_node);
     load<middleman, backend::udp>();
   }
 
@@ -66,8 +66,9 @@ struct config : actor_system_config {
 
 class planet : public test_coordinator_fixture<config> {
 public:
-  planet() : mm(this->sys.network_manager()), mpx(mm.mpx()) {
-    mpx->set_thread_id();
+  planet()
+    : mm(this->sys.network_manager()), mpx(this->sys.network_manager().mpx()) {
+    mpx.set_thread_id();
     backend()->emplace(cfg.sock, cfg.port);
   }
 
@@ -80,16 +81,12 @@ public:
   }
 
   net::middleman& mm;
-  multiplexer_ptr mpx;
+  multiplexer& mpx;
 };
 
 struct fixture : host_fixture {
-  fixture() {
-    // nop
-  }
-
   bool handle_io_event() {
-    return mars.mpx->poll_once(false) || earth.mpx->poll_once(false);
+    return mars.mpx.poll_once(false) || earth.mpx.poll_once(false);
   }
 
   planet earth;
@@ -106,8 +103,16 @@ CAF_TEST(resolve) {
   auto locator = unbox(make_uri(earth.locator_str() + "/name/dummy"));
   CAF_MESSAGE("resolving " << CAF_ARG(locator));
   mars.mm.resolve(locator, mars.self);
-  while (handle_io_event())
-    ;
+  mars.mpx.poll_once(false);
+  earth.mpx.poll_once(false);
+  mars.mpx.poll_once(false);
+  earth.mpx.poll_once(false);
+  mars.mpx.poll_once(false);
+  earth.mpx.poll_once(false);
+  mars.mpx.poll_once(false);
+  earth.mpx.poll_once(false);
+  mars.mpx.poll_once(false);
+
   mars.self->receive(
     [](strong_actor_ptr& ptr, const std::set<std::string>&) {
       CAF_MESSAGE("resolved actor!");

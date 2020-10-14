@@ -31,8 +31,9 @@ class transport_worker {
 public:
   // -- constructors, destructors, and assignment operators --------------------
 
-  transport_worker(UpperLayer upper_layer, IdType id)
-    : upper_layer_(std::move(upper_layer)), id_(std::move(id)) {
+  template <class... Ts>
+  transport_worker(IdType id, Ts&&... xs)
+    : upper_layer_(std::forward<Ts>(xs)...), id_(std::move(id)) {
     // nop
   }
 
@@ -44,7 +45,8 @@ public:
   error
   init(socket_manager* owner, LowerLayerPtr down, const settings& config) {
     CAF_LOG_TRACE("");
-    return upper_layer_.init(owner, down, config);
+    auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, down);
+    return upper_layer_.init(owner, this_layer_ptr, config);
   }
 
   // -- interface for the upper layer ------------------------------------------
@@ -71,7 +73,7 @@ public:
 
   template <class LowerLayerPtr>
   void abort_reason(LowerLayerPtr down, error reason) {
-    return down->abort_reason(std::move(reason));
+    down->abort_reason(std::move(reason));
   }
 
   template <class LowerLayerPtr>
@@ -87,6 +89,10 @@ public:
 
   const auto& upper_layer() const noexcept {
     return upper_layer_;
+  }
+
+  auto top_layer() {
+    return upper_layer_.top_layer();
   }
 
   // -- interface for the lower layer ------------------------------------------

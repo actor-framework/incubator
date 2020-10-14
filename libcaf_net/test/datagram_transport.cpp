@@ -106,13 +106,22 @@ public:
 
   using application_type = dummy_application;
 
+  using worker_type = transport_worker<application_type, ip_endpoint>;
+
+  using worker_ptr = std::shared_ptr<worker_type>;
+
   explicit dummy_application_factory(byte_buffer_ptr recv_buf)
     : recv_buf_(std::move(recv_buf)) {
     // nop
   }
 
-  dummy_application make() {
-    return dummy_application{recv_buf_};
+  template <class LowerLayerPtr>
+  error init(LowerLayerPtr) {
+    return none;
+  }
+
+  worker_ptr make(ip_endpoint id) {
+    return std::make_shared<worker_type>(id, recv_buf_);
   }
 
 private:

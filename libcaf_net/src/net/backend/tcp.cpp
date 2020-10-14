@@ -45,16 +45,13 @@ tcp::~tcp() {
 }
 
 error tcp::init() {
-  uint16_t conf_port = get_or<uint16_t>(mm_.system().config(),
-                                        "caf.middleman.tcp-port",
-                                        defaults::middleman::tcp_port);
+  uint16_t conf_port = get_or<uint16_t>(
+    mm_.system().config(), "caf.middleman.port", defaults::middleman::port);
   uri::authority_type auth;
   auth.port = conf_port;
   auto acceptor = make_tcp_accept_socket(auth, true);
-  if (!acceptor) {
-    std::cout << "error: " << to_string(acceptor.error()) << std::endl;
+  if (!acceptor)
     return acceptor.error();
-  }
   auto acc_guard = make_socket_guard(*acceptor);
   if (auto err = nonblocking(acc_guard.socket(), true))
     return err;

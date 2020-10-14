@@ -84,7 +84,7 @@ public:
     if (datagram_buf_.empty())
       parent->register_writing();
     datagram_begin_ = datagram_buf_.size();
-    endpoints_.emplace(std::move(ep));
+    endpoints_.emplace(ep);
   }
 
   template <class ParentPtr>
@@ -139,11 +139,21 @@ public:
     return dispatcher_;
   }
 
+  auto top_layer(node_id nid) {
+    return dispatcher_.top_layer(nid);
+  }
+
+  auto top_layer(const uri& locator) {
+    auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, owner_);
+    return dispatcher_.top_layer(this_layer_ptr, locator);
+  }
+
   // -- initialization ---------------------------------------------------------
 
   template <class ParentPtr>
   error init(socket_manager* owner, ParentPtr parent, const settings& config) {
     CAF_LOG_TRACE("");
+    owner_ = owner;
     auto default_max_reads
       = static_cast<uint32_t>(defaults::middleman::max_consecutive_reads);
     max_consecutive_reads_ = get_or(
@@ -186,10 +196,11 @@ public:
         }
       } else {
         auto err = get<sec>(ret);
-        if (err != sec::unavailable_or_would_block) {
+        if (err == sec::unavailable_or_would_block) {
+          break;
+        } else {
           CAF_LOG_DEBUG("read failed" << CAF_ARG(err));
           parent->abort_reason(err);
-          auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
           dispatcher_.abort(this_layer_ptr, err);
           return false;
         }
@@ -200,7 +211,6 @@ public:
 
   template <class ParentPtr>
   bool handle_write_event(ParentPtr parent) {
-    std::cout << "handle_write_event" << std::endl;
     CAF_LOG_TRACE(CAF_ARG2("handle", parent->handle().id));
     auto fail = [this, parent](sec reason) {
       CAF_LOG_DEBUG("read failed" << CAF_ARG(reason));
@@ -249,6 +259,8 @@ public:
 private:
   /// Holds the dispatching layer.
   dispatcher_type dispatcher_;
+
+  socket_manager* owner_ = nullptr;
 
   /// Caches the config parameter for limiting max. socket operations.
   size_t max_consecutive_reads_ = 0;

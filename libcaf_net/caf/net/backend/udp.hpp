@@ -24,7 +24,10 @@
 #include "caf/detail/net_export.hpp"
 #include "caf/error.hpp"
 #include "caf/expected.hpp"
+#include "caf/intrusive_ptr.hpp"
 #include "caf/net/basp/application.hpp"
+#include "caf/net/basp/application_factory.hpp"
+#include "caf/net/datagram_transport.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/middleman_backend.hpp"
@@ -37,8 +40,12 @@ namespace caf::net::backend {
 
 /// Minimal backend for udp communication.
 class CAF_NET_EXPORT udp : public middleman_backend {
+  using socket_manager_impl_ptr = caf::intrusive_ptr<
+    socket_manager_impl<datagram_transport<basp::application_factory>>>;
+
 public:
-  // -- constructors, destructors, and assignment operators --------------------
+  // -- constructors, destructors, and assignment operators
+  // --------------------
 
   udp(middleman& mm);
 
@@ -69,9 +76,17 @@ public:
   expected<socket_manager_ptr> emplace(udp_datagram_socket sock, uint16_t port);
 
 private:
+  auto top_layer(node_id nid) {
+    return mgr_->protocol().top_layer(nid);
+  }
+
+  auto top_layer(const uri& locator) {
+    return mgr_->protocol().top_layer(locator);
+  }
+
   middleman& mm_;
 
-  socket_manager_ptr mgr_;
+  socket_manager_impl_ptr mgr_;
 
   std::vector<node_id> node_ids_;
 
