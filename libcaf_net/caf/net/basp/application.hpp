@@ -108,8 +108,6 @@ public:
   template <class LowerLayerPtr>
   bool prepare_send(LowerLayerPtr& down) {
     CAF_LOG_TRACE("");
-    if (!handshake_complete())
-      return true;
     if (auto err = dequeue_events(down)) {
       CAF_LOG_ERROR("dequeue_events failed: " << CAF_ARG(err));
       down->abort_reason(err);

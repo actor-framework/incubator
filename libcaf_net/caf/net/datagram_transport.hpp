@@ -88,10 +88,14 @@ public:
   }
 
   template <class ParentPtr>
-  void begin_datagram(ParentPtr parent, ip_endpoint ep) {
+  void begin_datagram(ParentPtr parent) {
     if (datagram_buf_.empty())
       parent->register_writing();
     datagram_begin_ = datagram_buf_.size();
+  }
+
+  template <class ParentPtr>
+  void set_id(ParentPtr, ip_endpoint ep) {
     endpoints_.emplace(ep);
   }
 
@@ -192,8 +196,6 @@ public:
       if (auto res = get_if<std::pair<size_t, ip_endpoint>>(&ret)) {
         auto& [num_bytes, ep] = *res;
         CAF_LOG_DEBUG("received " << num_bytes << " bytes");
-        std::cout << to_string(this_node) << " received " << num_bytes
-                  << " from " << to_string(ep) << std::endl;
         read_buf_.resize(num_bytes);
         auto consumed = dispatcher_.consume(this_layer_ptr, read_buf_,
                                             std::move(ep));
@@ -224,7 +226,7 @@ public:
   bool handle_write_event(ParentPtr parent) {
     CAF_LOG_TRACE(CAF_ARG2("handle", parent->handle().id));
     auto fail = [this, parent](sec reason) {
-      CAF_LOG_DEBUG("read failed" << CAF_ARG(reason));
+      CAF_LOG_DEBUG("write failed" << CAF_ARG(reason));
       parent->abort_reason(reason);
       auto this_layer_ptr = make_datagram_oriented_layer_ptr(this, parent);
       dispatcher_.abort(this_layer_ptr, reason);
@@ -244,8 +246,6 @@ public:
                        make_span(datagram_buf_.data(), current_datagram_size),
                        current_endpoint);
       if (auto num_bytes = get_if<size_t>(&ret)) {
-        std::cout << to_string(this_node) << " wrote " << *num_bytes << " to  "
-                  << to_string(current_endpoint) << std::endl;
         CAF_LOG_DEBUG_IF(*num_bytes
                            < static_cast<size_t>(current_datagram_size),
                          "datagram was written partially");

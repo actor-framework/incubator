@@ -119,10 +119,8 @@ public:
 
   template <class LowerLayerPtr>
   ptrdiff_t consume(LowerLayerPtr down, const_byte_span bytes, id_type id) {
-    if (auto worker = find_worker(id)) {
-      std::cout << "existing worker" << std::endl;
+    if (auto worker = find_worker(id))
       return worker->consume(down, bytes);
-    }
     CAF_LOG_TRACE("no worker present for " << CAF_ARG(id));
     if (auto locator = make_uri(protocol_tag_ + "://" + to_string(id))) {
       if (auto worker
@@ -181,17 +179,10 @@ public:
   template <class LowerLayerPtr>
   expected<worker_ptr>
   add_new_worker(LowerLayerPtr down, node_id node, id_type id) {
-    std::cout << "Adding new worker for id = " << to_string(id)
-              << " and node = " << to_string(node) << std::endl;
     CAF_LOG_TRACE(CAF_ARG(node) << CAF_ARG(id));
     auto worker = factory_.make(id);
     workers_by_id_.emplace(std::move(id), worker);
     workers_by_node_.emplace(std::move(node), worker);
-    std::cout << "add  -> id_map.size() = " << workers_by_id_.size()
-              << " ptr = " << &workers_by_id_ << std::endl;
-    std::cout << "add  -> nd_map.size() = " << workers_by_node_.size()
-              << " ptr = " << &workers_by_node_ << std::endl
-              << std::endl;
     if (auto err = worker->init(owner_, down, config_))
       return err;
     return worker;
@@ -201,20 +192,10 @@ private:
   // -- worker lookups ---------------------------------------------------------
 
   worker_ptr find_worker(const node_id& nid) {
-    std::cout << "THIS NODE = " << to_string(this_node) << std::endl;
-    std::cout << "find -> id_map.size() = " << workers_by_id_.size()
-              << " ptr = " << &workers_by_id_ << std::endl;
-    std::cout << "find -> nd_map.size() = " << workers_by_node_.size()
-              << " ptr = " << &workers_by_node_ << std::endl;
     return find_worker_impl(workers_by_node_, nid);
   }
 
   worker_ptr find_worker(const id_type& id) {
-    std::cout << "THIS NODE = " << to_string(this_node) << std::endl;
-    std::cout << "find -> id_map.size() = " << workers_by_id_.size()
-              << " ptr = " << &workers_by_id_ << std::endl;
-    std::cout << "find -> nd_map.size() = " << workers_by_node_.size()
-              << " ptr = " << &workers_by_node_ << std::endl;
     return find_worker_impl(workers_by_id_, id);
   }
 

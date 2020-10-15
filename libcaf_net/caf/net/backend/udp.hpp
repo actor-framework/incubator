@@ -40,8 +40,8 @@ namespace caf::net::backend {
 
 /// Minimal backend for udp communication.
 class CAF_NET_EXPORT udp : public middleman_backend {
-  using socket_manager_impl_ptr = caf::intrusive_ptr<
-    socket_manager_impl<datagram_transport<basp::application_factory>>>;
+  using socket_manager_impl_type
+    = socket_manager_impl<datagram_transport<basp::application_factory>>;
 
 public:
   // -- constructors, destructors, and assignment operator ---------------------
@@ -81,16 +81,18 @@ public:
 
 private:
   auto top_layer(node_id nid) {
-    return mgr_->protocol().top_layer(std::move(nid));
+    auto mgr = mgr_.upcast<socket_manager_impl_type>();
+    return mgr->protocol().top_layer(std::move(nid));
   }
 
   auto top_layer(const uri& locator) {
-    return mgr_->protocol().top_layer(locator);
+    auto mgr = mgr_.upcast<socket_manager_impl_type>();
+    return mgr->protocol().top_layer(locator);
   }
 
   middleman& mm_;
 
-  socket_manager_impl_ptr mgr_;
+  socket_manager_ptr mgr_;
 
   std::vector<node_id> node_ids_;
 

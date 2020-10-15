@@ -28,6 +28,7 @@
 
 #include "caf/actor_system_config.hpp"
 #include "caf/ip_endpoint.hpp"
+#include "caf/net/ip.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_guard.hpp"
 #include "caf/uri.hpp"
@@ -47,16 +48,20 @@ behavior dummy_actor(event_based_actor*) {
 struct config : actor_system_config {
   config() {
     ip_endpoint ep;
-    CAF_REQUIRE_EQUAL(detail::parse("127.0.0.1:0"s, ep), none);
+    auto addrs = ip::local_addresses("localhost");
+    CAF_REQUIRE(!addrs.empty());
+    ep.address(addrs.front());
+    ep.port(0);
     auto ret = unbox(make_udp_datagram_socket(ep));
     sock = ret.first;
     port = ret.second;
-    this_node_str = "udp://127.0.0.1:"s + std::to_string(port);
+    this_node_str = "udp://"s + to_string(addrs.front()) + ":"s
+                    + std::to_string(port);
     auto this_node = unbox(make_uri(this_node_str));
     CAF_MESSAGE("datagram_socket spawned on " << CAF_ARG(this_node) << " "
                                               << CAF_ARG(sock.id));
     put(content, "caf.middleman.this-node", this_node);
-    load<middleman, backend::udp>();
+    load<net::middleman, net::backend::udp>();
   }
 
   udp_datagram_socket sock;
@@ -68,25 +73,26 @@ class planet : public test_coordinator_fixture<config> {
 public:
   planet()
     : mm(this->sys.network_manager()), mpx(this->sys.network_manager().mpx()) {
+    auto mgr = backend().peer(node_id{});
     backend().emplace(cfg.sock, cfg.port);
     mpx.set_thread_id();
+    run();
   }
-
-  planet(const planet&) = delete;
-  planet& operator=(const planet&) = delete;
-  planet(planet&&) = delete;
-  planet& operator=(planet&&) = delete;
 
   std::string locator_str() {
     return cfg.this_node_str;
   }
 
-  void this_node(std::string me) {
-    std::cout << me << ": " << to_string(sys.node()) << std::endl;
-  }
-
   net::backend::udp& backend() const {
     return *dynamic_cast<net::backend::udp*>(mm.backend("udp"));
+  }
+
+  bool run() {
+    bool ran = false;
+    while (mpx.poll_once(false)) {
+      ran = true;
+    }
+    return ran;
   }
 
   net::middleman& mm;
@@ -94,8 +100,14 @@ public:
 };
 
 struct fixture : host_fixture {
-  bool handle_io_event() {
-    return mars.handle_io_events() || earth.handle_io_events();
+  fixture() {
+    CAF_MESSAGE("earth: " << to_string(earth.sys.node()));
+    CAF_MESSAGE("mars: " << to_string(mars.sys.node()));
+  }
+
+  void run() {
+    while (earth.run() || mars.run())
+      ;
   }
 
   planet earth;
@@ -107,29 +119,12 @@ struct fixture : host_fixture {
 CAF_TEST_FIXTURE_SCOPE(udp_backend_tests, fixture)
 
 CAF_TEST(resolve) {
-  auto dummy = earth.sys.spawn(dummy_actor);
-  earth.mm.publish(dummy, "dummy");
-  auto locator = unbox(make_uri(earth.locator_str() + "/name/dummy"));
-  CAF_MESSAGE("resolving " << CAF_ARG(locator));
-  mars.mm.resolve(locator, mars.self);
-
-  mars.mpx.poll_once(false);
-  mars.mpx.poll_once(false);
-  earth.mpx.poll_once(false);
-  earth.mpx.poll_once(false);
-  mars.mpx.poll_once(false);
-  mars.mpx.poll_once(false);
-  earth.mpx.poll_once(false);
-  earth.mpx.poll_once(false);
-  mars.mpx.poll_once(false);
-  mars.mpx.poll_once(false);
-  earth.mpx.poll_once(false);
-  earth.mpx.poll_once(false);
-  mars.mpx.poll_once(false);
-  mars.mpx.poll_once(false);
-  earth.mpx.poll_once(false);
-  earth.mpx.poll_once(false);
-
+  auto earth_dummy = earth.sys.spawn(dummy_actor);
+  earth.mm.publish(earth_dummy, "dummy");
+  auto earth_locator = unbox(make_uri(earth.locator_str() + "/name/dummy"));
+  CAF_MESSAGE("resolving " << CAF_ARG(earth_locator));
+  mars.mm.resolve(earth_locator, mars.self);
+  run();
   mars.self->receive(
     [](strong_actor_ptr& ptr, const std::set<std::string>&) {
       CAF_MESSAGE("resolved actor!");

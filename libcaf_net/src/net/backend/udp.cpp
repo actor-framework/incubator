@@ -87,7 +87,7 @@ strong_actor_ptr udp::make_proxy(node_id nid, actor_id aid) {
 }
 
 void udp::set_last_hop(node_id*) {
-  // nop
+  // nope
 }
 
 expected<socket_manager_ptr> udp::emplace(udp_datagram_socket sock,

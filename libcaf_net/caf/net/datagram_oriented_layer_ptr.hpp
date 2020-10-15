@@ -50,8 +50,8 @@ public:
     }
 
     template <class IdType>
-    void begin_datagram(IdType id) {
-      lptr_->begin_datagram(llptr_, std::move(id));
+    void set_id(IdType id) {
+      lptr_->set_id(llptr_, std::move(id));
     }
 
     byte_buffer& datagram_buffer() {

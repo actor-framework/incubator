@@ -3,6 +3,8 @@ project(CAF_INC CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 
+SET(CMAKE_BUILD_TYPE Debug)
+
 # -- includes ------------------------------------------------------------------
 
 include(CMakePackageConfigHelpers) # For creating .cmake files

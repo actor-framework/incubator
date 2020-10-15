@@ -53,7 +53,8 @@ public:
 
   template <class LowerLayerPtr>
   void begin_datagram(LowerLayerPtr down) {
-    down->begin_datagram(id_);
+    down->begin_datagram();
+    down->set_id(id_);
   }
 
   template <class LowerLayerPtr>
