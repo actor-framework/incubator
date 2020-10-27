@@ -4,8 +4,6 @@ file(GLOB_RECURSE CAF_NET_HEADERS "caf/*.hpp")
 
 # -- add consistency checks for enum to_string implementations -----------------
 
-caf_incubator_add_enum_consistency_check("caf/net/basp/connection_state.hpp"
-                                         "src/basp/connection_state_strings.cpp")
 caf_incubator_add_enum_consistency_check("caf/net/basp/ec.hpp"
                                          "src/basp/ec_strings.cpp")
 caf_incubator_add_enum_consistency_check("caf/net/basp/message_type.hpp"
@@ -34,13 +32,11 @@ endfunction()
 # -- add library targets -------------------------------------------------------
 
 add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
-  #src/actor_proxy_impl.cpp
-  #src/basp/application.cpp
-  #src/endpoint_manager.cpp
+  src/actor_proxy_impl.cpp
   #src/net/backend/tcp.cpp
-  #src/net/backend/test.cpp
-  #src/net/endpoint_manager_queue.cpp
-  src/basp/connection_state_strings.cpp
+  src/net/backend/test.cpp
+  src/net/consumer_queue.cpp
+  src/basp/application.cpp
   src/basp/ec_strings.cpp
   src/basp/message_type_strings.cpp
   src/basp/operation_strings.cpp
@@ -81,8 +77,8 @@ set_property(TARGET libcaf_net_obj PROPERTY POSITION_INDEPENDENT_CODE ON)
 caf_net_set_default_properties(libcaf_net_obj libcaf_net)
 
 target_include_directories(libcaf_net INTERFACE
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-  $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}>)
+                           $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+                           $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}>)
 
 add_library(CAF::net ALIAS libcaf_net)
 
@@ -126,21 +122,19 @@ target_link_libraries(caf-net-test PRIVATE CAF::test)
 
 caf_incubator_add_test_suites(caf-net-test
   accept_socket
-  #application
+  application
   convert_ip_endpoint
   datagram_socket
   detail.rfc6455
   #datagram_transport
-  #doorman
-  #endpoint_manager
   header
   ip
   multiplexer
   net.actor_shell
   #net.backend.tcp
-  #net.basp.message_queue
-  #net.basp.ping_pong
-  #net.basp.worker
+  net.basp.message_queue
+  net.basp.ping_pong
+  net.basp.worker
   net.length_prefix_framing
   net.web_socket_server
   network_socket

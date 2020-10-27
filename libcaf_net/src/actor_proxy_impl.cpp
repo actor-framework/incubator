@@ -21,13 +21,15 @@
 #include "caf/actor_system.hpp"
 #include "caf/expected.hpp"
 #include "caf/logger.hpp"
+#include "caf/net/basp/application.hpp"
 
 namespace caf::net {
 
-actor_proxy_impl::actor_proxy_impl(actor_config& cfg, endpoint_manager_ptr dst)
-  : super(cfg), dst_(std::move(dst)) {
-  CAF_ASSERT(dst_ != nullptr);
-  dst_->enqueue_event(node(), id());
+actor_proxy_impl::actor_proxy_impl(actor_config& cfg,
+                                   caf::net::basp::application* app)
+  : super(cfg), app_(app) {
+  CAF_ASSERT(app != nullptr);
+  app_->enqueue_event(id());
 }
 
 actor_proxy_impl::~actor_proxy_impl() {
@@ -38,7 +40,7 @@ void actor_proxy_impl::enqueue(mailbox_element_ptr msg, execution_unit*) {
   CAF_PUSH_AID(0);
   CAF_ASSERT(msg != nullptr);
   CAF_LOG_SEND_EVENT(msg);
-  dst_->enqueue(std::move(msg), ctrl());
+  app_->enqueue(std::move(msg), ctrl());
 }
 
 void actor_proxy_impl::kill_proxy(execution_unit* ctx, error rsn) {

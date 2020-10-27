@@ -34,7 +34,7 @@
 
 namespace caf::net {
 
-class CAF_NET_EXPORT endpoint_manager_queue {
+class CAF_NET_EXPORT consumer_queue {
 public:
   enum class element_type { event, message };
 
@@ -61,17 +61,15 @@ public:
   class event final : public element {
   public:
     struct resolve_request {
-      uri locator;
+      std::string path;
       actor listener;
     };
 
     struct new_proxy {
-      node_id peer;
       actor_id id;
     };
 
     struct local_actor_down {
-      node_id observing_peer;
       actor_id id;
       error reason;
     };
@@ -81,11 +79,11 @@ public:
       uint64_t id;
     };
 
-    event(uri locator, actor listener);
+    event(std::string path, actor listener);
 
-    event(node_id peer, actor_id proxy_id);
+    event(actor_id proxy_id);
 
-    event(node_id observing_peer, actor_id local_actor_id, error reason);
+    event(actor_id local_actor_id, error reason);
 
     event(std::string type, uint64_t id);
 

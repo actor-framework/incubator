@@ -19,15 +19,13 @@
 #pragma once
 
 #include "caf/net/actor_proxy_impl.hpp"
+#include "caf/net/consumer_queue.hpp"
 #include "caf/net/datagram_socket.hpp"
 #include "caf/net/datagram_transport.hpp"
 #include "caf/net/defaults.hpp"
-#include "caf/net/endpoint_manager.hpp"
-#include "caf/net/endpoint_manager_queue.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/host.hpp"
 #include "caf/net/ip.hpp"
-#include "caf/net/make_endpoint_manager.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/middleman_backend.hpp"
 #include "caf/net/multiplexer.hpp"

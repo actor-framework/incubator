@@ -38,13 +38,12 @@ struct CAF_NET_EXPORT header : detail::comparable<header> {
   // -- constructors, destructors, and assignment operators --------------------
 
   constexpr header() noexcept
-    : type(message_type::handshake), payload_len(0), operation_data(0) {
+    : type(message_type::handshake), operation_data(0) {
     // nop
   }
 
-  constexpr header(message_type type, uint32_t payload_len,
-                   uint64_t operation_data) noexcept
-    : type(type), payload_len(payload_len), operation_data(operation_data) {
+  constexpr header(message_type type, uint64_t operation_data) noexcept
+    : type(type), operation_data(operation_data) {
     // nop
   }
 
@@ -66,9 +65,6 @@ struct CAF_NET_EXPORT header : detail::comparable<header> {
   /// Denotes the BASP operation and how `operation_data` gets interpreted.
   message_type type;
 
-  /// Stores the size in bytes for the payload that follows this header.
-  uint32_t payload_len;
-
   /// Stores type-specific information such as the BASP version in handshakes.
   uint64_t operation_data;
 };
@@ -85,7 +81,6 @@ CAF_NET_EXPORT void to_bytes(header x, byte_buffer& buf);
 template <class Inspector>
 bool inspect(Inspector& f, header& x) {
   return f.object(x).fields(f.field("type", x.type),
-                            f.field("payload_len", x.payload_len),
                             f.field("operation_data", x.operation_data));
 }
 

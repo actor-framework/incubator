@@ -16,20 +16,58 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
-#pragma once
-
-#include "caf/detail/net_export.hpp"
-#include "caf/make_counted.hpp"
-#include "caf/net/endpoint_manager.hpp"
-#include "caf/net/endpoint_manager_impl.hpp"
+#include "caf/net/consumer_queue.hpp"
 
 namespace caf::net {
 
-template <class Transport>
-endpoint_manager_ptr make_endpoint_manager(const multiplexer_ptr& mpx,
-                                           actor_system& sys, Transport trans) {
-  using impl = endpoint_manager_impl<Transport>;
-  return make_counted<impl>(mpx, sys, std::move(trans));
+consumer_queue::element::~element() {
+  // nop
+}
+
+consumer_queue::event::event(std::string path, actor listener)
+  : element(element_type::event),
+    value(resolve_request{std::move(path), std::move(listener)}) {
+  // nop
+}
+
+consumer_queue::event::event(actor_id proxy_id)
+  : element(element_type::event), value(new_proxy{proxy_id}) {
+  // nop
+}
+
+consumer_queue::event::event(actor_id local_actor_id, error reason)
+  : element(element_type::event),
+    value(local_actor_down{local_actor_id, std::move(reason)}) {
+  // nop
+}
+
+consumer_queue::event::event(std::string tag, uint64_t id)
+  : element(element_type::event), value(timeout{std::move(tag), id}) {
+  // nop
+}
+
+consumer_queue::event::~event() {
+  // nop
+}
+
+size_t consumer_queue::event::task_size() const noexcept {
+  return 1;
+}
+
+consumer_queue::message::message(mailbox_element_ptr msg,
+                                 strong_actor_ptr receiver)
+  : element(element_type::message),
+    msg(std::move(msg)),
+    receiver(std::move(receiver)) {
+  // nop
+}
+
+size_t consumer_queue::message::task_size() const noexcept {
+  return message_policy::task_size(*this);
+}
+
+consumer_queue::message::~message() {
+  // nop
 }
 
 } // namespace caf::net

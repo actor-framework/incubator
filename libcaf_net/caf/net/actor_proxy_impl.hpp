@@ -19,7 +19,7 @@
 #pragma once
 
 #include "caf/actor_proxy.hpp"
-#include "caf/net/endpoint_manager.hpp"
+#include "caf/net/fwd.hpp"
 
 namespace caf::net {
 
@@ -28,7 +28,7 @@ class actor_proxy_impl : public actor_proxy {
 public:
   using super = actor_proxy;
 
-  actor_proxy_impl(actor_config& cfg, endpoint_manager_ptr dst);
+  actor_proxy_impl(actor_config& cfg, basp::application* app);
 
   ~actor_proxy_impl() override;
 
@@ -37,7 +37,7 @@ public:
   void kill_proxy(execution_unit* ctx, error rsn) override;
 
 private:
-  endpoint_manager_ptr dst_;
+  basp::application* app_;
 };
 
 } // namespace caf::net

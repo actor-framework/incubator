@@ -25,6 +25,7 @@
 #include "caf/make_counted.hpp"
 #include "caf/net/actor_shell.hpp"
 #include "caf/net/fwd.hpp"
+#include "caf/net/multiplexer.hpp"
 #include "caf/net/operation.hpp"
 #include "caf/net/socket.hpp"
 #include "caf/ref_counted.hpp"
@@ -76,6 +77,10 @@ public:
   /// Returns a pointer to the owning @ref multiplexer instance.
   const multiplexer* mpx_ptr() const noexcept {
     return parent_;
+  }
+
+  actor_system& system() noexcept {
+    return mpx().system();
   }
 
   /// Returns registered operations (read, write, or both).
@@ -204,7 +209,6 @@ public:
   bool handle_write_event() override {
     return protocol_.handle_write_event(this);
   }
-
   void handle_error(sec code) override {
     abort_reason_ = code;
     return protocol_.abort(this, abort_reason_);

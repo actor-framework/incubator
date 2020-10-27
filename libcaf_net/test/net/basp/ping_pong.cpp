@@ -69,7 +69,7 @@ template <class Node>
 class planet : public test_coordinator_fixture<config<Node>> {
 public:
   planet(planet_driver& driver)
-    : mpx(*this->sys.network_manager().mpx()), driver_(driver) {
+    : mpx(this->sys.network_manager().mpx()), driver_(driver) {
     mpx.set_thread_id();
   }
 
@@ -97,7 +97,8 @@ public:
   actor resolve(string_view locator) {
     auto hdl = actor_cast<actor>(this->self);
     this->sys.network_manager().resolve(unbox(make_uri(locator)), hdl);
-    this->run();
+    while (handle_io_event())
+      ;
     actor result;
     this->self->receive(
       [&](strong_actor_ptr& ptr, const std::set<std::string>&) {

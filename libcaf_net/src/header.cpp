@@ -31,10 +31,8 @@ namespace {
 
 void to_bytes_impl(const header& x, byte* ptr) {
   *ptr = static_cast<byte>(x.type);
-  auto payload_len = detail::to_network_order(x.payload_len);
-  memcpy(ptr + 1, &payload_len, sizeof(payload_len));
   auto operation_data = detail::to_network_order(x.operation_data);
-  memcpy(ptr + 5, &operation_data, sizeof(operation_data));
+  memcpy(ptr + 1, &operation_data, sizeof(operation_data));
 }
 
 } // namespace
@@ -50,11 +48,8 @@ header header::from_bytes(span<const byte> bytes) {
   header result;
   auto ptr = bytes.data();
   result.type = *reinterpret_cast<const message_type*>(ptr);
-  uint32_t payload_len = 0;
-  memcpy(&payload_len, ptr + 1, 4);
-  result.payload_len = detail::from_network_order(payload_len);
   uint64_t operation_data;
-  memcpy(&operation_data, ptr + 5, 8);
+  memcpy(&operation_data, ptr + 1, 8);
   result.operation_data = detail::from_network_order(operation_data);
   return result;
 }

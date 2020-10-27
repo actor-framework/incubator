@@ -31,7 +31,7 @@ using namespace caf;
 using namespace caf::net;
 
 CAF_TEST(serialization) {
-  basp::header x{basp::message_type::handshake, 42, 4};
+  basp::header x{basp::message_type::handshake, 4};
   byte_buffer buf;
   {
     binary_serializer sink{nullptr, buf};
@@ -53,6 +53,6 @@ CAF_TEST(serialization) {
 }
 
 CAF_TEST(to_string) {
-  basp::header x{basp::message_type::handshake, 42, 4};
-  CAF_CHECK_EQUAL(deep_to_string(x), "basp::header(handshake, 42, 4)");
+  basp::header x{basp::message_type::handshake, 4};
+  CAF_CHECK_EQUAL(deep_to_string(x), "basp::header(handshake, 4)");
 }

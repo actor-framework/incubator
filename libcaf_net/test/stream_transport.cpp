@@ -23,8 +23,6 @@
 #include "caf/net/test/host_fixture.hpp"
 #include "caf/test/dsl.hpp"
 
-#include "caf/binary_deserializer.hpp"
-#include "caf/binary_serializer.hpp"
 #include "caf/byte.hpp"
 #include "caf/byte_buffer.hpp"
 #include "caf/detail/scope_guard.hpp"
@@ -116,19 +114,6 @@ public:
     CAF_MESSAGE("Received " << recv_buf_->size()
                             << " bytes in dummy_application");
     return recv_buf_->size();
-  }
-
-  template <class ParentPtr>
-  void resolve(ParentPtr parent, string_view path, const actor& listener) {
-    actor_id aid = 42;
-    auto hid = string_view("0011223344556677889900112233445566778899");
-    auto nid = unbox(make_node_id(42, hid));
-    actor_config cfg;
-    endpoint_manager_ptr ptr{&parent->manager()};
-    auto p = make_actor<actor_proxy_impl, strong_actor_ptr>(
-      aid, nid, &parent->system(), cfg, std::move(ptr));
-    anon_send(listener, resolve_atom_v, std::string{path.begin(), path.end()},
-              p);
   }
 
   static void handle_error(sec code) {

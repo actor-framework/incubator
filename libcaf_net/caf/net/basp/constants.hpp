@@ -30,7 +30,7 @@ namespace caf::net::basp {
 constexpr uint64_t version = 1;
 
 /// Size of a BASP header in serialized form.
-constexpr size_t header_size = 13;
+constexpr size_t header_size = 9;
 
 /// @}
 

@@ -19,7 +19,7 @@
 #pragma once
 
 #include "caf/logger.hpp"
-#include "caf/net/endpoint_manager_queue.hpp"
+#include "caf/net/consumer_queue.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/net/packet_writer_decorator.hpp"
 #include "caf/unit.hpp"
@@ -73,8 +73,8 @@ public:
   }
 
   template <class Parent>
-  void write_message(Parent& parent,
-                     std::unique_ptr<endpoint_manager_queue::message> msg) {
+  void
+  write_message(Parent& parent, std::unique_ptr<consumer_queue::message> msg) {
     auto writer = make_packet_writer_decorator(*this, parent);
     if (auto err = application_.write_message(writer, std::move(msg)))
       CAF_LOG_ERROR("write_message failed: " << err);

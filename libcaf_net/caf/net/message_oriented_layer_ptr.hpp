@@ -25,11 +25,11 @@
 
 namespace caf::net {
 
-/// Wraps a pointer to a stream-oriented layer with a pointer to its lower
+/// Wraps a pointer to a message-oriented layer with a pointer to its lower
 /// layer. Both pointers are then used to implement the interface required for a
-/// stream-oriented layer when calling into its upper layer.
+/// message-oriented layer when calling into its upper layer.
 template <class Layer, class LowerLayerPtr>
-class stream_oriented_layer_ptr {
+class message_oriented_layer_ptr {
 public:
   class access {
   public:
@@ -41,20 +41,16 @@ public:
       return lptr_->can_send_more(llptr_);
     }
 
-    auto handle() const noexcept {
-      return lptr_->handle(llptr_);
+    void begin_message() {
+      lptr_->begin_message(llptr_);
     }
 
-    void begin_output() {
-      lptr_->begin_output(llptr_);
+    byte_buffer& message_buffer() {
+      return lptr_->message_buffer(llptr_);
     }
 
-    byte_buffer& output_buffer() {
-      return lptr_->output_buffer(llptr_);
-    }
-
-    void end_output() {
-      lptr_->end_output(llptr_);
+    void end_message() {
+      lptr_->end_message(llptr_);
     }
 
     void abort_reason(error reason) {
@@ -78,12 +74,12 @@ public:
     LowerLayerPtr llptr_;
   };
 
-  stream_oriented_layer_ptr(Layer* layer, LowerLayerPtr down)
+  message_oriented_layer_ptr(Layer* layer, LowerLayerPtr down)
     : access_(layer, down) {
     // nop
   }
 
-  stream_oriented_layer_ptr(const stream_oriented_layer_ptr&) = default;
+  message_oriented_layer_ptr(const message_oriented_layer_ptr&) = default;
 
   explicit operator bool() const noexcept {
     return true;
@@ -102,8 +98,8 @@ private:
 };
 
 template <class Layer, class LowerLayerPtr>
-auto make_stream_oriented_layer_ptr(Layer* this_layer, LowerLayerPtr down) {
-  return stream_oriented_layer_ptr<Layer, LowerLayerPtr>{this_layer, down};
+auto make_message_oriented_layer_ptr(Layer* this_layer, LowerLayerPtr down) {
+  return message_oriented_layer_ptr<Layer, LowerLayerPtr>{this_layer, down};
 }
 
 } // namespace caf::net
