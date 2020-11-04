@@ -39,6 +39,14 @@ class transport_worker;
 template <class Transport, class IdType = unit_t>
 class transport_worker_dispatcher;
 
+template <class... Sigs>
+class typed_actor_shell;
+
+template <class... Sigs>
+class typed_actor_shell_ptr;
+
+// -- enumerations -------------------------------------------------------------
+
 enum class ec : uint8_t;
 
 // -- classes ------------------------------------------------------------------
@@ -61,7 +69,7 @@ struct tcp_stream_socket;
 struct datagram_socket;
 struct udp_datagram_socket;
 
-// -- smart pointers -----------------------------------------------------------
+// -- smart pointer aliases ----------------------------------------------------
 
 using middleman_backend_ptr = std::unique_ptr<middleman_backend>;
 using multiplexer_ptr = std::shared_ptr<multiplexer>;

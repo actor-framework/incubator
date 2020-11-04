@@ -29,6 +29,7 @@ add_library(libcaf_net_obj OBJECT ${CAF_NET_HEADERS}
   src/host.cpp
   src/ip.cpp
   src/multiplexer.cpp
+  src/net/abstract_actor_shell.cpp
   src/net/actor_shell.cpp
   src/net/middleman.cpp
   src/net/middleman_backend.cpp
@@ -108,6 +109,7 @@ caf_incubator_add_test_suites(caf-net-test
   ip
   multiplexer
   net.actor_shell
+  net.typed_actor_shell
   net.web_socket_server
   network_socket
   pipe_socket
