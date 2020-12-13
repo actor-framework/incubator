@@ -18,8 +18,14 @@
 // import asyncio
 // import websockets
 //
-// line1 = '{ values = [ { "@type" = "task::addition", x = 17, y = 8 } ] }\n'
-// line2 = '{ values = [ { "@type" = "task::subtraction", x = 17, y = 8 } ] }\n'
+// lines = [
+//     # flavor A (custom message types)
+//     '{ "@type" = "task::addition", x = 17, y = 8 }\n',
+//     '{ "@type" = "task::subtraction", x = 17, y = 8 }\n',
+//     # flavor B (atom-prefixed values)
+//     '[ { "@type" = "caf::add_atom" }, 17, 8 ]\n',
+//     '[ { "@type" = "caf::sub_atom" }, 17, 8 ]\n',
+// ]
 //
 // async def hello():
 //     uri = "ws://localhost:8080"
@@ -48,6 +54,8 @@
 #include "caf/net/tcp_accept_socket.hpp"
 #include "caf/net/web_socket_server.hpp"
 #include "caf/tag/mixed_message_oriented.hpp"
+#include "caf/typed_actor.hpp"
+#include "caf/typed_event_based_actor.hpp"
 
 #include <cstdint>
 
@@ -90,10 +98,20 @@ CAF_END_TYPE_ID_BLOCK(web_socket_calculator)
 
 // -- implementation of the calculator actor -----------------------------------
 
-caf::behavior calculator() {
+using calculator_actor = caf::typed_actor<
+  // Flavor A: custom message types.
+  caf::result<int32_t>(task::addition),    //
+  caf::result<int32_t>(task::subtraction), //
+  // Flavor B: atom-prefixed values.
+  caf::result<int32_t>(caf::add_atom, int32_t, int32_t),
+  caf::result<int32_t>(caf::sub_atom, int32_t, int32_t)>;
+
+calculator_actor::behavior_type calculator() {
   return {
     [](task::addition input) { return input.x + input.y; },
     [](task::subtraction input) { return input.x - input.y; },
+    [](caf::add_atom, int32_t x, int32_t y) { return x + y; },
+    [](caf::sub_atom, int32_t x, int32_t y) { return x - y; },
   };
 }
 
@@ -113,7 +131,7 @@ public:
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  explicit app(caf::actor worker) : worker_(std::move(worker)) {
+  explicit app(calculator_actor worker) : worker_(std::move(worker)) {
     // nop
   }
 
@@ -180,40 +198,39 @@ public:
         buf_.erase(buf_.begin(), buf_.begin() + 1);
         continue;
       }
-      // Deserialize config value / message from received line.
+      // Deserialize message from received line and dispatch it to the worker.
       auto num_bytes = std::distance(buf_.begin(), i) + 1;
       caf::string_view line{buf_.data(), static_cast<size_t>(num_bytes) - 1};
       std::cout << "*** [socket " << down->handle().id << "] INPUT: " << line
                 << "\n";
-      caf::config_value val;
-      if (auto parsed_val = caf::config_value::parse(line)) {
-        val = std::move(*parsed_val);
+      if (auto msg = caf::config_value::parse_msg(line, worker_)) {
+        // Simply sending the message to worker_ would result in a compile-time
+        // error, because typed actors do not accept untyped `message` inputs.
+        // However, parse_msg only succeeds if `worker_` accepts the returned
+        // message. Hence, the following cast and the "untyped send" is always
+        // safe.
+        auto hdl = caf::actor_cast<caf::actor>(worker_);
+        self_->request(hdl, std::chrono::seconds{1}, std::move(*msg))
+          .then(
+            [this, down](int32_t value) {
+              // Simply respond with the value as string, wrapped into a
+              // WebSocket text message frame.
+              auto str_response = std::to_string(value);
+              std::cout << "*** [socket " << down->handle().id
+                        << "] OUTPUT: " << str_response << "\n";
+              str_response += '\n';
+              down->begin_text_message();
+              auto& buf = down->text_message_buffer();
+              buf.insert(buf.end(), str_response.begin(), str_response.end());
+              down->end_text_message();
+            },
+            [down](caf::error& err) { down->abort_reason(std::move(err)); });
       } else {
-        down->abort_reason(std::move(parsed_val.error()));
+        auto err = caf::make_error(caf::sec::invalid_argument,
+                                   "unable to parse received input line");
+        down->abort_reason(std::move(err));
         return -1;
       }
-      caf::config_value_reader reader{&val};
-      caf::message msg;
-      if (!reader.apply_object(msg)) {
-        down->abort_reason(reader.get_error());
-        return -1;
-      }
-      // Dispatch message to worker.
-      self_->request(worker_, std::chrono::seconds{1}, std::move(msg))
-        .then(
-          [this, down](int32_t value) {
-            // Simply respond with the value as string, wrapped into a WebSocket
-            // text message frame.
-            auto str_response = std::to_string(value);
-            std::cout << "*** [socket " << down->handle().id
-                      << "] OUTPUT: " << str_response << "\n";
-            str_response += '\n';
-            down->begin_text_message();
-            auto& buf = down->text_message_buffer();
-            buf.insert(buf.end(), str_response.begin(), str_response.end());
-            down->end_text_message();
-          },
-          [down](caf::error& err) { down->abort_reason(std::move(err)); });
       // Erase consumed data from the buffer.
       buf_.erase(buf_.begin(), i + 1);
     }
@@ -234,7 +251,7 @@ private:
   std::vector<char> buf_;
 
   // Stores a handle to our worker.
-  caf::actor worker_;
+  calculator_actor worker_;
 
   // Enables the application to send and receive actor messages.
   caf::net::actor_shell_ptr self_;
