@@ -101,42 +101,29 @@ struct app_t {
       auto num_bytes = std::distance(buf.begin(), i) + 1;
       string_view line{reinterpret_cast<const char*>(buf.data()),
                        static_cast<size_t>(num_bytes) - 1};
-      config_value val;
-      if (auto parsed_res = config_value::parse(line)) {
-        val = std::move(*parsed_res);
+      caf::typed_actor<caf::result<int32_t>(int32_t)> dummy;
+      if (auto msg = config_value::parse_msg(line, dummy)) {
+        CAF_MESSAGE("app received a message from its socket: " << *msg);
+        self->request(worker, std::chrono::seconds{1}, std::move(*msg))
+          .then(
+            [this, down](int32_t value) mutable {
+              ++received_responses;
+              // Respond with the value as string.
+              auto str_response = std::to_string(value);
+              str_response += '\n';
+              down->begin_output();
+              auto& buf = down->output_buffer();
+              auto bytes = as_bytes(make_span(str_response));
+              buf.insert(buf.end(), bytes.begin(), bytes.end());
+              down->end_output();
+            },
+            [down](error& err) mutable { down->abort_reason(std::move(err)); });
       } else {
-        down->abort_reason(std::move(parsed_res.error()));
+        auto err = caf::make_error(caf::sec::invalid_argument,
+                                   "unable to parse received input line");
+        down->abort_reason(std::move(err));
         return -1;
       }
-      if (!holds_alternative<settings>(val)) {
-        down->abort_reason(
-          make_error(pec::type_mismatch,
-                     "expected a dictionary, got a "s + val.type_name()));
-        return -1;
-      }
-      // Deserialize message from received dictionary.
-      config_value_reader reader{&val};
-      caf::message msg;
-      if (!reader.apply_object(msg)) {
-        down->abort_reason(reader.get_error());
-        return -1;
-      }
-      // Dispatch message to worker.
-      CAF_MESSAGE("app received a message from its socket: " << msg);
-      self->request(worker, std::chrono::seconds{1}, std::move(msg))
-        .then(
-          [this, down](int32_t value) mutable {
-            ++received_responses;
-            // Respond with the value as string.
-            auto str_response = std::to_string(value);
-            str_response += '\n';
-            down->begin_output();
-            auto& buf = down->output_buffer();
-            auto bytes = as_bytes(make_span(str_response));
-            buf.insert(buf.end(), bytes.begin(), bytes.end());
-            down->end_output();
-          },
-          [down](error& err) mutable { down->abort_reason(std::move(err)); });
       // Try consuming more from the buffer.
       consumed_bytes += static_cast<size_t>(num_bytes);
       auto sub_buf = buf.subspan(num_bytes);
@@ -206,9 +193,7 @@ struct fixture : host_fixture, test_coordinator_fixture<> {
   std::vector<byte> recv_buf;
 };
 
-constexpr std::string_view input = R"__(
-{ values = [ { "@type" : "int32_t", value: 123 } ] }
-)__";
+constexpr std::string_view input = "123\n";
 
 } // namespace
 

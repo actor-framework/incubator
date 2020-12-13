@@ -121,7 +121,7 @@ template <class... Ts>
 byte_buffer to_buf(const Ts&... xs) {
   byte_buffer buf;
   binary_serializer sink{nullptr, buf};
-  if (!sink.apply_objects(xs...))
+  if (!(sink.apply(xs) && ...))
     CAF_FAIL("to_buf failed: " << sink.get_error());
   return buf;
 }
