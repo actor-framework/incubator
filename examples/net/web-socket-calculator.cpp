@@ -194,7 +194,7 @@ public:
       }
       caf::config_value_reader reader{&val};
       caf::message msg;
-      if (!reader.apply_object(msg)) {
+      if (!reader.apply(msg)) {
         down->abort_reason(reader.get_error());
         return -1;
       }

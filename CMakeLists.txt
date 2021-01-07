@@ -50,7 +50,7 @@ if(CAF_INC_ENABLE_STANDALONE_BUILD)
   FetchContent_Declare(
     actor_framework
     GIT_REPOSITORY https://github.com/actor-framework/actor-framework.git
-    GIT_TAG        4f8609b
+    GIT_TAG        6b2cbd4
   )
   FetchContent_Populate(actor_framework)
   set(CAF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -66,6 +66,7 @@ else()
 endif()
 
 # -- set the library version for shared library targets ------------------------
+
 if(CMAKE_HOST_SYSTEM_NAME MATCHES "OpenBSD")
   set(CAF_LIB_VERSION "${CAF_VERSION_MAJOR}.${CAF_VERSION_MINOR}"
       CACHE INTERNAL "The version string used for shared library objects")
