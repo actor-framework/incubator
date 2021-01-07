@@ -66,6 +66,7 @@ else()
 endif()
 
 # -- set the library version for shared library targets ------------------------
+
 if(CMAKE_HOST_SYSTEM_NAME MATCHES "OpenBSD")
   set(CAF_LIB_VERSION "${CAF_VERSION_MAJOR}.${CAF_VERSION_MINOR}"
       CACHE INTERNAL "The version string used for shared library objects")
