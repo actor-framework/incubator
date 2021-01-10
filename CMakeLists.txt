@@ -60,8 +60,10 @@ if(CAF_INC_ENABLE_STANDALONE_BUILD)
   set(CAF_SANITIZERS "${CAF_INC_SANITIZERS}" CACHE STRING "" FORCE)
   add_subdirectory(${actor_framework_SOURCE_DIR} ${actor_framework_BINARY_DIR})
 else()
-  find_package(CAF COMPONENTS core test REQUIRED)
-  message(STATUS "Found CAF version ${CAF_VERSION}: ${CAF_DIR}")
+  if(NOT TARGET CAF::core)
+    find_package(CAF COMPONENTS core test REQUIRED)
+    message(STATUS "Found CAF version ${CAF_VERSION}: ${CAF_DIR}")
+  endif()
 endif()
 
 # -- set the library version for shared library targets ------------------------
