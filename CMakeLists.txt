@@ -101,6 +101,7 @@ if(CAF_INC_ENABLE_UTILITY_TARGETS)
   add_executable(caf-generate-enum-strings
                  EXCLUDE_FROM_ALL
                  cmake/caf-generate-enum-strings.cpp)
+  set_property(TARGET caf-generate-enum-strings PROPERTY CXX_STANDARD 17)
   add_custom_target(consistency-check)
   add_custom_target(update-enum-strings)
   # adds a consistency check that verifies that `cpp_file` is still valid by
@@ -145,11 +146,6 @@ function(caf_incubator_export_and_install_lib component)
                              $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
                              $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
                              $<INSTALL_INTERFACE:include>)
-  set_target_properties(libcaf_${component} PROPERTIES
-                        EXPORT_NAME ${component}
-                        SOVERSION ${CAF_VERSION}
-                        VERSION ${CAF_INC_LIB_VERSION}
-                        OUTPUT_NAME caf_${component})
   install(TARGETS libcaf_${component}
           EXPORT CAFIncubatorTargets
           ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT ${component}
@@ -161,6 +157,11 @@ function(caf_incubator_export_and_install_lib component)
           FILES_MATCHING PATTERN "*.hpp")
   get_target_property(lib_type libcaf_${component} TYPE)
   if(NOT lib_type STREQUAL "INTERFACE_LIBRARY")
+    set_target_properties(libcaf_${component} PROPERTIES
+                          EXPORT_NAME ${component}
+                          SOVERSION ${CAF_VERSION}
+                          VERSION ${CAF_INC_LIB_VERSION}
+                          OUTPUT_NAME caf_${component})
     string(TOUPPER "CAF_${component}_EXPORT" export_macro_name)
     generate_export_header(
       libcaf_${component}
