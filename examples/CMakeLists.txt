@@ -2,6 +2,7 @@ add_custom_target(all_examples)
 
 function(add_example folder name)
   add_executable(${name} ${folder}/${name}.cpp ${ARGN})
+  set_property(TARGET ${name} PROPERTY CXX_STANDARD 17)
   install(FILES ${folder}/${name}.cpp DESTINATION ${CMAKE_INSTALL_DATADIR}/caf/examples/${folder})
   add_dependencies(${name} all_examples)
 endfunction()
