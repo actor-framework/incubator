@@ -251,7 +251,8 @@ function(caf_incubator_add_component name)
   else()
     set(targets ${pub_lib_target})
     add_library(${pub_lib_target}
-                ${CAF_INC_ADD_COMPONENT_HEADERS})
+                ${CAF_INC_ADD_COMPONENT_HEADERS}
+                ${CAF_INC_ADD_COMPONENT_SOURCES})
     set_property(TARGET ${pub_lib_target} PROPERTY POSITION_INDEPENDENT_CODE ON)
   endif()
   target_link_libraries(${pub_lib_target} ${CAF_INC_ADD_COMPONENT_DEPENDENCIES})
@@ -303,7 +304,7 @@ if(CAF_INC_ENABLE_NET_MODULE)
   add_subdirectory(libcaf_net)
 endif()
 
-if(CAF_INC_ENABLE_NET_MODULE)
+if(CAF_INC_ENABLE_BB_MODULE)
   add_subdirectory(libcaf_bb)
 endif()
 

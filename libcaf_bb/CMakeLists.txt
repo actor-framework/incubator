@@ -19,4 +19,6 @@ caf_incubator_add_component(
     tokenized_integer_reader)
 
 # CAF::bb is header-only, so it won't pull in the dependencies for the tests.
-target_link_libraries(caf-bb-test PRIVATE CAF::core CAF::internal)
+if(TARGET caf-bb-test)
+  target_link_libraries(caf-bb-test PRIVATE CAF::core CAF::internal)
+endif()
