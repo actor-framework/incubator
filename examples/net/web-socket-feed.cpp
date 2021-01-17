@@ -37,7 +37,7 @@
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/net/tcp_accept_socket.hpp"
-#include "caf/net/web_socket_server.hpp"
+#include "caf/net/web_socket/server.hpp"
 #include "caf/stateful_actor.hpp"
 #include "caf/tag/mixed_message_oriented.hpp"
 #include "caf/typed_event_based_actor.hpp"
@@ -289,7 +289,7 @@ int caf_main(caf::actor_system& sys, const config& cfg) {
   // Spawn our feed actor and initiate the protocol stack.
   stock::feed feed = sys.spawn(feed_impl);
   auto add_conn = [feed](tcp_stream_socket sock, multiplexer* mpx) {
-    return make_socket_manager<app, web_socket_server, stream_transport>(
+    return make_socket_manager<app, web_socket::server, stream_transport>(
       sock, mpx, feed);
   };
   sys.network_manager().make_acceptor(sock, add_conn);
