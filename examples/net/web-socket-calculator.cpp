@@ -39,8 +39,8 @@
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
 #include "caf/byte_span.hpp"
+#include "caf/caf_main.hpp"
 #include "caf/event_based_actor.hpp"
-#include "caf/exec_main.hpp"
 #include "caf/ip_endpoint.hpp"
 #include "caf/json_reader.hpp"
 #include "caf/json_writer.hpp"
@@ -124,7 +124,7 @@ class app {
 public:
   // -- member types -----------------------------------------------------------
 
-  // We expect a stream-oriented interface to the lower communication layers.
+  // Tells CAF we expect a transport with text and binary messages.
   using input_tag = caf::tag::mixed_message_oriented;
 
   // -- constants --------------------------------------------------------------
@@ -182,6 +182,15 @@ public:
   }
 
   template <class LowerLayerPtr>
+  static void send_error(LowerLayerPtr down, const caf::error& err) {
+    auto str = to_string(err);
+    down->begin_text_message();
+    auto& buf = down->text_message_buffer();
+    buf.insert(buf.end(), str.begin(), str.end());
+    down->end_text_message();
+  }
+
+  template <class LowerLayerPtr>
   ptrdiff_t consume_text(LowerLayerPtr down, caf::string_view text) {
     // The other functions in this class provide mostly boilerplate code. Here
     // comes our main logic. In this function, we receive a text data frame from
@@ -227,28 +236,25 @@ public:
           down->end_text_message();
         };
         auto on_error = [down](caf::error& err) {
+          send_error(down, err);
           down->abort_reason(std::move(err));
         };
         auto mtl = caf::make_mtl(self_.get(), adapter{}, &reader);
-        auto ok = mtl.try_request(worker_, std::chrono::seconds(1), on_result,
-                                  on_error);
-        if (ok) {
-          // Erase consumed data from the buffer and continue with the next
-          // iteration.
-          buf_.erase(buf_.begin(), i + 1);
-        } else {
+        if (!mtl.try_request(worker_, std::chrono::seconds(1), on_result,
+                             on_error)) {
           std::cerr << "*** [socket " << down->handle().id
                     << "] unable to deserialize a message from the received "
                        "JSON line\n";
-          down->abort_reason(caf::sec::runtime_error);
-          return -1;
+          auto reason = make_error(caf::sec::runtime_error,
+                                   "found no matching handler");
+          send_error(down, reason);
         }
       } else {
         std::cerr << "*** [socket " << down->handle().id
                   << "] unable to parse received JSON line\n";
-        down->abort_reason(std::move(reader.get_error()));
-        return -1;
+        send_error(down, reader.get_error());
       }
+      buf_.erase(buf_.begin(), i + 1);
     }
     return static_cast<ptrdiff_t>(text.size());
   }

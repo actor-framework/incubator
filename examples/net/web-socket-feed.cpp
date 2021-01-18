@@ -30,8 +30,8 @@
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
 #include "caf/byte_span.hpp"
+#include "caf/caf_main.hpp"
 #include "caf/event_based_actor.hpp"
-#include "caf/exec_main.hpp"
 #include "caf/ip_endpoint.hpp"
 #include "caf/net/actor_shell.hpp"
 #include "caf/net/middleman.hpp"
@@ -164,7 +164,7 @@ class app {
 public:
   // -- member types -----------------------------------------------------------
 
-  // We expect a stream-oriented interface to the lower communication layers.
+  // Tells CAF we expect a transport with text and binary messages.
   using input_tag = caf::tag::mixed_message_oriented;
 
   // -- constants --------------------------------------------------------------
