@@ -129,7 +129,7 @@ while [ $# -ne 0 ]; do
       CMakeGenerator="$optarg"
       ;;
     --build-type=*)
-      CMakeBuildType="$optarg"
+      append_cache_entry CMAKE_BUILD_TYPE STRING "$optarg"
       ;;
     --cxx-flags=*)
       append_cache_entry CMAKE_CXX_FLAGS STRING "$optarg"
@@ -141,7 +141,7 @@ while [ $# -ne 0 ]; do
       append_cache_entry CAF_INC_SANITIZERS STRING "$optarg"
       ;;
     --dev-mode)
-      CMakeBuildType='Debug'
+      append_cache_entry CMAKE_BUILD_TYPE STRING 'Debug'
       append_cache_entry CAF_INC_SANITIZERS STRING 'address,undefined'
       set_build_flag utility-targets ON
       set_build_flag export-compile-commands ON
