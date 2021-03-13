@@ -8,6 +8,7 @@
 #include <string>
 #include <type_traits>
 
+#include "caf/byte.hpp"
 #include "caf/default_enum_inspect.hpp"
 #include "caf/detail/net_export.hpp"
 #include "caf/fwd.hpp"
@@ -58,6 +59,10 @@ enum class message_type : uint8_t {
   ///
   /// ![](heartbeat.png)
   heartbeat = 6,
+
+  ping = 7,
+
+  pong = 8,
 };
 
 /// @relates message_type
@@ -69,6 +74,11 @@ CAF_NET_EXPORT bool from_string(string_view, message_type&);
 /// @relates message_type
 CAF_NET_EXPORT bool from_integer(std::underlying_type_t<message_type>,
                                  message_type&);
+
+/// @relates message_type
+constexpr auto to_byte(message_type x) noexcept {
+  return static_cast<byte>(static_cast<uint8_t>(x));
+}
 
 /// @relates message_type
 template <class Inspector>

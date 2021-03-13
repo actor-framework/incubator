@@ -60,6 +60,7 @@ caf_incubator_add_component(
     ip
     multiplexer
     net.actor_shell
+    net.basp.protocol
     net.length_prefix_framing
     net.typed_actor_shell
     net.web_socket.client
