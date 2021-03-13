@@ -22,9 +22,6 @@
 #include <cstdio>
 #include <iostream>
 
-#include <termios.h>
-#include <unistd.h>
-
 // -- custom actor and message types -------------------------------------------
 
 CAF_BEGIN_TYPE_ID_BLOCK(web_socket_client, caf::first_custom_type_id)
