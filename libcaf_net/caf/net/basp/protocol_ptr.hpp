@@ -14,7 +14,7 @@ namespace caf::net::basp {
 /// lower layer. Both pointers are then used to implement the interface required
 /// for a mixed-message-oriented layer when calling into its upper layer.
 template <class Layer, class LowerLayerPtr>
-class protocol_layer_ptr {
+class protocol_ptr {
 public:
   class access {
   public:
@@ -47,12 +47,11 @@ public:
     LowerLayerPtr llptr_;
   };
 
-  protocol_layer_ptr(Layer* layer, LowerLayerPtr down)
-    : access_(layer, down) {
+  protocol_ptr(Layer* layer, LowerLayerPtr down) : access_(layer, down) {
     // nop
   }
 
-  protocol_layer_ptr(const protocol_layer_ptr&) = default;
+  protocol_ptr(const protocol_ptr&) = default;
 
   explicit operator bool() const noexcept {
     return true;
@@ -71,10 +70,9 @@ private:
 };
 
 template <class Layer, class LowerLayerPtr>
-auto make_protocol_layer_ptr(Layer* this_layer, LowerLayerPtr down) {
-  using result_t = protocol_layer_ptr<Layer, LowerLayerPtr>;
+auto make_protocol_ptr(Layer* this_layer, LowerLayerPtr down) {
+  using result_t = protocol_ptr<Layer, LowerLayerPtr>;
   return result_t{this_layer, down};
 }
 
-} // namespace caf::net
-
+} // namespace caf::net::basp

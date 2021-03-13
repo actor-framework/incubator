@@ -6,6 +6,7 @@
 
 #include "caf/error.hpp"
 #include "caf/net/basp/message_type.hpp"
+#include "caf/net/basp/protocol_ptr.hpp"
 #include "caf/net/basp/tag.hpp"
 #include "caf/net/fwd.hpp"
 #include "caf/sec.hpp"
@@ -47,7 +48,7 @@ public:
     return upper_layer_;
   }
 
-  // -- interface for protocol_layer_ptr ---------------------------------------
+  // -- interface for protocol_ptr ---------------------------------------
 
   template <class LowerLayerPtr>
   static bool can_send_more(LowerLayerPtr down) noexcept {
@@ -108,7 +109,7 @@ public:
           else
             return -1;
         case message_type::ping:
-          if (handle_ping(msg.subspan(1)))
+          if (handle_ping(down, msg.subspan(1)))
             return static_cast<ptrdiff_t>(msg.size());
           else
             return -1;
@@ -131,7 +132,7 @@ private:
 
   template <class LowerLayerPtr>
   auto this_layer_ptr(LowerLayerPtr down) {
-    return make_protocol_layer_ptr(this, down);
+    return make_protocol_ptr(this, down);
   }
 
   template <class LowerLayerPtr, class F>
@@ -143,7 +144,7 @@ private:
 
   template <class LowerLayerPtr>
   bool handle_ping(LowerLayerPtr down, byte_span payload) {
-    return send_message(down, [this, payload](byte_buffer& buf) {
+    return send_message(down, [payload](byte_buffer& buf) {
       buf.push_back(to_byte(message_type::pong));
       buf.insert(buf.end(), payload.begin(), payload.end());
     });
