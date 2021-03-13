@@ -18,8 +18,8 @@
 // import asyncio
 // import websockets
 //
-// line1 = '{ values = [ { "@type" = "task::addition", x = 17, y = 8 } ] }\n'
-// line2 = '{ values = [ { "@type" = "task::subtraction", x = 17, y = 8 } ] }\n'
+// line1 = '{ "@type": "addition", "x": 17, "y": 8 }\n'
+// line2 = '{ "@type": "subtraction", "x": 17, "y": 8 }\n'
 //
 // async def hello():
 //     uri = "ws://localhost:8080"
@@ -39,63 +39,84 @@
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
 #include "caf/byte_span.hpp"
+#include "caf/caf_main.hpp"
 #include "caf/event_based_actor.hpp"
-#include "caf/exec_main.hpp"
 #include "caf/ip_endpoint.hpp"
+#include "caf/json_reader.hpp"
+#include "caf/json_writer.hpp"
+#include "caf/mtl.hpp"
 #include "caf/net/actor_shell.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/net/tcp_accept_socket.hpp"
-#include "caf/net/web_socket_server.hpp"
+#include "caf/net/web_socket/server.hpp"
 #include "caf/tag/mixed_message_oriented.hpp"
+#include "caf/typed_actor.hpp"
+#include "caf/typed_event_based_actor.hpp"
 
 #include <cstdint>
 
-// -- custom message types -----------------------------------------------------
+// -- custom actor and message types -------------------------------------------
 
-// Usually, we prefer atoms to prefix certain operations. However, using custom
-// message types provides a nicer interface for the text-based WebSocket
-// communication.
+// Internal interface to the worker.
+using calculator_actor
+  = caf::typed_actor<caf::result<int32_t>(caf::add_atom, int32_t, int32_t),
+                     caf::result<int32_t>(caf::sub_atom, int32_t, int32_t)>;
 
-namespace task {
+// Utility for assigning JSON "type names" to CAF atoms.
+template <class Atom>
+struct json_name;
 
-struct addition {
-  int32_t x;
-  int32_t y;
+template <>
+struct json_name<caf::add_atom> {
+  static constexpr caf::string_view value = "addition";
 };
 
-template <class Inspector>
-bool inspect(Inspector& f, addition& x) {
-  return f.object(x).fields(f.field("x", x.x), f.field("y", x.y));
-}
-
-struct subtraction {
-  int32_t x;
-  int32_t y;
+template <>
+struct json_name<caf::sub_atom> {
+  static constexpr caf::string_view value = "subtraction";
 };
 
-template <class Inspector>
-bool inspect(Inspector& f, subtraction& x) {
-  return f.object(x).fields(f.field("x", x.x), f.field("y", x.y));
-}
+// Internally, we use atom-prefixed message. Externally, we exchange JSON
+// objects over a WebSocket. This adapter translates between an external client
+// and a `calculator_actor`.
+struct adapter {
+  // The `calculator_actor` always receives three arguments: one atom (add_atom
+  // or sub_atom) and two integers (x and y). When reading from the inspector,
+  // we require an object with a matching type name that has two fields: x and
+  // y. When used with a `json_reader`, the format we accept from clients is:
+  // `{"@type": <addition-or-subtraction>, "x": <int32>, "y": <int32>}`.
+  template <class Inspector, class Atom>
+  bool read(Inspector& f, Atom, int32_t& x, int32_t& y) const {
+    auto type_annotation = json_name<Atom>::value;
+    return f.assert_next_object_name(type_annotation)
+           && f.virtual_object(type_annotation)
+                .fields(f.field("x", x), f.field("y", y));
+  }
 
-} // namespace task
-
-CAF_BEGIN_TYPE_ID_BLOCK(web_socket_calculator, caf::first_custom_type_id)
-
-  CAF_ADD_TYPE_ID(web_socket_calculator, (task::addition))
-  CAF_ADD_TYPE_ID(web_socket_calculator, (task::subtraction))
-
-CAF_END_TYPE_ID_BLOCK(web_socket_calculator)
+  // The `calculator_actor` always returns an integer result. We simply apply
+  // this to the inspector. For a `json_writer`, this simply converts the
+  // integer to a string.
+  template <class Inspector>
+  bool write(Inspector& f, int32_t result) const {
+    return f.apply(result);
+  }
+};
 
 // -- implementation of the calculator actor -----------------------------------
 
-caf::behavior calculator() {
-  return {
-    [](task::addition input) { return input.x + input.y; },
-    [](task::subtraction input) { return input.x - input.y; },
-  };
-}
+struct calculator_state {
+  static inline const char* name = "calculator";
+
+  calculator_actor::behavior_type make_behavior() {
+    return {
+      [](caf::add_atom, int32_t x, int32_t y) { return x + y; },
+      [](caf::sub_atom, int32_t x, int32_t y) { return x - y; },
+    };
+  }
+};
+
+using calculator_impl = calculator_actor::stateful_impl<calculator_state>;
 
 // -- implementation of the WebSocket application ------------------------------
 
@@ -103,7 +124,7 @@ class app {
 public:
   // -- member types -----------------------------------------------------------
 
-  // We expect a stream-oriented interface to the lower communication layers.
+  // Tells CAF we expect a transport with text and binary messages.
   using input_tag = caf::tag::mixed_message_oriented;
 
   // -- constants --------------------------------------------------------------
@@ -113,7 +134,7 @@ public:
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  explicit app(caf::actor worker) : worker_(std::move(worker)) {
+  explicit app(calculator_actor worker) : worker_(std::move(worker)) {
     // nop
   }
 
@@ -161,6 +182,15 @@ public:
   }
 
   template <class LowerLayerPtr>
+  static void send_error(LowerLayerPtr down, const caf::error& err) {
+    auto str = to_string(err);
+    down->begin_text_message();
+    auto& buf = down->text_message_buffer();
+    buf.insert(buf.end(), str.begin(), str.end());
+    down->end_text_message();
+  }
+
+  template <class LowerLayerPtr>
   ptrdiff_t consume_text(LowerLayerPtr down, caf::string_view text) {
     // The other functions in this class provide mostly boilerplate code. Here
     // comes our main logic. In this function, we receive a text data frame from
@@ -185,36 +215,45 @@ public:
       caf::string_view line{buf_.data(), static_cast<size_t>(num_bytes) - 1};
       std::cout << "*** [socket " << down->handle().id << "] INPUT: " << line
                 << "\n";
-      caf::config_value val;
-      if (auto parsed_val = caf::config_value::parse(line)) {
-        val = std::move(*parsed_val);
+      if (reader.load(line)) {
+        auto on_result = [this, down](auto&... xs) {
+          // Simply respond with the value as string, wrapped into a WebSocket
+          // text message frame.
+          writer.reset();
+          if (!adapter{}.write(writer, xs...)) {
+            std::cerr << "*** [socket " << down->handle().id
+                      << "] failed to generate JSON response: "
+                      << to_string(writer.get_error()) << "\n";
+            down->abort_reason(caf::sec::runtime_error);
+            return;
+          }
+          auto str_response = writer.str();
+          std::cout << "*** [socket " << down->handle().id
+                    << "] OUTPUT: " << str_response << "\n";
+          down->begin_text_message();
+          auto& buf = down->text_message_buffer();
+          buf.insert(buf.end(), str_response.begin(), str_response.end());
+          down->end_text_message();
+        };
+        auto on_error = [down](caf::error& err) {
+          send_error(down, err);
+          down->abort_reason(std::move(err));
+        };
+        auto mtl = caf::make_mtl(self_.get(), adapter{}, &reader);
+        if (!mtl.try_request(worker_, std::chrono::seconds(1), on_result,
+                             on_error)) {
+          std::cerr << "*** [socket " << down->handle().id
+                    << "] unable to deserialize a message from the received "
+                       "JSON line\n";
+          auto reason = make_error(caf::sec::runtime_error,
+                                   "found no matching handler");
+          send_error(down, reason);
+        }
       } else {
-        down->abort_reason(std::move(parsed_val.error()));
-        return -1;
+        std::cerr << "*** [socket " << down->handle().id
+                  << "] unable to parse received JSON line\n";
+        send_error(down, reader.get_error());
       }
-      caf::config_value_reader reader{&val};
-      caf::message msg;
-      if (!reader.apply(msg)) {
-        down->abort_reason(reader.get_error());
-        return -1;
-      }
-      // Dispatch message to worker.
-      self_->request(worker_, std::chrono::seconds{1}, std::move(msg))
-        .then(
-          [this, down](int32_t value) {
-            // Simply respond with the value as string, wrapped into a WebSocket
-            // text message frame.
-            auto str_response = std::to_string(value);
-            std::cout << "*** [socket " << down->handle().id
-                      << "] OUTPUT: " << str_response << "\n";
-            str_response += '\n';
-            down->begin_text_message();
-            auto& buf = down->text_message_buffer();
-            buf.insert(buf.end(), str_response.begin(), str_response.end());
-            down->end_text_message();
-          },
-          [down](caf::error& err) { down->abort_reason(std::move(err)); });
-      // Erase consumed data from the buffer.
       buf_.erase(buf_.begin(), i + 1);
     }
     return static_cast<ptrdiff_t>(text.size());
@@ -234,10 +273,16 @@ private:
   std::vector<char> buf_;
 
   // Stores a handle to our worker.
-  caf::actor worker_;
+  calculator_actor worker_;
 
   // Enables the application to send and receive actor messages.
   caf::net::actor_shell_ptr self_;
+
+  // Enables us to read JSON input from a WebSocket connection.
+  caf::json_reader reader;
+
+  // Enables us to write JSON output to the WebSocket connection.
+  caf::json_writer writer;
 };
 
 // -- main ---------------------------------------------------------------------
@@ -267,13 +312,13 @@ int caf_main(caf::actor_system& sys, const config& cfg) {
     return EXIT_FAILURE;
   }
   // Spawn our worker actor and initiate the protocol stack.
-  auto worker = sys.spawn(calculator);
+  auto worker = sys.spawn<calculator_impl>();
   auto add_conn = [worker](tcp_stream_socket sock, multiplexer* mpx) {
-    return make_socket_manager<app, web_socket_server, stream_transport>(
+    return make_socket_manager<app, web_socket::server, stream_transport>(
       sock, mpx, worker);
   };
   sys.network_manager().make_acceptor(sock, add_conn);
   return EXIT_SUCCESS;
 }
 
-CAF_MAIN(caf::id_block::web_socket_calculator, caf::net::middleman)
+CAF_MAIN(caf::net::middleman)

@@ -30,14 +30,14 @@
 #include "caf/actor_system.hpp"
 #include "caf/actor_system_config.hpp"
 #include "caf/byte_span.hpp"
+#include "caf/caf_main.hpp"
 #include "caf/event_based_actor.hpp"
-#include "caf/exec_main.hpp"
 #include "caf/ip_endpoint.hpp"
 #include "caf/net/actor_shell.hpp"
 #include "caf/net/middleman.hpp"
 #include "caf/net/socket_manager.hpp"
 #include "caf/net/tcp_accept_socket.hpp"
-#include "caf/net/web_socket_server.hpp"
+#include "caf/net/web_socket/server.hpp"
 #include "caf/stateful_actor.hpp"
 #include "caf/tag/mixed_message_oriented.hpp"
 #include "caf/typed_event_based_actor.hpp"
@@ -164,7 +164,7 @@ class app {
 public:
   // -- member types -----------------------------------------------------------
 
-  // We expect a stream-oriented interface to the lower communication layers.
+  // Tells CAF we expect a transport with text and binary messages.
   using input_tag = caf::tag::mixed_message_oriented;
 
   // -- constants --------------------------------------------------------------
@@ -289,7 +289,7 @@ int caf_main(caf::actor_system& sys, const config& cfg) {
   // Spawn our feed actor and initiate the protocol stack.
   stock::feed feed = sys.spawn(feed_impl);
   auto add_conn = [feed](tcp_stream_socket sock, multiplexer* mpx) {
-    return make_socket_manager<app, web_socket_server, stream_transport>(
+    return make_socket_manager<app, web_socket::server, stream_transport>(
       sock, mpx, feed);
   };
   sys.network_manager().make_acceptor(sock, add_conn);
