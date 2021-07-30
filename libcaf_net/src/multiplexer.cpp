@@ -362,6 +362,7 @@ void multiplexer::write_to_pipe(uint8_t opcode, const socket_manager_ptr& mgr) {
   CAF_ASSERT(opcode == pollset_updater::register_reading_code
              || opcode == pollset_updater::register_writing_code
              || opcode == pollset_updater::init_manager_code
+             || opcode == pollset_updater::discard_manager_code
              || opcode == pollset_updater::shutdown_code);
   CAF_ASSERT(mgr != nullptr || opcode == pollset_updater::shutdown_code);
   pollset_updater::msg_buf buf;
