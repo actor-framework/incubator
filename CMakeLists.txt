@@ -1,11 +1,10 @@
-cmake_minimum_required(VERSION 3.13.5...3.18 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5...3.18 FATAL_ERROR)
 project(CAF_INC CXX)
 
 # -- includes ------------------------------------------------------------------
 
 include(CMakePackageConfigHelpers)
 include(CheckCXXSourceCompiles)
-include(FetchContent)
 include(GNUInstallDirs)
 include(GenerateExportHeader)
 
@@ -46,6 +45,10 @@ endif()
 # -- get dependencies ----------------------------------------------------------
 
 if(CAF_INC_ENABLE_STANDALONE_BUILD)
+  if(CMAKE_VERSION VERSION_LESS "3.13.5")
+    message(FATAL_ERROR "standalone builds require CMake ≥ 3.13.5")
+  endif()
+  include(FetchContent)
   FetchContent_Declare(
     actor_framework
     GIT_REPOSITORY https://github.com/actor-framework/actor-framework.git
@@ -103,7 +106,7 @@ if(CAF_INC_ENABLE_UTILITY_TARGETS)
   add_executable(caf-generate-enum-strings
                  EXCLUDE_FROM_ALL
                  cmake/caf-generate-enum-strings.cpp)
-  set_property(TARGET caf-generate-enum-strings PROPERTY CXX_STANDARD 17)
+  target_link_libraries(caf-generate-enum-strings PRIVATE CAF::internal)
   add_custom_target(consistency-check)
   add_custom_target(update-enum-strings)
   # adds a consistency check that verifies that `cpp_file` is still valid by
@@ -257,7 +260,7 @@ function(caf_incubator_add_component name)
   endif()
   target_link_libraries(${pub_lib_target} ${CAF_INC_ADD_COMPONENT_DEPENDENCIES})
   foreach(target ${targets})
-    set_property(TARGET ${target} PROPERTY CXX_STANDARD 17)
+    target_link_libraries(${target} PRIVATE CAF::internal)
     target_compile_definitions(${target} PRIVATE "libcaf_${name}_EXPORTS")
     target_include_directories(${target} PRIVATE
                                "${CMAKE_CURRENT_SOURCE_DIR}"
