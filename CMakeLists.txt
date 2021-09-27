@@ -210,10 +210,12 @@ function(caf_incubator_add_component name)
   set(pub_lib_target "libcaf_${name}")
   set(obj_lib_target "libcaf_${name}_obj")
   set(tst_bin_target "caf-${name}-test")
+  set(targets)
   if(NOT CAF_INC_ADD_COMPONENT_SOURCES)
-    # header-only library
+    list(APPEND targets ${pub_lib_target})
     add_library(${pub_lib_target} INTERFACE)
-    if(CAF_INC_ENABLE_TESTING AND CAF_INC_ADD_COMPONENT_TEST_SOURCES)
+    if(CAF_INC_ENABLE_TESTING AND CAF_INC_ADD_COMPONENT_TEST_SUITES)
+      list(APPEND targets ${tst_bin_target})
       set(targets ${tst_bin_target})
       add_executable(${tst_bin_target}
                      ${CAF_INC_ADD_COMPONENT_TEST_SOURCES})
@@ -221,13 +223,11 @@ function(caf_incubator_add_component name)
                             ${CAF_INC_ADD_COMPONENT_DEPENDENCIES})
       target_include_directories(${tst_bin_target} PRIVATE
                                  "${CMAKE_CURRENT_SOURCE_DIR}/test")
-      if(CAF_INC_ADD_COMPONENT_TEST_SUITES)
-        caf_incubator_add_test_suites(${tst_bin_target}
-                                      ${CAF_INC_ADD_COMPONENT_TEST_SUITES})
-      endif()
+      caf_incubator_add_test_suites(${tst_bin_target}
+                                    ${CAF_INC_ADD_COMPONENT_TEST_SUITES})
     endif()
-  elseif(CAF_INC_ENABLE_TESTING AND CAF_INC_ADD_COMPONENT_TEST_SOURCES)
-    set(targets ${pub_lib_target} ${obj_lib_target} ${tst_bin_target})
+  else()
+    list(APPEND targets ${pub_lib_target} ${obj_lib_target})
     add_library(${obj_lib_target} OBJECT
                 ${CAF_INC_ADD_COMPONENT_HEADERS}
                 ${CAF_INC_ADD_COMPONENT_SOURCES})
@@ -237,23 +237,18 @@ function(caf_incubator_add_component name)
     add_library(${pub_lib_target}
                 "${PROJECT_SOURCE_DIR}/cmake/dummy.cpp"
                 $<TARGET_OBJECTS:${obj_lib_target}>)
-    add_executable(${tst_bin_target}
-                   ${CAF_INC_ADD_COMPONENT_TEST_SOURCES}
-                   $<TARGET_OBJECTS:${obj_lib_target}>)
-    target_link_libraries(${tst_bin_target} PRIVATE CAF::test
-                          ${CAF_INC_ADD_COMPONENT_DEPENDENCIES})
-    target_include_directories(${tst_bin_target} PRIVATE
-                               "${CMAKE_CURRENT_SOURCE_DIR}/test")
-    if(CAF_INC_ADD_COMPONENT_TEST_SUITES)
+    if(CAF_INC_ENABLE_TESTING AND CAF_INC_ADD_COMPONENT_TEST_SUITES)
+      list(APPEND targets ${tst_bin_target})
+      add_executable(${tst_bin_target}
+                     ${CAF_INC_ADD_COMPONENT_TEST_SOURCES}
+                     $<TARGET_OBJECTS:${obj_lib_target}>)
+      target_link_libraries(${tst_bin_target} PRIVATE CAF::test
+                            ${CAF_INC_ADD_COMPONENT_DEPENDENCIES})
+      target_include_directories(${tst_bin_target} PRIVATE
+                                 "${CMAKE_CURRENT_SOURCE_DIR}/test")
       caf_incubator_add_test_suites(${tst_bin_target}
                                     ${CAF_INC_ADD_COMPONENT_TEST_SUITES})
     endif()
-  else()
-    set(targets ${pub_lib_target})
-    add_library(${pub_lib_target}
-                ${CAF_INC_ADD_COMPONENT_HEADERS}
-                ${CAF_INC_ADD_COMPONENT_SOURCES})
-    set_property(TARGET ${pub_lib_target} PROPERTY POSITION_INDEPENDENT_CODE ON)
   endif()
   target_link_libraries(${pub_lib_target} ${CAF_INC_ADD_COMPONENT_DEPENDENCIES})
   foreach(target ${targets})
