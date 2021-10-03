@@ -1,11 +1,10 @@
-cmake_minimum_required(VERSION 3.13.5...3.18 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5...3.18 FATAL_ERROR)
 project(CAF_INC CXX)
 
 # -- includes ------------------------------------------------------------------
 
 include(CMakePackageConfigHelpers)
 include(CheckCXXSourceCompiles)
-include(FetchContent)
 include(GNUInstallDirs)
 include(GenerateExportHeader)
 
@@ -46,6 +45,12 @@ endif()
 # -- get dependencies ----------------------------------------------------------
 
 if(CAF_INC_ENABLE_STANDALONE_BUILD)
+  if(CMAKE_VERSION VERSION_LESS 3.13.5)
+    message(
+      FATAL_ERROR
+      "Standalone builds require CMake >= 3.13.5, found ${CMAKE_VERSION}.")
+  endif()
+  include(FetchContent)
   FetchContent_Declare(
     actor_framework
     GIT_REPOSITORY https://github.com/actor-framework/actor-framework.git
@@ -97,13 +102,51 @@ if(CAF_INC_ENABLE_TESTING)
   endfunction()
 endif()
 
+# -- make sure we have at least C++17 available --------------------------------
+
+# TODO: simply set CXX_STANDARD when switching to CMake ≥ 3.9.6
+function(caf_incubator_set_cxx17_flag)
+  if(NOT CMAKE_CROSSCOMPILING)
+    try_compile(caf_incubator_has_cxx_17
+                "${CMAKE_CURRENT_BINARY_DIR}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-compiler-features.cpp")
+    if(NOT caf_has_cxx_17)
+      if(MSVC)
+        set(cxx_flag "/std:c++17")
+      else()
+        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang"
+           AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5)
+          set(cxx_flag "-std=c++1z")
+        else()
+          set(cxx_flag "-std=c++17")
+        endif()
+      endif()
+      # Re-run compiler check.
+      try_compile(caf_incubator_has_cxx_17
+                  "${CMAKE_CURRENT_BINARY_DIR}"
+                  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check-compiler-features.cpp"
+                  COMPILE_DEFINITIONS "${cxx_flag}"
+                  OUTPUT_VARIABLE cxx_check_output)
+      if(NOT caf_incubator_has_cxx_17)
+        message(FATAL_ERROR "\nFatal error: unable activate C++17 mode!\
+                             \nPlease see README.md for supported compilers.\
+                             \n\ntry_compile output:\n${cxx_check_output}")
+      endif()
+      set(CAF_INC_CXX17_FLAG "${cxx_flag}" PARENT_SCOPE)
+    endif()
+  endif()
+endfunction()
+
+caf_incubator_set_cxx17_flag()
+
 # -- utility targets -----------------------------------------------------------
 
 if(CAF_INC_ENABLE_UTILITY_TARGETS)
   add_executable(caf-generate-enum-strings
                  EXCLUDE_FROM_ALL
                  cmake/caf-generate-enum-strings.cpp)
-  set_property(TARGET caf-generate-enum-strings PROPERTY CXX_STANDARD 17)
+  target_compile_options(caf-generate-enum-strings
+                         PRIVATE "${CAF_INC_CXX17_FLAG}")
   add_custom_target(consistency-check)
   add_custom_target(update-enum-strings)
   # adds a consistency check that verifies that `cpp_file` is still valid by
@@ -141,6 +184,34 @@ else()
 endif()
 
 # -- utility functions ---------------------------------------------------------
+
+# TODO: remove when switching to CMake > 3.12
+function(caf_incubator_target_link_libraries target)
+  if(CMAKE_VERSION VERSION_LESS 3.12)
+    get_target_property(target_type ${target} TYPE)
+    if (NOT target_type STREQUAL OBJECT_LIBRARY)
+      target_link_libraries(${target} ${ARGN})
+    else()
+      cmake_parse_arguments(CAF_TARGET_LINK_LIBRARIES "" ""
+                            "PUBLIC;PRIVATE;INTERFACE" ${ARGN})
+      # If we can't link against it, at least make sure to pull in include paths
+      # and compiler options.
+      foreach(arg IN LISTS CAF_TARGET_LINK_LIBRARIES_PUBLIC
+                           CAF_TARGET_LINK_LIBRARIES_PRIVATE)
+        if (TARGET ${arg})
+          target_include_directories(
+            ${target} PRIVATE
+            $<TARGET_PROPERTY:${arg},INTERFACE_INCLUDE_DIRECTORIES>)
+          target_compile_options(
+            ${target} PRIVATE
+            $<TARGET_PROPERTY:${arg},INTERFACE_COMPILE_OPTIONS>)
+        endif()
+      endforeach()
+    endif()
+  else()
+    target_link_libraries(${target} ${ARGN})
+  endif()
+endfunction()
 
 function(caf_incubator_export_and_install_lib component)
   add_library(CAF::${component} ALIAS libcaf_${component})
@@ -232,8 +303,8 @@ function(caf_incubator_add_component name)
                 ${CAF_INC_ADD_COMPONENT_HEADERS}
                 ${CAF_INC_ADD_COMPONENT_SOURCES})
     set_property(TARGET ${obj_lib_target} PROPERTY POSITION_INDEPENDENT_CODE ON)
-    target_link_libraries(${obj_lib_target}
-                          ${CAF_INC_ADD_COMPONENT_DEPENDENCIES})
+    caf_incubator_target_link_libraries(${obj_lib_target}
+                                        ${CAF_INC_ADD_COMPONENT_DEPENDENCIES})
     add_library(${pub_lib_target}
                 "${PROJECT_SOURCE_DIR}/cmake/dummy.cpp"
                 $<TARGET_OBJECTS:${obj_lib_target}>)
@@ -252,7 +323,8 @@ function(caf_incubator_add_component name)
   endif()
   target_link_libraries(${pub_lib_target} ${CAF_INC_ADD_COMPONENT_DEPENDENCIES})
   foreach(target ${targets})
-    set_property(TARGET ${target} PROPERTY CXX_STANDARD 17)
+    target_compile_options(${target} PRIVATE "${CAF_INC_CXX17_FLAG}")
+    # --> set_property(TARGET ${target} PROPERTY CXX_STANDARD 17)
     target_compile_definitions(${target} PRIVATE "libcaf_${name}_EXPORTS")
     target_include_directories(${target} PRIVATE
                                "${CMAKE_CURRENT_SOURCE_DIR}"
