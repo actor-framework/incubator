@@ -137,53 +137,23 @@ function(caf_incubator_set_cxx17_flag)
   endif()
 endfunction()
 
-caf_incubator_set_cxx17_flag()
-
-# -- utility targets -----------------------------------------------------------
-
-if(CAF_INC_ENABLE_UTILITY_TARGETS)
-  add_executable(caf-generate-enum-strings
-                 EXCLUDE_FROM_ALL
-                 cmake/caf-generate-enum-strings.cpp)
-  target_compile_options(caf-generate-enum-strings
-                         PRIVATE "${CAF_INC_CXX17_FLAG}")
-  add_custom_target(consistency-check)
-  add_custom_target(update-enum-strings)
-  # adds a consistency check that verifies that `cpp_file` is still valid by
-  # re-generating the file and comparing it to the existing file
-  function(caf_incubator_add_enum_consistency_check hpp_file cpp_file)
-    set(input "${CMAKE_CURRENT_SOURCE_DIR}/${hpp_file}")
-    set(file_under_test "${CMAKE_CURRENT_SOURCE_DIR}/${cpp_file}")
-    set(output "${CMAKE_CURRENT_BINARY_DIR}/check/${cpp_file}")
-    get_filename_component(output_dir "${output}" DIRECTORY)
-    file(MAKE_DIRECTORY "${output_dir}")
-    add_custom_command(OUTPUT "${output}"
-                       COMMAND caf-generate-enum-strings "${input}" "${output}"
-                       DEPENDS caf-generate-enum-strings "${input}")
-    get_filename_component(target_name "${input}" NAME_WE)
-    add_custom_target("${target_name}"
-                      COMMAND
-                        "${CMAKE_COMMAND}"
-                        "-Dfile_under_test=${file_under_test}"
-                        "-Dgenerated_file=${output}"
-                        -P "${PROJECT_SOURCE_DIR}/cmake/check-consistency.cmake"
-                      DEPENDS "${output}")
-    add_dependencies(consistency-check "${target_name}")
-    add_custom_target("${target_name}-update"
-                      COMMAND
-                        caf-generate-enum-strings
-                        "${input}"
-                        "${file_under_test}"
-                       DEPENDS caf-generate-enum-strings "${input}")
-    add_dependencies(update-enum-strings "${target_name}-update")
-  endfunction()
-else()
-  function(caf_incubator_add_enum_consistency_check hpp_file cpp_file)
-    # nop
-  endfunction()
-endif()
-
 # -- utility functions ---------------------------------------------------------
+
+# generates the implementation file for the enum that contains to_string,
+# from_string and from_integer
+function(caf_incubator_add_enum_type target enum_name)
+  string(REPLACE "." "/" path "${enum_name}")
+  set(hpp_file "${CMAKE_CURRENT_SOURCE_DIR}/caf/${path}.hpp")
+  set(cpp_file "${CMAKE_CURRENT_BINARY_DIR}/src/${path}_strings.cpp")
+  set(gen_file "${PROJECT_SOURCE_DIR}/cmake/caf-generate-enum-strings.cmake")
+  add_custom_command(OUTPUT "${cpp_file}"
+                     COMMAND ${CMAKE_COMMAND}
+                       "-DINPUT_FILE=${hpp_file}"
+                       "-DOUTPUT_FILE=${cpp_file}"
+                       -P "${gen_file}"
+                     DEPENDS "${hpp_file}" "${gen_file}")
+  target_sources(${target} PRIVATE "${cpp_file}")
+endfunction()
 
 # TODO: remove when switching to CMake > 3.12
 function(caf_incubator_target_link_libraries target)
@@ -267,8 +237,7 @@ endfunction()
 #     ...
 # )
 function(caf_incubator_add_component name)
-  set(varargs DEPENDENCIES HEADERS SOURCES TEST_SOURCES TEST_SUITES
-              ENUM_CONSISTENCY_CHECKS)
+  set(varargs DEPENDENCIES HEADERS SOURCES TEST_SOURCES TEST_SUITES ENUM_TYPES)
   cmake_parse_arguments(CAF_INC_ADD_COMPONENT "" "" "${varargs}" ${ARGN})
   if(NOT CAF_INC_ADD_COMPONENT_HEADERS)
     message(FATAL_ERROR "Cannot add CAF component without at least one header.")
@@ -279,7 +248,6 @@ function(caf_incubator_add_component name)
     endif()
   endforeach()
   set(pub_lib_target "libcaf_${name}")
-  set(obj_lib_target "libcaf_${name}_obj")
   set(tst_bin_target "caf-${name}-test")
   set(targets)
   if(NOT CAF_INC_ADD_COMPONENT_SOURCES)
@@ -298,6 +266,7 @@ function(caf_incubator_add_component name)
                                     ${CAF_INC_ADD_COMPONENT_TEST_SUITES})
     endif()
   else()
+    set(obj_lib_target "libcaf_${name}_obj")
     list(APPEND targets ${pub_lib_target} ${obj_lib_target})
     add_library(${obj_lib_target} OBJECT
                 ${CAF_INC_ADD_COMPONENT_HEADERS}
@@ -336,11 +305,13 @@ function(caf_incubator_add_component name)
     endif()
   endforeach()
   caf_incubator_export_and_install_lib(${name})
-  if(CAF_INC_ADD_COMPONENT_ENUM_CONSISTENCY_CHECKS)
-    foreach(enum_name ${CAF_INC_ADD_COMPONENT_ENUM_CONSISTENCY_CHECKS})
-      string(REPLACE "." "/" path "${enum_name}")
-      caf_incubator_add_enum_consistency_check("caf/${path}.hpp"
-                                               "src/${path}_strings.cpp")
+  if(CAF_INC_ADD_COMPONENT_ENUM_TYPES)
+    foreach(enum_name ${CAF_INC_ADD_COMPONENT_ENUM_TYPES})
+      if(obj_lib_target)
+        caf_incubator_add_enum_type(${obj_lib_target} ${enum_name})
+      else()
+        caf_incubator_add_enum_type(${pub_lib_target} ${enum_name})
+      endif()
     endforeach()
   endif()
 endfunction()

@@ -10,6 +10,10 @@
 #  error "No support for 'if constexpr' (__cpp_if_constexpr)"
 #endif
 
+#include <vector>
+
 int main(int, char**) {
+  std::vector xs{21};
+  xs.emplace_back(42);
   return 0;
 }
