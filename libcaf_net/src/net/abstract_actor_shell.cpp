@@ -48,7 +48,7 @@ mailbox_element_ptr abstract_actor_shell::next_message() {
 }
 
 bool abstract_actor_shell::try_block_mailbox() {
-  return mailbox_.try_block();
+  return mailbox_.blocked() || mailbox_.try_block();
 }
 
 // -- message processing -------------------------------------------------------
