@@ -314,8 +314,8 @@ int caf_main(caf::actor_system& sys, const config& cfg) {
   // Spawn our worker actor and initiate the protocol stack.
   auto worker = sys.spawn<calculator_impl>();
   auto add_conn = [worker](tcp_stream_socket sock, multiplexer* mpx) {
-    return make_socket_manager<app, web_socket::server, stream_transport>(
-      sock, mpx, worker);
+    using stack_t = stream_transport<web_socket::server<app>>;
+    return make_socket_manager<stack_t>(sock, mpx, worker);
   };
   sys.network_manager().make_acceptor(sock, add_conn);
   return EXIT_SUCCESS;
