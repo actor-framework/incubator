@@ -42,7 +42,7 @@ if(APPLE)
   set(CMAKE_MACOSX_RPATH ON CACHE INTERNAL "Use rpaths on macOS and iOS")
 endif()
 
-# -- get dependencies ----------------------------------------------------------
+# -- get mandatory dependencies ------------------------------------------------
 
 if(CAF_INC_ENABLE_STANDALONE_BUILD)
   if(CMAKE_VERSION VERSION_LESS 3.13.5)
@@ -69,6 +69,12 @@ else()
     find_package(CAF COMPONENTS core test REQUIRED)
     message(STATUS "Found CAF version ${CAF_VERSION}: ${CAF_DIR}")
   endif()
+endif()
+
+# -- get optional dependencies -------------------------------------------------
+
+if(NOT TARGET OpenSSL::SSL OR NOT TARGET OpenSSL::Crypto)
+  find_package(OpenSSL)
 endif()
 
 # -- set the library version for shared library targets ------------------------
@@ -99,6 +105,10 @@ if(CAF_INC_ENABLE_TESTING)
       add_test(NAME ${suiteName}
                COMMAND ${target} -r300 -n -v5 -s "^${suiteName}$")
     endforeach()
+  endfunction()
+else()
+  function(caf_incubator_add_test_suites)
+    # Do nothing.
   endfunction()
 endif()
 
