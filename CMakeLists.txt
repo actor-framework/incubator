@@ -54,7 +54,7 @@ if(CAF_INC_ENABLE_STANDALONE_BUILD)
   FetchContent_Declare(
     actor_framework
     GIT_REPOSITORY https://github.com/actor-framework/actor-framework.git
-    GIT_TAG        afa01fdbf
+    GIT_TAG        c851260
   )
   FetchContent_Populate(actor_framework)
   set(CAF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -73,8 +73,10 @@ endif()
 
 # -- get optional dependencies -------------------------------------------------
 
-if(NOT TARGET OpenSSL::SSL OR NOT TARGET OpenSSL::Crypto)
-  find_package(OpenSSL)
+if(CAF_INC_ENABLE_TESTING)
+  if(NOT TARGET OpenSSL::SSL OR NOT TARGET OpenSSL::Crypto)
+    find_package(OpenSSL)
+  endif()
 endif()
 
 # -- set the library version for shared library targets ------------------------
