@@ -160,11 +160,11 @@ CAF_TEST(the server responds with an HTTP response on success) {
   CAF_CHECK_EQUAL(transport.handle_input(),
                   static_cast<ptrdiff_t>(opening_handshake.size()));
   CAF_CHECK(ws->handshake_complete());
-  CAF_CHECK(transport.output_as_str(),
-            "HTTP/1.1 101 Switching Protocols\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n");
+  CAF_CHECK_EQUAL(transport.output_as_str(),
+                  "HTTP/1.1 101 Switching Protocols\r\n"
+                  "Upgrade: websocket\r\n"
+                  "Connection: Upgrade\r\n"
+                  "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n");
 }
 
 CAF_TEST(handshakes may arrive in chunks) {

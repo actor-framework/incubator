@@ -20,11 +20,11 @@ actor_proxy_impl::~actor_proxy_impl() {
   // nop
 }
 
-void actor_proxy_impl::enqueue(mailbox_element_ptr msg, execution_unit*) {
+bool actor_proxy_impl::enqueue(mailbox_element_ptr msg, execution_unit*) {
   CAF_PUSH_AID(0);
   CAF_ASSERT(msg != nullptr);
   CAF_LOG_SEND_EVENT(msg);
-  dst_->enqueue(std::move(msg), ctrl());
+  return dst_->enqueue(std::move(msg), ctrl());
 }
 
 void actor_proxy_impl::kill_proxy(execution_unit* ctx, error rsn) {
