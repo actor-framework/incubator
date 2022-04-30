@@ -114,8 +114,8 @@ std::pair<status, string_view> header::parse(string_view raw) {
             "Malformed Request-URI: expected an absolute path."};
   }
   // The path must form a valid URI when prefixing a scheme. We don't actually
-  // care about the scheme, so just use "foo" here for the validation step.
-  if (auto res = make_uri("nil://host" + to_string(request_uri_str))) {
+  // care about the scheme for the validation step.
+  if (auto res = make_uri("nil:" + to_string(request_uri_str))) {
     uri_ = std::move(*res);
   } else {
     CAF_LOG_DEBUG("Failed to parse URI" << request_uri_str << "->"
