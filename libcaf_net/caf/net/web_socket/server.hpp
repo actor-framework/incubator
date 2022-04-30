@@ -192,6 +192,18 @@ private:
       for (auto& [key, val] : hdr.fields())
         put(fields, to_string(key), to_string(val));
     }
+    // Provide some extra context from the socket if possible.
+    auto fd = down->handle();
+    if constexpr (std::is_constructible_v<network_socket, decltype(fd)>) {
+      if (auto port = local_port(fd))
+        put(ws, "local-port", *port);
+      if (auto addr = local_addr(fd))
+        put(ws, "local-address", *addr);
+      if (auto port = remote_port(fd))
+        put(ws, "remote-port", *port);
+      if (auto addr = remote_addr(fd))
+        put(ws, "remote-address", *addr);
+    }
     // Try to initialize the upper layer.
     if (auto err = upper_layer_.init(owner_, down, cfg_)) {
       auto descr = to_string(err);
