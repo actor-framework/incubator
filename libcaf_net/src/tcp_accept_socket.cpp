@@ -21,6 +21,20 @@ namespace caf::net {
 
 namespace {
 
+error set_reuse_addr(tcp_accept_socket fd) {
+  int on = 1;
+  CAF_NET_SYSCALL("setsockopt", tmp, !=, 0,
+                  setsockopt(fd.id, SOL_SOCKET, SO_REUSEADDR,
+                             reinterpret_cast<setsockopt_ptr>(&on),
+                             static_cast<socket_size_type>(sizeof(on))));
+  return none;
+}
+
+tcp_accept_socket_operator set_reuse_addr_fn(bool reuse_addr) {
+  return reuse_addr ? set_reuse_addr
+                    : +[](tcp_accept_socket) { return caf::error{}; };
+}
+
 error set_inaddr_any(socket, sockaddr_in& sa) {
   sa.sin_addr.s_addr = INADDR_ANY;
   return none;
@@ -38,9 +52,9 @@ error set_inaddr_any(socket x, sockaddr_in6& sa) {
 }
 
 template <int Family>
-expected<tcp_accept_socket> new_tcp_acceptor_impl(uint16_t port,
-                                                  const char* addr,
-                                                  bool reuse_addr, bool any) {
+expected<tcp_accept_socket>
+new_tcp_acceptor_impl(uint16_t port, const char* addr,
+                      tcp_accept_socket_operator fn, bool any) {
   static_assert(Family == AF_INET || Family == AF_INET6, "invalid family");
   CAF_LOG_TRACE(CAF_ARG(port) << ", addr = " << (addr ? addr : "nullptr"));
   int socktype = SOCK_STREAM;
@@ -53,13 +67,8 @@ expected<tcp_accept_socket> new_tcp_acceptor_impl(uint16_t port,
   auto sguard = make_socket_guard(tcp_accept_socket{fd});
   if (auto err = child_process_inherit(sock, false))
     return err;
-  if (reuse_addr) {
-    int on = 1;
-    CAF_NET_SYSCALL("setsockopt", tmp1, !=, 0,
-                    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
-                               reinterpret_cast<setsockopt_ptr>(&on),
-                               static_cast<socket_size_type>(sizeof(on))));
-  }
+  if (auto err = fn(sock))
+    return err;
   using sockaddr_type =
     typename std::conditional<Family == AF_INET, sockaddr_in,
                               sockaddr_in6>::type;
@@ -82,6 +91,11 @@ expected<tcp_accept_socket> new_tcp_acceptor_impl(uint16_t port,
 
 expected<tcp_accept_socket> make_tcp_accept_socket(ip_endpoint node,
                                                    bool reuse_addr) {
+  return make_tcp_accept_socket(node, set_reuse_addr_fn(reuse_addr));
+}
+
+expected<tcp_accept_socket>
+make_tcp_accept_socket(ip_endpoint node, tcp_accept_socket_operator fn) {
   CAF_LOG_TRACE(CAF_ARG(node));
   auto addr = to_string(node.address());
   bool is_v4 = node.address().embeds_v4();
@@ -89,7 +103,7 @@ expected<tcp_accept_socket> make_tcp_accept_socket(ip_endpoint node,
                        : node.address().zero();
   auto make_acceptor = is_v4 ? new_tcp_acceptor_impl<AF_INET>
                              : new_tcp_acceptor_impl<AF_INET6>;
-  if (auto p = make_acceptor(node.port(), addr.c_str(), reuse_addr, is_zero)) {
+  if (auto p = make_acceptor(node.port(), addr.c_str(), fn, is_zero)) {
     auto sock = socket_cast<tcp_accept_socket>(*p);
     auto sguard = make_socket_guard(sock);
     CAF_NET_SYSCALL("listen", tmp, !=, 0, listen(sock.id, SOMAXCONN));
@@ -105,16 +119,21 @@ expected<tcp_accept_socket> make_tcp_accept_socket(ip_endpoint node,
 
 expected<tcp_accept_socket>
 make_tcp_accept_socket(const uri::authority_type& node, bool reuse_addr) {
+  return make_tcp_accept_socket(node, set_reuse_addr_fn(reuse_addr));
+}
+
+expected<tcp_accept_socket>
+make_tcp_accept_socket(const uri::authority_type& node,
+                       tcp_accept_socket_operator fn) {
   if (auto ip = get_if<ip_address>(&node.host))
-    return make_tcp_accept_socket(ip_endpoint{*ip, node.port}, reuse_addr);
+    return make_tcp_accept_socket(ip_endpoint{*ip, node.port}, fn);
   auto host = get<std::string>(node.host);
   auto addrs = ip::local_addresses(host);
   if (addrs.empty())
     return make_error(sec::cannot_open_port, "no local interface available",
                       to_string(node));
   for (auto& addr : addrs) {
-    if (auto sock = make_tcp_accept_socket(ip_endpoint{addr, node.port},
-                                           reuse_addr))
+    if (auto sock = make_tcp_accept_socket(ip_endpoint{addr, node.port}, fn))
       return *sock;
   }
   return make_error(sec::cannot_open_port, "tcp socket creation failed",
