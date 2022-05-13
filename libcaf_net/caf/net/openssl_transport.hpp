@@ -66,7 +66,7 @@ inline ctx_ptr make_ctx(const SSL_METHOD* method) {
 }
 
 /// Fetches a string representation for the last OpenSSL errors.
-std::string fetch_error_str() {
+inline std::string fetch_error_str() {
   auto cb = [](const char* cstr, size_t len, void* vptr) -> int {
     auto& str = *reinterpret_cast<std::string*>(vptr);
     if (str.empty()) {
@@ -256,8 +256,8 @@ private:
 /// @pre `fd != invalid_socket`
 /// @pre `mpx != nullptr`
 template <class Socket, class OnSuccess, class OnError>
-void async_connect(Socket fd, multiplexer* mpx, policy pol,
-                   OnSuccess on_success, OnError on_error) {
+socket_manager_ptr async_connect(Socket fd, multiplexer* mpx, policy pol,
+                                 OnSuccess on_success, OnError on_error) {
   using res_t = decltype(on_success(fd, mpx, std::move(pol)));
   using err_t = decltype(on_error(error{}));
   static_assert(std::is_convertible_v<res_t, socket_manager_ptr>,
@@ -270,6 +270,7 @@ void async_connect(Socket fd, multiplexer* mpx, policy pol,
   auto mgr = make_counted<worker_t>(fd, mpx, std::move(pol),
                                     std::move(factory));
   mpx->init(mgr);
+  return mgr;
 }
 
 /// Asynchronously starts the TLS/SSL server handshake.
@@ -282,8 +283,8 @@ void async_connect(Socket fd, multiplexer* mpx, policy pol,
 /// @pre `fd != invalid_socket`
 /// @pre `mpx != nullptr`
 template <class Socket, class OnSuccess, class OnError>
-void async_accept(Socket fd, multiplexer* mpx, policy pol, OnSuccess on_success,
-                  OnError on_error) {
+socket_manager_ptr async_accept(Socket fd, multiplexer* mpx, policy pol,
+                                OnSuccess on_success, OnError on_error) {
   using res_t = decltype(on_success(fd, mpx, std::move(pol)));
   using err_t = decltype(on_error(error{}));
   static_assert(std::is_convertible_v<res_t, socket_manager_ptr>,
@@ -296,6 +297,7 @@ void async_accept(Socket fd, multiplexer* mpx, policy pol, OnSuccess on_success,
   auto mgr = make_counted<worker_t>(fd, mpx, std::move(pol),
                                     std::move(factory));
   mpx->init(mgr);
+  return mgr;
 }
 
 } // namespace caf::net::openssl
