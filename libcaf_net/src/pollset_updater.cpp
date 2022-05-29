@@ -20,11 +20,11 @@ namespace caf::net {
 
 pollset_updater::pollset_updater(pipe_socket read_handle, multiplexer* parent)
   : super(read_handle, parent) {
-  // nop
+  memset(buf_.data(), 0, buf_.size());
 }
 
 pollset_updater::~pollset_updater() {
-  // nop
+  memset(buf_.data(), 0, buf_.size());
 }
 
 // -- interface functions ------------------------------------------------------

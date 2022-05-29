@@ -83,7 +83,7 @@ private:
   char pad_[CAF_CACHE_LINE_SIZE - pointer_members_size];
 
   /// ID for local ordering.
-  uint64_t msg_id_;
+  uint64_t msg_id_ = 0;
 
   /// Identifies the node that sent us `hdr_` and `payload_`.
   node_id last_hop_;

@@ -82,6 +82,7 @@ bool abstract_actor_shell::consume_message() {
     }
     CAF_AFTER_PROCESSING(this, invoke_message_result::consumed);
     CAF_LOG_SKIP_OR_FINALIZE_EVENT(invoke_message_result::consumed);
+    current_element_ = nullptr;
     return true;
   }
   return false;

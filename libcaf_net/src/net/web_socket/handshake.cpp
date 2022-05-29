@@ -32,8 +32,7 @@ bool handshake::assign_key(string_view base64_key) {
   if (base64_key.size() == 24 && ends_with(base64_key, "==")) {
     std::vector<byte> buf;
     buf.reserve(18);
-    if (detail::base64::decode(base64_key, buf)) {
-      CAF_ASSERT(buf.size() == 16);
+    if (detail::base64::decode(base64_key, buf) && buf.size() == 16) {
       key_type bytes;
       std::copy(buf.begin(), buf.end(), bytes.begin());
       key(bytes);
