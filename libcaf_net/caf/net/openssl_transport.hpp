@@ -23,6 +23,7 @@
 #include "caf/tag/stream_oriented.hpp"
 
 CAF_PUSH_WARNINGS
+#include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 CAF_POP_WARNINGS
@@ -113,12 +114,15 @@ inline conn_ptr make_conn(const ctx_ptr& ctx) {
 
 /// Convenience function for creating a new SSL structure from given context and
 /// binding the given socket to it.
+/// @note the connection does *not* take ownership of the socket.
 inline conn_ptr make_conn(const ctx_ptr& ctx, stream_socket fd) {
-  auto ptr = make_conn(ctx);
-  if (SSL_set_fd(ptr.get(), fd.id))
+  if (auto bio_ptr = BIO_new_socket(fd.id, BIO_NOCLOSE)) {
+    auto ptr = make_conn(ctx);
+    SSL_set_bio(ptr.get(), bio_ptr, bio_ptr);
     return ptr;
-  else
-    CAF_RAISE_ERROR("SSL_set_fd failed");
+  } else {
+    CAF_RAISE_ERROR("BIO_new_socket failed");
+  }
 }
 
 /// Manages an OpenSSL connection.
