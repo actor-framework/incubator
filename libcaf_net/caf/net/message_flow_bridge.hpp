@@ -43,8 +43,8 @@ public:
 
   message_flow_bridge(consumer_resource_t in_res, producer_resource_t out_res,
                       Trait trait)
-    : in_res_(std::move(in_res)),
-      trait_(std::move(trait)),
+    : trait_(std::move(trait)),
+      in_res_(std::move(in_res)),
       out_res_(std::move(out_res)) {
     // nop
   }
