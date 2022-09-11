@@ -86,6 +86,7 @@ inline std::string fetch_error_str() {
 
 ///  Loads the certificate into the SSL context.
 inline error certificate_pem_file(const ctx_ptr& ctx, const std::string& path) {
+  ERR_clear_error();
   auto cstr = path.c_str();
   if (SSL_CTX_use_certificate_file(ctx.get(), cstr, SSL_FILETYPE_PEM) > 0) {
     return none;
@@ -96,6 +97,7 @@ inline error certificate_pem_file(const ctx_ptr& ctx, const std::string& path) {
 
 ///  Loads the private key into the SSL context.
 inline error private_key_pem_file(const ctx_ptr& ctx, const std::string& path) {
+  ERR_clear_error();
   auto cstr = path.c_str();
   if (SSL_CTX_use_PrivateKey_file(ctx.get(), cstr, SSL_FILETYPE_PEM) > 0) {
     return none;
@@ -167,6 +169,7 @@ public:
 
   ///  Loads the certificate into the SSL connection object.
   error certificate_pem_file(const std::string& path) {
+    ERR_clear_error();
     auto cstr = path.c_str();
     if (SSL_use_certificate_file(conn(), cstr, SSL_FILETYPE_PEM) > 0) {
       return none;
@@ -177,6 +180,7 @@ public:
 
   ///  Loads the private key into the SSL connection object.
   error private_key_pem_file(const std::string& path) {
+    ERR_clear_error();
     auto cstr = path.c_str();
     if (SSL_use_PrivateKey_file(conn(), cstr, SSL_FILETYPE_PEM) > 0) {
       return none;
@@ -194,21 +198,25 @@ public:
 
   /// Reads data from the SSL connection into the buffer.
   ptrdiff_t read(stream_socket, span<byte> buf) {
+    ERR_clear_error();
     return SSL_read(conn_.get(), buf.data(), static_cast<int>(buf.size()));
   }
 
   /// Writes data from the buffer to the SSL connection.
   ptrdiff_t write(stream_socket, span<const byte> buf) {
+    ERR_clear_error();
     return SSL_write(conn_.get(), buf.data(), static_cast<int>(buf.size()));
   }
 
   /// Performs a TLS/SSL handshake with the server.
   ptrdiff_t connect(stream_socket) {
+    ERR_clear_error();
     return SSL_connect(conn_.get());
   }
 
   /// Waits for the client to performs a TLS/SSL handshake.
   ptrdiff_t accept(stream_socket) {
+    ERR_clear_error();
     return SSL_accept(conn_.get());
   }
 
