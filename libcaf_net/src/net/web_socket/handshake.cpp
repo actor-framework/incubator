@@ -208,11 +208,11 @@ struct response_checker {
       auto [field, value] = split(line, ":");
       trim(field);
       trim(value);
-      if (field == "Upgrade")
+      if (icase_equal(field, "upgrade"))
         has_upgrade_field = lowercase_equal(value, "websocket");
-      else if (field == "Connection")
+      else if (icase_equal(field, "connection"))
         has_connection_field = lowercase_equal(value, "upgrade");
-      else if (field == "Sec-WebSocket-Accept")
+      else if (icase_equal(field, "sec-websocket-accept"))
         has_ws_accept_field = value == ws_key;
     }
   }
